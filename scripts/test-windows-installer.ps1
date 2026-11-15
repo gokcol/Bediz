@@ -33,13 +33,17 @@ try {
     $command = (Get-Item "$registry\shell\open\command").GetValue('')
     if ($command -ne "`"$install\MyImage.exe`" `"%1`"") { throw 'Incorrect file-open command quoting.' }
     if (-not (Test-Path $uninstallKey)) { throw 'Uninstall registration missing.' }
-    $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'MyImage.lnk'
+    if ((Get-Item $uninstallKey).GetValue('DisplayName') -ne 'SkyImage') { throw 'Windows app display name was not updated.' }
+    $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'SkyImage.lnk'
     if (-not (Test-Path $shortcut)) { throw 'Start menu shortcut missing.' }
     if ((Get-Item $run -ErrorAction SilentlyContinue) -and (Get-Item $run).GetValue('MyImage')) { throw 'Installer unexpectedly enabled login startup.' }
     # Unknown user files inside the installation directory must also survive.
     $localProject = Join-Path $install 'user-project.myimage'
     'keep local project' | Set-Content $localProject
+    $legacyShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'MyImage.lnk'
+    Copy-Item $shortcut $legacyShortcut
     Run-Checked $setup[0].FullName $args
+    if (Test-Path $legacyShortcut) { throw 'Update left a duplicate legacy shortcut.' }
     if (-not (Test-Path $localProject)) { throw 'Update removed a project.' }
     # Simulate the optional login setting; uninstall must remove only this copy.
     $null = New-Item -Path $run -Force

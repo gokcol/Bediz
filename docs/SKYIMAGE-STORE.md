@@ -16,4 +16,4 @@ Compatibility identities intentionally remain unchanged:
 
 `src/branding.rs` controls visible platform names. GitHub repository variable `MSIX_DISPLAY_NAME` is SkyImage. Package generation applies it to Properties, VisualElements and StartupTask display names. Keep runFullTrust as the only restricted capability; do not restore unvirtualizedResources.
 
-Windows still checks Microsoft Store; macOS still checks the existing GitHub repository. A source version bump does not publish a new Mac binary or replace the existing build 108 release.
+Windows still checks Microsoft Store; macOS still checks the existing GitHub repository. GitHub release v3.0.1-build109 also packages MyImage for macOS and SkyImage for Windows. The Windows installer keeps its upgrade AppId and installation folder, and replaces its old MyImage shortcuts with SkyImage shortcuts.

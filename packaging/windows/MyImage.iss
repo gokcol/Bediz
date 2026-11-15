@@ -11,16 +11,16 @@
 
 [Setup]
 AppId={{B9CF57F1-A083-4B7D-BE98-B1F0C466EBB4}
-AppName=MyImage
+AppName=SkyImage
 AppVersion={#AppVersion}
-AppVerName=MyImage {#AppVersion} (build {#BuildNumber})
+AppVerName=SkyImage {#AppVersion} (build {#BuildNumber})
 AppPublisher=Orhan Gökçöl
 AppPublisherURL=https://github.com/gokcol/MyImage
 AppSupportURL=https://github.com/gokcol/MyImage/issues
 AppUpdatesURL=https://github.com/gokcol/MyImage/releases
 VersionInfoVersion={#AppVersion}.{#BuildNumber}
-VersionInfoProductName=MyImage
-VersionInfoDescription=MyImage installer
+VersionInfoProductName=SkyImage
+VersionInfoDescription=SkyImage installer
 DefaultDirName={localappdata}\Programs\MyImage
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -29,7 +29,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19041
 SetupIconFile={#Source}\MyImage.ico
 UninstallDisplayIcon={app}\MyImage.ico
-UninstallDisplayName=MyImage
+UninstallDisplayName=SkyImage
 LicenseFile={#Source}\LICENSE.txt
 InfoBeforeFile={#Source}\READ-ME-WINDOWS.txt
 ChangesAssociations=yes
@@ -44,8 +44,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [CustomMessages]
-english.OpenWith=Add MyImage to the Open with menu for projects and images
-turkish.OpenWith=MyImage'i proje ve görsellerin Birlikte aç menüsüne ekle
+english.OpenWith=Add SkyImage to the Open with menu for projects and images
+turkish.OpenWith=SkyImage’i proje ve görsellerin Birlikte aç menüsüne ekle
 
 [Tasks]
 Name: "openwith"; Description: "{cm:OpenWith}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -59,13 +59,18 @@ Source: "{#Source}\Twemoji-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\Twemoji-ATTRIBUTION.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\READ-ME-WINDOWS.txt"; DestDir: "{app}"; Flags: ignoreversion
 
+; Replace the old installer-owned shortcuts while retaining the upgrade AppId.
+[InstallDelete]
+Type: files; Name: "{userprograms}\MyImage.lnk"
+Type: files; Name: "{userdesktop}\MyImage.lnk"
+
 [Icons]
-Name: "{userprograms}\MyImage"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"
-Name: "{userdesktop}\MyImage"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"; Tasks: desktopicon
+Name: "{userprograms}\SkyImage"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"
+Name: "{userdesktop}\SkyImage"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"; Tasks: desktopicon
 
 [Registry]
 ; Open with only: never take over a user's default image viewer.
-Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document"; ValueType: string; ValueName: ""; ValueData: "MyImage image or project"; Flags: uninsdeletekey; Tasks: openwith
+Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document"; ValueType: string; ValueName: ""; ValueData: "SkyImage image or MyImage project"; Flags: uninsdeletekey; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\MyImage.ico"; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\MyImage.exe"" ""%1"""; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\.myimage\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
@@ -79,7 +84,7 @@ Root: HKCU; Subkey: "Software\Classes\.tif\OpenWithProgids"; ValueType: string; 
 Root: HKCU; Subkey: "Software\Classes\.tiff\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
 
 [Run]
-Filename: "{app}\MyImage.exe"; Description: "{cm:LaunchProgram,MyImage}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\MyImage.exe"; Description: "{cm:LaunchProgram,SkyImage}"; Flags: nowait postinstall skipifsilent
 
 ; No UninstallDelete entries: projects, captures, settings, recovery and unknown
 ; files are deliberately preserved. Login startup stays off by default.
