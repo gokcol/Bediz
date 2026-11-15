@@ -1,6 +1,6 @@
 # SkyImage Windows Store update
 
-SkyImage is the Windows display name from version 3.0.1 (build 109), Store package 3.0.1.0. The Store description and About identify MyImage as the previous name. macOS retains MyImage.
+SkyImage is the Windows display name from version 3.0.1 (build 109), Store package 3.0.1.0. The Store description and About identify MyImage as the previous name. macOS also uses SkyImage from build 110.
 
 SkyImage was reserved for the existing Partner Center product on 2026-11-15. Keep the MyImage (OG) reservation. The current Store package 3.0.0.0 is approved; certification for this update is separate.
 
@@ -30,3 +30,12 @@ Windows still checks Microsoft Store; macOS still checks the existing GitHub rep
 - Installed and launched `/Applications/MyImage.app`, version 3.0.1 build 109; What's New confirms the installed build. Existing data and permission records retained; previous app rollback archived.
 - Partner Center submission 3, ID `1152921505702410521`, is **in certification**, with automatic publishing after approval. Store listing uses SkyImage; description, short description, release notes and reviewer notes mention the rename. MyImage remains a reserved name and a listing keyword. Store approval is pending.
 - Windows interactive capture/device validation remains pending.
+
+## Mac rename — build 110
+
+- Source/tag `ae0d4700ecd573e3dd0f46683f1e6a5ac93498b3`, `v3.0.1-build110`.
+- Installed as `/Applications/SkyImage.app`, replacing verified MyImage.app; rollback archived. Signature requirement and bundle identifier match build 109. No data or permission records modified.
+- Native top menu and About verified: SkyImage, Previously MyImage, version 3.0.1 build 110.
+- [Native CI](https://github.com/gokcol/MyImage/actions/runs/43753097970): formatting, Clippy, 678 app tests and 17 packaging tests passed. Installation tests cover name migration and failure rollback.
+- Apple app notarization `1ce7121e-def3-4237-81c4-ecc56dd48aeb`: Accepted. DMG notarization `7f8adcbb-4ca7-44cb-baf0-0456d02523bd`: Accepted. Stapling, Gatekeeper, DMG checksum and mounted SkyImage.app verified.
+- [Mac release](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build110) published separately; Windows build 109 and its Store submission remain the Windows release.

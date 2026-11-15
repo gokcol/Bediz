@@ -1,8 +1,8 @@
-# MyImage
+# SkyImage (previously MyImage)
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download MyImage / SkyImage 3.0.1 · build 109](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build109) — signed, notarized macOS Apple Silicon DMG/ZIP, plus an unsigned Windows x64 Setup installer and portable ZIP. Windows interactive validation remains pending.
+[Download SkyImage for Mac · build 110](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build110) — signed, notarized macOS Apple Silicon DMG/ZIP. [Windows build 109 downloads](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build109) include the unsigned SkyImage Setup installer and portable ZIP. Windows interactive validation remains pending.
 
 [Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). Store package **3.0.0.0** is approved. **SkyImage 3.0.1 (build 109)** was submitted as package **3.0.1.0** on 15 November 2026 and is in certification. It uses the same product and package identity; MyImage remains its previous name. The live Store name changes after Microsoft approves and publishes the update.
 
@@ -11,6 +11,10 @@ MyImage opens in **Home**, with **Editor**, **Library**, and **Create** beside i
 MyImage automatically creates and saves **`.myimage` projects**, keeping each original image and its editable changes together in one portable file. **Library and Recents show projects only**. Switching images or quitting flushes pending edits; opening a project keeps its place until you change it. Existing capture/project pairs are matched by their original pixels, and verified old captures in MyImage’s dated storage are moved to Trash. External imported originals stay untouched. Deleting a project also trashes any remaining managed legacy image associated with it. **Save As…** saves an editable `.myimage` project or a flattened JPG, PNG, GIF, HEIF, TIFF, WebP or PDF copy with visible annotations included. Image edits are stored as reversible settings in the project.
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
+
+## SkyImage 3.0.1 · build 110 (Mac)
+
+The Mac app is now **SkyImage.app**, including its Dock, native menu, About and capture windows. About says **Previously MyImage**. Its bundle identifier, signing identity, project format, settings and GitHub update channel are preserved. The local installer migrates a verified MyImage.app installation to SkyImage.app with rollback protection. Download filenames retain MyImage for compatibility with older update clients.
 
 ## MyImage / SkyImage 3.0.1 · build 109
 
