@@ -1,0 +1,13 @@
+SkyImage (previously MyImage) 3.0.1 — build 109
+Microsoft Store package: 3.0.1.0
+
+- One toolbar replaces the two top rows, giving the canvas more height. In the editor, the file name and saved state are in the status bar.
+- Graphite Night is a new dark finish in Settings, alongside the three light ones.
+- Graphite Night fixes: the Shapes and Stamps pickers, callout and magnify shapes and the in-place text bar now use dark backgrounds.
+- Drop an image or project on the window to open it. An empty editor offers Open, Capture and Paste.
+- Capture Now is redesigned and about a third smaller, with four themes in Settings: Midnight, Ember, Aurora and Porcelain. The Capture view and the capture overlay follow the chosen theme.
+- Help for Capture Now controls appears in the panel header instead of popups. Segmented controls step with the arrow keys.
+- MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.
+- Store-installed copies check Microsoft Store for updates available to this installation. Open the Store to update.
+
+Support: orhan.gokcol@hotmail.com

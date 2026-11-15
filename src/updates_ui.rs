@@ -77,7 +77,7 @@ impl MyImageApp {
         {
             egui::TopBottomPanel::bottom("update-notice").show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.label("A MyImage update is available.");
+                    ui.label(format!("A {} update is available.", crate::branding::NAME));
                     if ui.button("View update").clicked() {
                         self.finish_edit();
                         self.updates.open = true;
@@ -135,7 +135,7 @@ impl MyImageApp {
                             ui.add_space(6.);
                             ui.vertical(|ui| {
                                 ui.label(RichText::new("What's New").size(28.).strong().color(palette.ink));
-                                ui.label(RichText::new("The latest improvements in MyImage").size(12.).color(palette.muted));
+                                ui.label(RichText::new(format!("The latest improvements in {}", crate::branding::NAME)).size(12.).color(palette.muted));
                             });
                         });
                         ui.add_space(8.);

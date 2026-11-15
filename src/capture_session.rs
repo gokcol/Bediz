@@ -419,7 +419,11 @@ impl MyImageApp {
                     };
                 let (position, size) = overlay_geometry(&screen.display, divisor);
                 let builder = egui::ViewportBuilder::default()
-                    .with_title(format!("MyImage Capture — {}", screen.display.name))
+                    .with_title(format!(
+                        "{} Capture — {}",
+                        crate::branding::NAME,
+                        screen.display.name
+                    ))
                     .with_position(position)
                     .with_inner_size(size)
                     .with_min_inner_size(Vec2::ZERO)

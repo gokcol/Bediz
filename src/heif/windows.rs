@@ -18,7 +18,7 @@ use windows::{
 
 const JOB_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
-const CODEC_HELP: &str = "Windows could not use its HEIF/HEVC codec. Install or update Microsoft's HEIF Image Extensions and, where required, HEVC Video Extensions, restart MyImage, or choose PNG/JPEG instead.";
+const CODEC_HELP: &str = "Windows could not use its HEIF/HEVC codec. Install or update Microsoft's HEIF Image Extensions and, where required, HEVC Video Extensions, restart SkyImage, or choose PNG/JPEG instead.";
 
 // WinRT operation types come from windows-future through generated APIs, so a
 // macro retains their concrete type without adding another direct dependency.

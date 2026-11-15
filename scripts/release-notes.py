@@ -8,7 +8,8 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("channel", choices=("github", "store"))
 args = parser.parse_args()
 notes = json.loads((Path(__file__).resolve().parent.parent / "release-notes.json").read_text())
-print(f"MyImage {notes['version']} — build {notes['build']}")
+name = "SkyImage (previously MyImage)" if args.channel == "store" else "MyImage"
+print(f"{name} {notes['version']} — build {notes['build']}")
 if args.channel == "store":
     print(f"Microsoft Store package: {notes['store_version']}")
 print()

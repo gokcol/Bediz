@@ -85,7 +85,7 @@ fn query(parent: Option<isize>) -> Result<Outcome, String> {
                 // Store's Package is the installed package, not a promised target version.
                 id: format!("store:{}", super::release_id()),
                 title: "An update is available in Microsoft Store".into(),
-                notes: "Open MyImage in Microsoft Store to see the latest details and update. Your installed version's changes are listed below.".into(),
+                notes: "Open SkyImage in Microsoft Store to see the latest details and update. Your installed version's changes are listed below.".into(),
                 url: STORE_URL.into(),
             });
         }

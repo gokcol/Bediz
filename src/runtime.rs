@@ -19,7 +19,7 @@ pub fn run(background: bool) -> eframe::Result {
     let options = NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
-            .with_title("MyImage")
+            .with_title(crate::branding::NAME)
             .with_icon(
                 eframe::icon_data::from_png_bytes(include_bytes!(
                     "../assets/branding/myimage-app-icon-256.png"

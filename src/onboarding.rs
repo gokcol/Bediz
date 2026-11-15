@@ -10,7 +10,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, calico: &egui::TextureHandle) 
         return false;
     }
     let mut dismissed = false;
-    Dialog::new("Welcome to MyImage", "Your compact capture and annotation studio.", Icon::Capture, 510.)
+    Dialog::new(&format!("Welcome to {}", crate::branding::NAME), "Your compact capture and annotation studio.", Icon::Capture, 510.)
         .modal(ctx, egui::Id::new("quick_start"), |ui| {
             ui.spacing_mut().item_spacing.y = 7.;
             ui.horizontal(|ui| {

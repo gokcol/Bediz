@@ -10,6 +10,7 @@ mod app;
 mod appearance;
 mod area_pixels;
 mod arrow_style;
+mod branding;
 mod calico_play;
 mod callout_style;
 mod canvas;

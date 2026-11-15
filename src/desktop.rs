@@ -208,7 +208,12 @@ impl DesktopIntegration {
         let library = MenuItem::with_id(LIBRARY_ID, "Image library", true, None);
         let show = MenuItem::with_id(SHOW_ID, "Open Editor", true, None);
         let separator = PredefinedMenuItem::separator();
-        let quit = MenuItem::with_id(QUIT_ID, "Quit MyImage", true, None);
+        let quit = MenuItem::with_id(
+            QUIT_ID,
+            format!("Quit {}", crate::branding::NAME),
+            true,
+            None,
+        );
         menu.append_items(&[
             &panel,
             &capture,
@@ -228,7 +233,7 @@ impl DesktopIntegration {
             .with_tooltip(if cfg!(target_os = "macos") {
                 "MyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+. / Cmd+Shift+."
             } else {
-                "MyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+."
+                "SkyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+."
             })
             .with_icon(camera_icon()?)
             .with_icon_as_template(cfg!(target_os = "macos"))

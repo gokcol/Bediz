@@ -142,7 +142,7 @@ impl MyImageApp {
             && !self.editor.has_modal();
         let enabled = enabled && !self.screen_text.open;
         let builder = egui::ViewportBuilder::default()
-            .with_title("MyImage Capture Now")
+            .with_title(format!("{} Capture Now", crate::branding::NAME))
             .with_inner_size(SIZE)
             .with_position(launcher.position)
             .with_resizable(false)

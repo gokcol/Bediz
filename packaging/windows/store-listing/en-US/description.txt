@@ -1,10 +1,13 @@
-MyImage (OG) 2.0 is a native screen-capture and image-annotation studio. Capture, explain, polish and share your work from one compact workspace.
+SkyImage (previously MyImage) is a native screen-capture and image-annotation studio. Capture, explain, polish and share your work from one compact workspace. This is the same app with a new Windows name: your existing projects, settings and Store updates continue as before.
 
 ONE IMAGE, ONE EDITABLE PROJECT
-Captures, imported images, pasted images and new canvases are saved automatically as .myimage projects. Each portable project contains its original image and editable changes. Recents and Library show projects, so you do not have to manage a capture and an edited file separately. Open a project to continue editing; export a flattened copy when you are ready to share. External imported originals stay untouched.
+Captures, imported images, pasted images and new canvases are saved automatically as .myimage projects. Each portable project contains its original image and editable changes. Recents and Library show projects, so you do not have to manage a capture and an edited file separately. Open a project to continue editing; use Save As to save an editable project or a flattened copy when you are ready to share. External imported originals stay untouched.
 
 CAPTURE YOUR WAY
-Use the Pearl Compact Capture Now panel with its large red Capture button. Capture a region, several separate regions with transparent gaps, a window or a full display. Guided vertical scrolling capture helps collect longer content. Send the capture to the editor or directly to the clipboard. Choose a delay, include the pointer, and optionally capture as soon as you finish selecting.
+Use the compact Capture Now panel with Midnight, Ember, Aurora or Porcelain themes. Capture a region, several separate regions with transparent gaps, a window or a full display. Any display mode lets you select on either connected screen without choosing a monitor beforehand. Guided vertical scrolling capture helps collect longer content, including continuous multi-page PDFs: scroll manually with overlap between views. Send the capture to the editor or directly to the clipboard. Choose a delay, include the pointer, and optionally capture as soon as you finish selecting.
+
+EXTRACT TEXT LOCALLY
+Recognize text from the whole visible image or a selected region. Review and edit the result, then choose Copy text. For a quicker workflow, Capture Now’s Text mode recognizes a screen region and copies its text directly without opening the editor or creating a project. Recognition uses the operating system’s on-device services, supports cancellation and has a time limit. Available recognition languages depend on Windows language support.
 
 EDIT DIRECTLY ON THE CANVAS
 Type in place in text boxes and callouts. Add arrows, shapes, stamps, numbered steps and freehand strokes. Move, resize, recolor and arrange objects, manage layers, and reuse presets. Compact on-canvas controls put essential colors, stroke weights, line patterns and arrow endpoints within reach; the right panel holds advanced properties. Undo and redo keep experimentation simple. Crop, resize, rotate and extend the canvas while retaining the original pixels in your project.
@@ -13,9 +16,9 @@ DRAW ATTENTION TO THE DETAILS
 Use adjustable Magnify lenses and linked source areas. Blur or pixelate selected content, highlight important areas, or use Fill to recolor or clear connected backgrounds. Quick Effects include borders, shadows, edge styles, reflection, perspective, color adjustments and fade.
 
 MAKE THE WORKSPACE YOURS
-Choose Cobalt Satin, Amber Enamel or Jade Graphite, with independent icon and pointer styles. Use Standard pointers or subtle Calico pointers. Resize the properties panel, customize your toolbar and keep Recents close at hand. Background capture and optional start at login are available; start at login is off by default.
+Choose Cobalt Satin, Amber Enamel, Jade Graphite or the dark Graphite Night finish, with independent icon and pointer styles. Use Standard pointers or subtle Calico pointers. Resize the properties panel, customize your toolbar and keep Recents close at hand. Background capture and optional start at login are available; start at login is off by default.
 
 LOCAL AND READY TO SHARE
-Images are processed on your computer. No MyImage account, subscription or AI service is required. Export flattened PNG, JPEG, WebP, TIFF or PDF copies, or copy an image to paste into another app. The optional SVG stamp designer lets you copy a prompt and paste SVG from an AI service of your choice.
+Images are processed on your computer. No account, subscription or AI service is required. Export flattened PNG, JPEG, WebP, TIFF or PDF copies, or copy an image to paste into another app. The optional SVG stamp designer lets you copy a prompt and paste SVG from an AI service of your choice.
 
 Animated images open as a still frame. Scrolling capture is guided and vertical. Video recording is not included.

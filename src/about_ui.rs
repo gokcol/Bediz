@@ -75,7 +75,9 @@ impl MyImageApp {
                             ui.add_space(12.);
                             ui.add(egui::Image::new(&self.app_icon).fit_to_exact_size(Vec2::splat(80.)));
                             ui.add_space(12.);
-                            ui.label(RichText::new("MyImage").size(32.).strong().color(palette.ink));
+                            ui.label(RichText::new(crate::branding::NAME).size(32.).strong().color(palette.ink));
+                            #[cfg(target_os = "windows")]
+                            ui.label(RichText::new("Previously MyImage").size(12.).color(palette.muted));
                             ui.label(RichText::new("Screen capture & image editor").size(15.).color(palette.muted));
                             ui.add_space(10.);
                             let notes = crate::updates::notes();
@@ -102,7 +104,7 @@ impl MyImageApp {
                         ui.add_space(18.);
                         ui.separator();
                         ui.add_space(12.);
-                        ui.label(RichText::new("MyImage makes everyday screen capture and visual communication easier. Capture, annotate and keep your work editable — your images and projects stay on your device.").size(12.).color(palette.muted));
+                        ui.label(RichText::new(format!("{} makes everyday screen capture and visual communication easier. Capture, annotate and keep your work editable — your images and projects stay on your device.", crate::branding::NAME)).size(12.).color(palette.muted));
                         ui.add_space(8.);
                     });
                 ui.add_space(10.);

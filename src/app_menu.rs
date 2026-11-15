@@ -111,7 +111,7 @@ impl MyImageApp {
         ui.painter().text(
             header.min + Vec2::new(69., 10.),
             Align2::LEFT_TOP,
-            "MyImage",
+            crate::branding::NAME,
             FontId::proportional(21.),
             Color32::WHITE,
         );
@@ -159,7 +159,7 @@ impl MyImageApp {
                     ui.close();
                 }
                 self.recovery_menu(ui);
-                if row(ui, "About MyImage", Icon::Info, can_open, "›").clicked() {
+                if row(ui, &format!("About {}", crate::branding::NAME), Icon::Info, can_open, "›").clicked() {
                     self.about_open = true;
                     ui.close();
                 }
@@ -202,13 +202,13 @@ impl MyImageApp {
                 ui.horizontal(|ui| {
                     let width = (ui.available_width() - 5.) / 2.;
                     ui.allocate_ui_with_layout(Vec2::new(width, 33.), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        if row(ui, "Background", Icon::Tray, self.desktop.is_some(), "").on_hover_text("Keep running in the menu bar / tray. Reopen MyImage from its Dock icon or Open Editor in the tray menu.").clicked() {
+                        if row(ui, "Background", Icon::Tray, self.desktop.is_some(), "").on_hover_text("Keep running in the menu bar / tray. Reopen the editor from its app icon or Open Editor in the tray menu.").clicked() {
                             self.hide(ctx);
                             ui.close();
                         }
                     });
                     ui.allocate_ui_with_layout(Vec2::new(width, 33.), egui::Layout::top_down(egui::Align::Min), |ui| {
-                        if row(ui, "Quit MyImage", Icon::Power, true, "").clicked() {
+                        if row(ui, &format!("Quit {}", crate::branding::NAME), Icon::Power, true, "").clicked() {
                             self.request_quit(ctx);
                             ui.close();
                         }

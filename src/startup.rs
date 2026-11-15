@@ -64,11 +64,11 @@ impl Preference {
         let mut enabled = state.is_some_and(Status::selected);
         if ui
             .add_enabled_ui(state.is_some_and(Status::editable), |ui| {
-                crate::appearance::checkbox(ui, &mut enabled, "Start MyImage at login")
+                crate::appearance::checkbox(ui, &mut enabled, format!("Start {} at login", crate::branding::NAME))
             })
             .inner
             .on_hover_text(
-                "Open MyImage automatically when you sign in after restarting your computer. Off by default.",
+                "Open the app automatically when you sign in after restarting your computer. Off by default.",
             )
             .changed()
         {
@@ -78,7 +78,10 @@ impl Preference {
         let state = self.status.as_ref().and_then(|s| s.as_ref().ok()).copied();
         match state {
             Some(Status::ApprovalRequired) => {
-                ui.small("Allow MyImage in your system’s login/startup settings.");
+                ui.small(format!(
+                    "Allow {} in your system’s login/startup settings.",
+                    crate::branding::NAME
+                ));
             }
             #[cfg(target_os = "windows")]
             Some(Status::ManagedOn | Status::ManagedOff) => {

@@ -6,7 +6,7 @@ param(
     [string]$IdentityName,
     [string]$Publisher,
     [string]$PublisherDisplayName,
-    [string]$DisplayName = 'MyImage',
+    [string]$DisplayName = 'SkyImage',
     [string]$PackageVersion,
     [string]$OutputDirectory = 'dist/msix',
     [switch]$SkipBuild

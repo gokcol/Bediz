@@ -337,7 +337,7 @@ impl MyImageApp {
         let subtitle = if matches!(&dialog, FileDialog::ImportNotes(_)) {
             "Your original .snagx file is unchanged."
         } else {
-            "Your MyImage library."
+            "Your project library."
         };
         let shown=Dialog::new(&title, subtitle, icon, 470.).modal(ctx,egui::Id::new("library-file-dialog"),|ui| {
             match &mut dialog {

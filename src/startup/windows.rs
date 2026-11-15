@@ -109,14 +109,14 @@ pub fn set_enabled(enabled: bool) -> Result<(), String> {
                 .map_err(|e| e.to_string())?;
             match task_status(state)? {
                 Status::On | Status::ManagedOn => Ok(()),
-                _ => Err("Enable MyImage in Windows Settings → Apps → Startup.".into()),
+                _ => Err("Enable SkyImage in Windows Settings → Apps → Startup.".into()),
             }
         } else {
             task.Disable().map_err(|e| e.to_string())
         }
     } else if enabled {
         if status()? == Status::ApprovalRequired {
-            return Err("Enable MyImage in Windows Settings → Apps → Startup.".into());
+            return Err("Enable SkyImage in Windows Settings → Apps → Startup.".into());
         }
         use std::os::windows::ffi::OsStrExt;
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;

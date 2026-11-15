@@ -1,7 +1,7 @@
 {
-  "version": "3.0.0",
-  "build": 108,
-  "store_version": "3.0.0.0",
+  "version": "3.0.1",
+  "build": 109,
+  "store_version": "3.0.1.0",
   "changes": [
     "One toolbar replaces the two top rows, giving the canvas more height. In the editor, the file name and saved state are in the status bar.",
     "Graphite Night is a new dark finish in Settings, alongside the three light ones.",
@@ -15,6 +15,7 @@
     "Check GitHub for a newer Mac version and build, then open the matching Mac download."
   ],
   "windows": [
+    "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",
     "Store-installed copies check Microsoft Store for updates available to this installation. Open the Store to update."
   ]
 }

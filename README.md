@@ -4,7 +4,7 @@ A native Rust screen-capture application for **macOS 14 or later and Windows**, 
 
 [Download MyImage v3.0 · build 108](https://github.com/gokcol/MyImage/releases/tag/v3.0.0-build108) — signed, notarized macOS Apple Silicon DMG/ZIP, plus an unsigned Windows x64 Setup installer and portable ZIP. Windows interactive validation remains pending.
 
-[Get MyImage (OG) from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). Microsoft approved Store package **2.2.4.0** (MyImage **2.2.1 build 100**); newer Store updates are submitted separately. The GitHub release does not indicate Store approval for v3.0; package 3.0.0.0 is being prepared as a separate Store update.
+[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). Store package **3.0.0.0** is approved. The next Windows update, **SkyImage 3.0.1 (build 109)**, uses the same product and package identity; MyImage remains its previous name. Microsoft certification for package **3.0.1.0** is separate from GitHub releases.
 
 MyImage opens in **Home**, with **Editor**, **Library**, and **Create** beside it in the compact top toolbar. **View only** remains available from the bottom **App** menu. The native editor has a drawing toolbar, a large canvas, and an annotation inspector. Add editable text, arrows, 17 shape types, stamps, numbered steps, callouts, highlights, and freehand pen strokes; select, move, resize, recolor, reorder, or delete them. Add adjustable blur and pixelate regions to obscure selected areas, or use Fill to recolor or clear connected backgrounds. Crop, resize, and rotate the image without changing its original pixels. Undo and redo cover both image edits and annotations during the current session.
 

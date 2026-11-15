@@ -2050,7 +2050,7 @@ impl MyImageApp {
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "Drop to open in MyImage",
+                format!("Drop to open in {}", crate::branding::NAME),
                 egui::FontId::proportional(24.),
                 Color32::WHITE,
             );
@@ -2068,7 +2068,7 @@ impl MyImageApp {
         if supported {
             self.open_path(ctx, path, true);
         } else {
-            self.status = "MyImage can’t open that kind of file.".into();
+            self.status = format!("{} can’t open that kind of file.", crate::branding::NAME);
         }
     }
 
@@ -2507,7 +2507,13 @@ impl eframe::App for MyImageApp {
             .show(ctx, |ui| {
                 appearance::top_shade(ui);
                 if let Some(error) = &self.error {
-                    dialogs::notice(ui, DialogIcon::Info, "MyImage needs attention", error, true);
+                    dialogs::notice(
+                        ui,
+                        DialogIcon::Info,
+                        &format!("{} needs attention", crate::branding::NAME),
+                        error,
+                        true,
+                    );
                     if dialogs::secondary(ui, "Dismiss message", DialogIcon::Close).clicked() {
                         self.error = None;
                     }
