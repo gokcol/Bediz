@@ -185,7 +185,7 @@ impl EditorState {
             }
             5 => {
                 let mut enabled = effects.styles.reflection_height > 0;
-                if ui.checkbox(&mut enabled, "Reflection").changed() {
+                if crate::appearance::checkbox(ui, &mut enabled, "Reflection").changed() {
                     effects.styles.reflection_height = if enabled { 40 } else { 0 };
                     if enabled && effects.styles.reflection_opacity == 0 {
                         effects.styles.reflection_opacity = 100;
@@ -224,7 +224,7 @@ impl EditorState {
             }
             7 => {
                 let mut enabled = effects.styles.fade_depth > 0;
-                if ui.checkbox(&mut enabled, "Fade to transparency").changed() {
+                if crate::appearance::checkbox(ui, &mut enabled, "Fade to transparency").changed() {
                     effects.styles.fade_depth = if enabled { 80 } else { 0 };
                     if enabled && !effects.styles.fade_sides.iter().any(|s| *s) {
                         effects.styles.fade_sides[2] = true;
@@ -323,7 +323,7 @@ impl EditorState {
             }
             0 => {
                 let mut enabled = effects.shadow_opacity > 0;
-                if ui.checkbox(&mut enabled, "Frame shadow").changed() {
+                if crate::appearance::checkbox(ui, &mut enabled, "Frame shadow").changed() {
                     effects.shadow_opacity = if enabled { 80 } else { 0 };
                 }
                 ui.add_enabled_ui(enabled, |ui| {
@@ -360,7 +360,7 @@ impl EditorState {
             }
             1 => {
                 let mut enabled = effects.border_width > 0;
-                if ui.checkbox(&mut enabled, "Image border").changed() {
+                if crate::appearance::checkbox(ui, &mut enabled, "Image border").changed() {
                     effects.border_width = if enabled { 3 } else { 0 };
                 }
                 ui.add_enabled_ui(enabled, |ui| {
@@ -405,7 +405,7 @@ impl EditorState {
                 });
             }
             _ => {
-                ui.checkbox(&mut effects.grayscale, "Grayscale");
+                crate::appearance::checkbox(ui, &mut effects.grayscale, "Grayscale");
                 ui.small("Brightness");
                 appearance::value_slider(
                     ui,

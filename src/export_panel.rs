@@ -271,12 +271,12 @@ impl SaveAsPanel {
     }
 
     fn transparency(&mut self, ui: &mut egui::Ui, partial_alpha_matte: bool) {
-        if ui
-            .checkbox(
-                &mut self.options.preserve_transparency,
-                "Preserve transparency",
-            )
-            .changed()
+        if crate::appearance::checkbox(
+            ui,
+            &mut self.options.preserve_transparency,
+            "Preserve transparency",
+        )
+        .changed()
         {
             self.error = None;
         }

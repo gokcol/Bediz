@@ -52,7 +52,7 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
-        ui.checkbox(&mut self.snapping, "Snap to guides")
+        crate::appearance::checkbox(ui, &mut self.snapping, "Snap to guides")
             .on_hover_text("Snap while moving to image and annotation edges or centers. Hold Alt/Option to bypass.");
         let units = layout_units(document, &self.selected_indices(document));
         if units.len() < 2 || !self.can_edit_selection(document) {

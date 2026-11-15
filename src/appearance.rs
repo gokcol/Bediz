@@ -138,6 +138,28 @@ pub fn satin_with_palette(
         );
     }
     let radius = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
+    gradient(painter, rect, radius, top, bottom);
+    painter.rect_stroke(
+        rect,
+        radius as u8,
+        Stroke::new(1., if selected { p.accent } else { p.border }),
+        egui::StrokeKind::Inside,
+    );
+    painter.line_segment(
+        [
+            rect.left_top() + Vec2::new(radius, 1.),
+            rect.right_top() + Vec2::new(-radius, 1.),
+        ],
+        Stroke::new(
+            1.,
+            Color32::from_white_alpha(if selected { 50 } else { 180 }),
+        ),
+    );
+}
+
+/// Paint a vertical gradient inside a rounded rectangle: no shadow, no outline.
+pub fn gradient(painter: &egui::Painter, rect: Rect, radius: f32, top: Color32, bottom: Color32) {
+    let radius = radius.min(rect.width() * 0.5).min(rect.height() * 0.5);
     let mut mesh = egui::Mesh::default();
     mesh.colored_vertex(rect.center(), top.lerp_to_gamma(bottom, 0.5));
     for (center, start) in [
@@ -169,22 +191,30 @@ pub fn satin_with_palette(
     }
     mesh.add_triangle(0, 28, 1);
     painter.add(mesh);
-    painter.rect_stroke(
-        rect,
-        radius as u8,
-        Stroke::new(1., if selected { p.accent } else { p.border }),
-        egui::StrokeKind::Inside,
-    );
-    painter.line_segment(
-        [
-            rect.left_top() + Vec2::new(radius, 1.),
-            rect.right_top() + Vec2::new(-radius, 1.),
-        ],
-        Stroke::new(
-            1.,
-            Color32::from_white_alpha(if selected { 50 } else { 180 }),
-        ),
-    );
+}
+
+/// The workspace sits a step below the white bars and cards so they read as raised.
+pub fn workspace_fill(ctx: &egui::Context) -> Color32 {
+    let p = palette(ctx);
+    p.paper.lerp_to_gamma(p.base, 0.55)
+}
+
+/// A soft shadow cast by the toolbar onto the workspace; paint only, no layout.
+pub fn top_shade(ui: &egui::Ui) {
+    let clip = ui.clip_rect();
+    let rect = Rect::from_min_size(clip.left_top(), Vec2::new(clip.width(), 7.));
+    let mut mesh = egui::Mesh::default();
+    for (pos, alpha) in [
+        (rect.left_top(), 16),
+        (rect.right_top(), 16),
+        (rect.right_bottom(), 0),
+        (rect.left_bottom(), 0),
+    ] {
+        mesh.colored_vertex(pos, Color32::from_black_alpha(alpha));
+    }
+    mesh.add_triangle(0, 1, 2);
+    mesh.add_triangle(0, 2, 3);
+    ui.painter().add(mesh);
 }
 
 pub fn calico_tabs(p: &egui::Painter, at: Pos2) {
@@ -236,7 +266,8 @@ pub fn apply(ctx: &egui::Context) {
     style.visuals.override_text_color = Some(palette(ctx).ink);
     style.visuals.panel_fill = palette(ctx).paper;
     style.visuals.window_fill = Color32::WHITE;
-    style.visuals.window_corner_radius = egui::CornerRadius::same(8);
+    style.visuals.window_corner_radius = egui::CornerRadius::same(10);
+    style.visuals.menu_corner_radius = egui::CornerRadius::same(9);
     style.visuals.window_shadow = egui::Shadow {
         offset: [0, 12],
         blur: 30,
@@ -1132,6 +1163,265 @@ pub fn start_chip(
 pub fn primary<'a>(ctx: &egui::Context, label: &'a str) -> egui::Button<'a> {
     egui::Button::new(egui::RichText::new(label).color(Color32::WHITE).strong())
         .fill(palette(ctx).accent)
+}
+
+/// A compact on/off switch; the label is part of the target.
+pub fn toggle(ui: &mut egui::Ui, value: &mut bool, label: &str) -> egui::Response {
+    let p = palette(ui.ctx());
+    let text = ui
+        .painter()
+        .layout_no_wrap(label.into(), egui::FontId::proportional(13.), p.ink);
+    let (rect, mut response) =
+        ui.allocate_exact_size(Vec2::new(38. + text.size().x, 24.), egui::Sense::click());
+    if response.clicked() {
+        *value = !*value;
+        response.mark_changed();
+    }
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *value, label)
+    });
+    if ui.is_rect_visible(rect) {
+        let t = ui
+            .ctx()
+            .animate_bool_with_time(response.id.with("on"), *value, 0.12);
+        let track = Rect::from_min_size(
+            egui::pos2(rect.left(), rect.center().y - 8.),
+            Vec2::new(28., 16.),
+        );
+        let off = p.border.lerp_to_gamma(p.muted, 0.35);
+        gradient(
+            ui.painter(),
+            track,
+            8.,
+            off.lerp_to_gamma(p.accent_top, t),
+            off.lerp_to_gamma(p.accent, t),
+        );
+        let knob = egui::pos2(
+            egui::lerp(track.left() + 8.0..=track.right() - 8., t),
+            track.center().y,
+        );
+        ui.painter()
+            .circle_filled(knob + Vec2::new(0., 1.), 6.5, Color32::from_black_alpha(36));
+        ui.painter().circle_filled(knob, 6., Color32::WHITE);
+        ui.painter().galley(
+            egui::pos2(track.right() + 10., rect.center().y - text.size().y * 0.5),
+            text,
+            p.ink,
+        );
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect.expand(2.),
+                6,
+                Stroke::new(1.5, p.accent),
+                egui::StrokeKind::Inside,
+            );
+        }
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+/// Mutually exclusive choices on one recessed track with a sliding accent pill.
+pub fn segmented<T: PartialEq + Copy>(
+    ui: &mut egui::Ui,
+    name: &str,
+    value: &mut T,
+    items: &[(T, &str, Option<Icon>, &str)],
+) -> bool {
+    let p = palette(ui.ctx());
+    let font = egui::FontId::proportional(12.5);
+    let widths: Vec<f32> = items
+        .iter()
+        .map(|(_, label, icon, _)| {
+            let text = ui
+                .painter()
+                .layout_no_wrap((*label).into(), font.clone(), p.ink);
+            (text.size().x + if icon.is_some() { 44. } else { 24. }).max(42.)
+        })
+        .collect();
+    let (track, _) = ui.allocate_exact_size(
+        Vec2::new(widths.iter().sum::<f32>() + 4., 28.),
+        egui::Sense::hover(),
+    );
+    ui.painter().rect(
+        track,
+        8,
+        p.base,
+        Stroke::new(1., p.border),
+        egui::StrokeKind::Inside,
+    );
+    let mut cells = Vec::with_capacity(items.len());
+    let mut x = track.left() + 2.;
+    for width in &widths {
+        cells.push(Rect::from_min_size(
+            egui::pos2(x, track.top() + 2.),
+            Vec2::new(*width, 24.),
+        ));
+        x += width;
+    }
+    if let Some(selected) = items.iter().position(|item| item.0 == *value) {
+        let id = ui.id().with(name);
+        let left = ui.ctx().animate_value_with_time(
+            id.with("x"),
+            cells[selected].left() - track.left(),
+            0.12,
+        );
+        let width = ui
+            .ctx()
+            .animate_value_with_time(id.with("w"), cells[selected].width(), 0.12);
+        satin(
+            ui.painter(),
+            Rect::from_min_size(
+                egui::pos2(track.left() + left, cells[selected].top()),
+                Vec2::new(width, 24.),
+            ),
+            6.,
+            true,
+            false,
+        );
+    }
+    let mut changed = false;
+    for ((choice, label, icon, hint), rect) in items.iter().zip(cells) {
+        let selected = *choice == *value;
+        let response = ui.interact(rect, ui.id().with((name, *label)), egui::Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::SelectableLabel,
+                ui.is_enabled(),
+                selected,
+                *label,
+            )
+        });
+        let color = if selected {
+            Color32::WHITE
+        } else if response.hovered() {
+            p.ink
+        } else {
+            p.muted.lerp_to_gamma(p.ink, 0.35)
+        };
+        if !selected && response.hovered() {
+            ui.painter().rect_filled(rect.shrink(1.), 6, p.cream);
+        }
+        let text = ui
+            .painter()
+            .layout_no_wrap((*label).into(), font.clone(), color);
+        let gap = if icon.is_some() { 20. } else { 0. };
+        let left = rect.center().x - (text.size().x + gap) * 0.5;
+        if let Some(kind) = icon {
+            self::icon(
+                ui.painter(),
+                egui::pos2(left + 7., rect.center().y),
+                *kind,
+                color,
+                14.,
+            );
+        }
+        ui.painter().galley(
+            egui::pos2(left + gap, rect.center().y - text.size().y * 0.5),
+            text,
+            color,
+        );
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect,
+                6,
+                Stroke::new(1.5, p.accent),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let response = if hint.is_empty() {
+            response
+        } else {
+            response.on_hover_text(*hint)
+        };
+        if response.clicked() && !selected {
+            *value = *choice;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// egui's checkbox behavior with a squared box that fills with the accent when on.
+pub fn checkbox(
+    ui: &mut egui::Ui,
+    value: &mut bool,
+    text: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    ui.scope(|ui| {
+        let p = palette(ui.ctx());
+        let widgets = &mut ui.visuals_mut().widgets;
+        for state in [
+            &mut widgets.inactive,
+            &mut widgets.hovered,
+            &mut widgets.active,
+        ] {
+            state.corner_radius = egui::CornerRadius::same(4);
+            if *value {
+                state.bg_fill = p.accent;
+                state.bg_stroke.color = p.accent;
+                state.fg_stroke.color = Color32::WHITE;
+            }
+        }
+        ui.checkbox(value, text)
+    })
+    .inner
+}
+
+/// The single most important action on a surface: a vivid capture-red satin button.
+pub fn capture_button(ui: &mut egui::Ui, label: &str, size: Vec2) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
+    });
+    if ui.is_rect_visible(rect) {
+        let p = palette(ui.ctx());
+        let pressed = response.is_pointer_button_down_on();
+        let hover =
+            ui.ctx()
+                .animate_bool_with_time(response.id.with("hover"), response.hovered(), 0.12);
+        satin_with_palette(
+            ui.painter(),
+            rect,
+            9.,
+            true,
+            pressed,
+            Palette {
+                accent: Color32::from_rgb(208, 36, 42),
+                accent_top: Color32::from_rgb(250, 96, 76)
+                    .lerp_to_gamma(Color32::from_rgb(255, 128, 104), hover),
+                ..p
+            },
+        );
+        let text = ui.painter().layout_no_wrap(
+            label.into(),
+            egui::FontId::proportional(14.5),
+            Color32::WHITE,
+        );
+        let left = rect.center().x - (text.size().x + 26.) * 0.5;
+        let nudge = if pressed { 1. } else { 0. };
+        icon(
+            ui.painter(),
+            egui::pos2(left + 9., rect.center().y + nudge),
+            Icon::Capture,
+            Color32::WHITE,
+            18.,
+        );
+        ui.painter().galley(
+            egui::pos2(left + 26., rect.center().y - text.size().y * 0.5 + nudge),
+            text,
+            Color32::WHITE,
+        );
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect.expand(2.),
+                11,
+                Stroke::new(1.5, p.ginger),
+                egui::StrokeKind::Outside,
+            );
+        }
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 /// A compact toolbar action with an accessible name and a hover label.

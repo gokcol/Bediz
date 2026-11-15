@@ -2,23 +2,19 @@
 use super::*;
 use crate::capture::{CaptureDestination, CaptureMode};
 
-const SIZE: Vec2 = Vec2::new(560., 292.);
+const W: f32 = 468.;
+const SIZE: Vec2 = Vec2::new(W, 248.);
 const NOTCH: f32 = 8.;
+const FIELD_X: f32 = 72.;
+const FIELD_W: f32 = 250.;
 
-/// Pearl Compact is intentionally dark, independent of the editor's GUI finish.
-fn pearl_palette() -> appearance::Palette {
-    appearance::Palette {
-        ink: Color32::from_rgb(238, 241, 247),
-        muted: Color32::from_rgb(184, 194, 211),
-        accent: Color32::from_rgb(82, 92, 219),
-        navy: Color32::from_rgb(41, 47, 58),
-        paper: Color32::from_rgb(48, 54, 65),
-        ginger: Color32::from_rgb(192, 197, 255),
-        cream: Color32::from_rgb(55, 59, 92),
-        border: Color32::from_rgb(77, 86, 101),
-        base: Color32::from_rgb(62, 70, 84),
-        accent_top: Color32::from_rgb(122, 130, 239),
-    }
+/// The active Capture Now theme, shared by every control painted in the panel.
+fn look(ctx: &egui::Context) -> crate::capture_panel::CaptureLook {
+    ctx.data(|data| {
+        data.get_temp::<crate::capture_panel::CaptureTheme>(egui::Id::new("capture-theme"))
+    })
+    .unwrap_or_default()
+    .look()
 }
 fn viewport_id() -> egui::ViewportId {
     egui::ViewportId::from_hash_of("resident-capture-panel")
@@ -219,7 +215,8 @@ enum Action {
 }
 
 fn switch(ui: &mut egui::Ui, rect: Rect, value: &mut bool, label: &str, help: &str) -> bool {
-    let mut response = ui.interact(rect, ui.id().with(label), egui::Sense::click());
+    let id = ui.id().with(label);
+    let mut response = ui.interact(rect, id, egui::Sense::click());
     if response.clicked() {
         *value = !*value;
         response.mark_changed();
@@ -227,48 +224,46 @@ fn switch(ui: &mut egui::Ui, rect: Rect, value: &mut bool, label: &str, help: &s
     response.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::Checkbox, ui.is_enabled(), *value, label)
     });
-    let track = Rect::from_center_size(
-        rect.right_center() - Vec2::new(16., 0.),
-        Vec2::new(32., 18.),
+    let p = look(ui.ctx()).palette;
+    let t = ui.ctx().animate_bool_with_time(id.with("on"), *value, 0.12);
+    let track = Rect::from_min_size(
+        egui::pos2(rect.left(), rect.center().y - 8.),
+        Vec2::new(28., 16.),
     );
-    let palette = pearl_palette();
-    ui.painter().rect_filled(
+    let off = look(ui.ctx()).off;
+    appearance::gradient(
+        ui.painter(),
         track,
-        10,
-        if *value {
-            pearl_palette().accent
-        } else {
-            Color32::from_rgb(91, 104, 123)
-        },
+        8.,
+        off.lerp_to_gamma(p.accent_top, t),
+        off.lerp_to_gamma(p.accent, t),
     );
     let center = egui::pos2(
-        if *value {
-            track.right() - 9.
-        } else {
-            track.left() + 9.
-        },
+        egui::lerp(track.left() + 8.0..=track.right() - 8., t),
         track.center().y,
     );
     ui.painter().circle_filled(
         center + Vec2::new(0., 1.),
-        7.5,
-        Color32::from_black_alpha(22),
+        6.5,
+        Color32::from_black_alpha(50),
     );
-    ui.painter().circle_filled(center, 7., Color32::WHITE);
-    ui.painter()
-        .circle_stroke(center, 7., Stroke::new(0.5, palette.paper));
+    ui.painter().circle_filled(center, 6., Color32::WHITE);
     ui.painter().text(
-        rect.left_center(),
+        egui::pos2(track.right() + 8., rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         egui::FontId::proportional(12.),
-        pearl_palette().ink,
+        if *value || response.hovered() {
+            p.ink
+        } else {
+            p.muted
+        },
     );
     if response.has_focus() {
         ui.painter().rect_stroke(
-            rect,
-            4,
-            Stroke::new(1., pearl_palette().accent),
+            rect.expand2(Vec2::new(3., 0.)),
+            6,
+            Stroke::new(1.5, p.ginger),
             egui::StrokeKind::Inside,
         );
     }
@@ -278,61 +273,97 @@ fn switch(ui: &mut egui::Ui, rect: Rect, value: &mut bool, label: &str, help: &s
         .changed()
 }
 
-/// Quiet, borderless controls on a shared segmented surface.
-fn pearl_button(
+/// One recessed track with a sliding accent pill: the whole segment is the target.
+fn segmented(
     ui: &mut egui::Ui,
-    rect: Rect,
-    label: &str,
-    icon: Option<Icon>,
-    selected: bool,
-) -> egui::Response {
-    let response = ui.interact(rect, ui.id().with(label), egui::Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(
-            egui::WidgetType::SelectableLabel,
-            ui.is_enabled(),
-            selected,
-            label,
-        )
-    });
-    let p = pearl_palette();
-    if selected {
-        ui.painter()
-            .rect_filled(rect, 7, if icon.is_some() { p.base } else { p.cream });
-    } else if response.hovered() {
-        ui.painter().rect_filled(rect, 7, p.cream);
-    }
-    let color = if selected { p.ginger } else { p.muted };
-    let font = egui::FontId::proportional(12.);
-    let text = ui.painter().layout_no_wrap(label.into(), font, color);
-    let width = text.size().x + if icon.is_some() { 22. } else { 0. };
-    let left = rect.center().x - width * 0.5;
-    if let Some(icon) = icon {
-        appearance::icon(
-            ui.painter(),
-            egui::pos2(left + 7., rect.center().y),
-            icon,
-            color,
-            14.,
-        );
-    }
-    ui.painter().galley(
-        egui::pos2(
-            left + if icon.is_some() { 22. } else { 0. },
-            rect.center().y - text.size().y * 0.5,
-        ),
-        text,
-        color,
+    track: Rect,
+    name: &str,
+    items: &[(&str, Option<Icon>, &str)],
+    selected: Option<usize>,
+) -> Option<usize> {
+    let p = look(ui.ctx()).palette;
+    ui.painter().rect(
+        track,
+        8,
+        p.navy,
+        Stroke::new(1., p.border),
+        egui::StrokeKind::Inside,
     );
-    if response.has_focus() {
-        ui.painter().rect_stroke(
-            rect,
-            7,
-            Stroke::new(1.5, p.accent),
-            egui::StrokeKind::Inside,
-        );
+    let inner = track.shrink(2.);
+    let width = inner.width() / items.len() as f32;
+    let cell = |i: f32| {
+        Rect::from_min_size(
+            inner.min + Vec2::new(i * width, 0.),
+            Vec2::new(width, inner.height()),
+        )
+    };
+    if let Some(selected) = selected {
+        let at = ui
+            .ctx()
+            .animate_value_with_time(ui.id().with(name), selected as f32, 0.12);
+        appearance::satin_with_palette(ui.painter(), cell(at), 6., true, false, p);
     }
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    let mut clicked = None;
+    for (i, (label, icon, hint)) in items.iter().enumerate() {
+        let rect = cell(i as f32);
+        let is_selected = selected == Some(i);
+        let response = ui.interact(rect, ui.id().with(label), egui::Sense::click());
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::SelectableLabel,
+                ui.is_enabled(),
+                is_selected,
+                *label,
+            )
+        });
+        let color = if is_selected {
+            Color32::WHITE
+        } else if response.hovered() {
+            p.ink
+        } else {
+            p.muted
+        };
+        if !is_selected && response.hovered() {
+            ui.painter().rect_filled(rect.shrink(1.), 6, p.cream);
+        }
+        let text =
+            ui.painter()
+                .layout_no_wrap((*label).into(), egui::FontId::proportional(12.), color);
+        let gap = if icon.is_some() { 20. } else { 0. };
+        let left = rect.center().x - (text.size().x + gap) * 0.5;
+        if let Some(icon) = icon {
+            appearance::icon(
+                ui.painter(),
+                egui::pos2(left + 7., rect.center().y),
+                *icon,
+                color,
+                14.,
+            );
+        }
+        ui.painter().galley(
+            egui::pos2(left + gap, rect.center().y - text.size().y * 0.5),
+            text,
+            color,
+        );
+        if response.has_focus() {
+            ui.painter().rect_stroke(
+                rect,
+                6,
+                Stroke::new(1.5, p.ginger),
+                egui::StrokeKind::Inside,
+            );
+        }
+        let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+        let response = if hint.is_empty() {
+            response
+        } else {
+            response.on_hover_text(*hint)
+        };
+        if response.clicked() {
+            clicked = Some(i);
+        }
+    }
+    clicked
 }
 
 fn pearl_icon_button(ui: &mut egui::Ui, rect: Rect, label: &str, icon: Icon) -> egui::Response {
@@ -340,19 +371,26 @@ fn pearl_icon_button(ui: &mut egui::Ui, rect: Rect, label: &str, icon: Icon) -> 
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
-    let p = pearl_palette();
-    if response.hovered() || response.has_focus() {
+    let p = look(ui.ctx()).palette;
+    let active = response.hovered() || response.has_focus();
+    if active {
         ui.painter().rect_filled(rect, 7, p.cream);
     }
     if response.has_focus() {
         ui.painter().rect_stroke(
             rect,
             7,
-            Stroke::new(1.5, p.accent),
+            Stroke::new(1.5, p.ginger),
             egui::StrokeKind::Inside,
         );
     }
-    appearance::icon(ui.painter(), rect.center(), icon, p.muted, 15.);
+    appearance::icon(
+        ui.painter(),
+        rect.center(),
+        icon,
+        if active { p.ink } else { p.muted },
+        15.,
+    );
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(label)
@@ -366,25 +404,33 @@ fn launcher_content(
 ) -> (bool, Option<Action>) {
     let mut changed = false;
     let mut action = None;
-    let p = pearl_palette();
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(egui::Id::new("capture-theme"), settings.capture_theme));
+    let crate::capture_panel::CaptureLook {
+        palette: p,
+        top: surface_top,
+        dark,
+        ..
+    } = look(ui.ctx());
     let (outer, _) = ui.allocate_exact_size(SIZE, egui::Sense::hover());
     let bounds = Rect::from_min_max(outer.min + Vec2::new(0., NOTCH), outer.max);
     let at = |x, y, w, h| Rect::from_min_size(bounds.min + Vec2::new(x, y), Vec2::new(w, h));
-    ui.painter().rect(
-        bounds.shrink(0.5),
-        20,
-        p.paper,
+    let body = bounds.shrink(0.5);
+    appearance::gradient(ui.painter(), body, 16., surface_top, p.paper);
+    ui.painter().rect_stroke(
+        body,
+        16,
         Stroke::new(1., p.border),
         egui::StrokeKind::Inside,
     );
     let tip = outer.center_top();
     ui.painter().add(egui::Shape::convex_polygon(
         vec![
-            tip + Vec2::new(-NOTCH, NOTCH + 1.),
+            tip + Vec2::new(-NOTCH, NOTCH + 1.5),
             tip,
-            tip + Vec2::new(NOTCH, NOTCH + 1.),
+            tip + Vec2::new(NOTCH, NOTCH + 1.5),
         ],
-        p.paper,
+        surface_top,
         Stroke::NONE,
     ));
     ui.painter().line(
@@ -395,96 +441,124 @@ fn launcher_content(
         ],
         Stroke::new(1., p.border),
     );
+    for (from, to) in [(16., W * 0.5 - NOTCH - 2.), (W * 0.5 + NOTCH + 2., W - 16.)] {
+        ui.painter().line_segment(
+            [
+                bounds.min + Vec2::new(from, 1.5),
+                bounds.min + Vec2::new(to, 1.5),
+            ],
+            Stroke::new(1., Color32::from_white_alpha(if dark { 26 } else { 200 })),
+        );
+    }
     // Scope the dropdown and popup colors to this panel; never alter the editor theme.
     let v = ui.visuals_mut();
-    *v = egui::Visuals::dark();
+    *v = if dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
     v.override_text_color = Some(p.ink);
     v.weak_text_color = Some(p.muted);
     v.window_fill = p.paper;
     v.panel_fill = p.paper;
+    v.window_stroke = Stroke::new(1., p.border);
     v.extreme_bg_color = p.navy;
-    v.selection.bg_fill = p.cream;
-    v.selection.stroke = Stroke::new(1., p.ginger);
-    for (widget, fill) in [
-        (&mut v.widgets.inactive, p.base),
-        (&mut v.widgets.hovered, p.cream),
-        (&mut v.widgets.active, p.cream),
-        (&mut v.widgets.open, p.base),
+    v.selection.bg_fill = p.accent;
+    v.selection.stroke = Stroke::new(1., Color32::WHITE);
+    for (widget, fill, stroke) in [
+        (&mut v.widgets.inactive, p.navy, p.border),
+        (&mut v.widgets.hovered, p.cream, p.accent_top),
+        (&mut v.widgets.active, p.cream, p.accent_top),
+        (&mut v.widgets.open, p.navy, p.accent_top),
     ] {
         widget.bg_fill = fill;
         widget.weak_bg_fill = fill;
-        widget.bg_stroke = Stroke::new(1., p.border);
+        widget.bg_stroke = Stroke::new(1., stroke);
         widget.fg_stroke = Stroke::new(1., p.ink);
         widget.corner_radius = egui::CornerRadius::same(8);
+        widget.expansion = 0.;
     }
-    ui.spacing_mut().button_padding = Vec2::new(8., 4.);
+    ui.spacing_mut().button_padding = Vec2::new(9., 4.);
     ui.spacing_mut().interact_size.y = 26.;
     ui.spacing_mut().item_spacing = Vec2::new(4., 0.);
 
-    // A quiet aperture mark matches the selected Pearl Compact preview.
-    let mark = bounds.min + Vec2::new(28., 22.);
+    // Header: aperture mark, title, status, then quiet shortcuts into the app.
+    let mark = bounds.min + Vec2::new(24., 22.);
     ui.painter()
-        .circle_stroke(mark, 7., Stroke::new(1.2, p.ginger));
+        .circle_filled(mark, 10., p.accent.gamma_multiply(0.35));
+    ui.painter()
+        .circle_stroke(mark, 6.5, Stroke::new(1.2, p.ginger));
     for i in 0..6 {
         let angle = i as f32 * std::f32::consts::TAU / 6.;
         ui.painter().line_segment(
             [
-                mark + Vec2::angled(angle) * 7.,
-                mark + Vec2::angled(angle + 1.4) * 3.,
+                mark + Vec2::angled(angle) * 6.5,
+                mark + Vec2::angled(angle + 1.4) * 2.8,
             ],
             Stroke::new(1., p.ginger),
         );
     }
-    ui.painter().text(
-        bounds.min + Vec2::new(48., 22.),
+    let title = ui.painter().text(
+        bounds.min + Vec2::new(42., 22.),
         egui::Align2::LEFT_CENTER,
         "Capture Now",
-        egui::FontId::proportional(15.),
+        egui::FontId::proportional(14.5),
         p.ink,
     );
-    ui.painter().circle_filled(
-        bounds.min + Vec2::new(456., 22.),
-        2.5,
-        if enabled {
-            Color32::from_rgb(54, 156, 113)
-        } else {
-            p.muted
-        },
-    );
+    let status = if enabled {
+        Color32::from_rgb(74, 222, 151)
+    } else {
+        Color32::from_rgb(244, 183, 86)
+    };
+    let dot = egui::pos2(title.right() + 14., title.center().y);
+    ui.painter()
+        .circle_filled(dot, 5., status.gamma_multiply(0.25));
+    ui.painter().circle_filled(dot, 2.5, status);
     ui.painter().text(
-        bounds.min + Vec2::new(466., 22.),
+        dot + Vec2::new(9., 0.),
         egui::Align2::LEFT_CENTER,
         if enabled { "Ready" } else { "Busy" },
         egui::FontId::proportional(11.),
         p.muted,
     );
-    if pearl_icon_button(
-        ui,
-        at(516., 8., 28., 28.),
-        "Close capture panel",
-        Icon::Close,
-    )
-    .clicked()
+    for (i, (label, icon, next)) in [
+        ("Close capture panel", Icon::Close, Action::Close),
+        ("More settings", Icon::Settings, Action::Settings),
+        ("Library", Icon::Library, Action::Library),
+        ("Open Editor", Icon::Edit, Action::Editor),
+    ]
+    .into_iter()
+    .enumerate()
     {
-        action = Some(Action::Close);
+        let rect = at(W - 38. - i as f32 * 30., 9., 26., 26.);
+        if pearl_icon_button(ui, rect, label, icon).clicked() {
+            action = Some(next);
+        }
     }
 
-    // Capture modes share one recessed track.
-    let mode_track = at(14., 44., 532., 56.);
-    ui.painter().rect_filled(mode_track, 10, p.navy);
+    // Capture modes share one recessed track; the choice is a filled accent tile.
+    let mode_track = at(12., 42., W - 24., 50.);
+    ui.painter().rect(
+        mode_track,
+        11,
+        p.navy,
+        Stroke::new(1., p.border),
+        egui::StrokeKind::Inside,
+    );
     let mut modes = ui.new_child(
         egui::UiBuilder::new()
             .id_salt("pearl-modes")
-            .max_rect(mode_track.shrink(4.))
+            .max_rect(mode_track.shrink(3.))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
-    modes.spacing_mut().item_spacing.x = 4.;
+    modes.spacing_mut().item_spacing.x = 2.;
+    let count = CaptureMode::ALL.len() as f32;
     for mode in CaptureMode::ALL {
         if crate::capture_panel::compact_mode_tile(
             &mut modes,
             mode,
             settings.capture_mode == mode,
-            (524. - 4. * (CaptureMode::ALL.len() - 1) as f32) / CaptureMode::ALL.len() as f32,
+            Vec2::new((W - 30. - 2. * (count - 1.)) / count, 44.),
             p,
         )
         .clicked()
@@ -494,9 +568,9 @@ fn launcher_content(
         }
     }
 
-    for (label, y) in [("Display", 123.), ("Send to", 160.)] {
+    for (label, y) in [("Display", 115.), ("Send to", 148.), ("Delay", 181.)] {
         ui.painter().text(
-            bounds.min + Vec2::new(18., y),
+            bounds.min + Vec2::new(16., y),
             egui::Align2::LEFT_CENTER,
             label,
             egui::FontId::proportional(12.),
@@ -506,73 +580,90 @@ fn launcher_content(
     let mut display_ui = ui.new_child(
         egui::UiBuilder::new()
             .id_salt("pearl-display")
-            .max_rect(at(76., 108., 296., 30.))
+            .max_rect(at(FIELD_X, 102., FIELD_W, 26.))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
-    display_ui.spacing_mut().combo_width = 296.;
-    display_ui.style_mut().visuals.widgets.inactive.bg_stroke =
-        Stroke::new(0.6, p.border.lerp_to_gamma(p.paper, 0.4));
+    display_ui.spacing_mut().combo_width = FIELD_W;
     let name = crate::capture_panel::selected_display_label(settings, displays);
     let popup_visuals = display_ui.visuals().clone();
     egui::ComboBox::from_id_salt("launcher-display")
         .selected_text(egui::RichText::new(name).size(12.))
-        .width(296.)
+        .width(FIELD_W)
         .popup_style(egui::style::StyleModifier::new(move |style| {
             style.visuals = popup_visuals.clone()
         }))
         .show_ui(&mut display_ui, |ui| {
             changed |= crate::capture_panel::display_choices(ui, settings, displays);
-        });
+        })
+        .response
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
 
-    ui.painter().rect(
-        at(76., 144., 296., 32.),
-        9,
-        p.navy,
-        Stroke::new(1., p.border),
-        egui::StrokeKind::Inside,
-    );
+    let send_track = at(FIELD_X, 135., FIELD_W, 26.);
     if settings.capture_mode == CaptureMode::Text {
+        ui.painter().rect(
+            send_track,
+            8,
+            p.navy,
+            Stroke::new(1., p.border),
+            egui::StrokeKind::Inside,
+        );
         appearance::icon(
             ui.painter(),
-            at(90., 151., 20., 18.).center(),
+            send_track.left_center() + Vec2::new(16., 0.),
             Icon::TextSize,
             p.ginger,
-            17.,
+            15.,
         );
         ui.painter().text(
-            at(116., 147., 250., 26.).left_center(),
+            send_track.left_center() + Vec2::new(32., 0.),
             egui::Align2::LEFT_CENTER,
             "Text → clipboard · no image saved",
             egui::FontId::proportional(12.),
             p.ink,
         );
     } else {
-        for (i, dest) in CaptureDestination::ALL.into_iter().enumerate() {
-            if pearl_button(
-                ui,
-                at(79. + i as f32 * 146., 147., 144., 26.),
+        let items = CaptureDestination::ALL.map(|dest| {
+            (
                 dest.label(),
                 Some(if dest == CaptureDestination::Editor {
                     Icon::Edit
                 } else {
                     Icon::Copy
                 }),
-                settings.capture_destination == dest,
+                dest.hint(),
             )
-            .on_hover_text(dest.hint())
-            .clicked()
-            {
-                changed |= settings.capture_destination != dest;
-                settings.capture_destination = dest;
-            }
+        });
+        let selected = CaptureDestination::ALL
+            .iter()
+            .position(|dest| *dest == settings.capture_destination);
+        if let Some(i) = segmented(ui, send_track, "send-to", &items, selected) {
+            changed |= settings.capture_destination != CaptureDestination::ALL[i];
+            settings.capture_destination = CaptureDestination::ALL[i];
         }
+    }
+
+    const DELAYS: [u32; 4] = [0, 3, 5, 10];
+    if let Some(i) = segmented(
+        ui,
+        at(FIELD_X, 168., FIELD_W, 26.),
+        "delay",
+        &[
+            ("Off", None, "Capture immediately"),
+            ("3s", None, "Wait 3 seconds before capturing"),
+            ("5s", None, "Wait 5 seconds before capturing"),
+            ("10s", None, "Wait 10 seconds before capturing"),
+        ],
+        DELAYS.iter().position(|s| *s == settings.delay_seconds),
+    ) {
+        changed |= settings.delay_seconds != DELAYS[i];
+        settings.delay_seconds = DELAYS[i];
     }
 
     changed |= ui
         .add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| {
             switch(
                 ui,
-                at(18., 182., 150., 28.),
+                at(16., 201., 134., 26.),
                 &mut settings.include_pointer,
                 "Include pointer",
                 "Include the mouse pointer in your capture.",
@@ -581,58 +672,20 @@ fn launcher_content(
         .inner;
     changed |= switch(
         ui,
-        at(190., 182., 182., 28.),
+        at(166., 201., 156., 26.),
         &mut settings.capture_on_release,
         "Capture on release",
         "Skip confirmation for single regions and windows. Multi-region capture still waits for Capture or Enter.",
     );
 
-    ui.painter().text(
-        bounds.min + Vec2::new(44., 228.),
-        egui::Align2::LEFT_CENTER,
-        "Delay",
-        egui::FontId::proportional(12.),
-        p.muted,
-    );
-    let timer = bounds.min + Vec2::new(26., 228.);
-    ui.painter()
-        .circle_stroke(timer, 6., Stroke::new(1.1, p.muted));
-    ui.painter().line_segment(
-        [timer, timer + Vec2::new(2., -3.)],
-        Stroke::new(1.1, p.muted),
-    );
-    ui.painter().line_segment(
-        [timer + Vec2::new(-2., -9.), timer + Vec2::new(2., -9.)],
-        Stroke::new(1.1, p.muted),
-    );
-    for (i, secs) in [0, 3, 5, 10].into_iter().enumerate() {
-        let label = if secs == 0 {
-            "Off".into()
-        } else {
-            format!("{secs}s")
-        };
-        if pearl_button(
-            ui,
-            at(90. + i as f32 * 38., 215., 34., 26.),
-            &label,
-            None,
-            settings.delay_seconds == secs,
-        )
-        .clicked()
-        {
-            changed |= settings.delay_seconds != secs;
-            settings.delay_seconds = secs;
-        }
-    }
-
     ui.painter().line_segment(
         [
-            bounds.min + Vec2::new(394., 112.),
-            bounds.min + Vec2::new(394., 240.),
+            bounds.min + Vec2::new(336., 106.),
+            bounds.min + Vec2::new(336., 224.),
         ],
-        Stroke::new(0.7, p.border),
+        Stroke::new(1., p.border.gamma_multiply(0.7)),
     );
-    let capture_rect = at(414., 114., 108., 108.);
+    let capture_rect = at(356., 102., 92., 92.);
     let capture = ui
         .add_enabled_ui(enabled, |ui| {
             let response = ui.interact(
@@ -651,68 +704,75 @@ fn launcher_content(
                     },
                 )
             });
+            let pressed = response.is_pointer_button_down_on();
+            let hover =
+                ui.ctx()
+                    .animate_bool_with_time(response.id.with("glow"), response.hovered(), 0.15);
             if ui.is_enabled() {
+                // A soft halo lifts the one primary action off the surface.
+                for (radius, alpha) in [(54., 0.10), (50., 0.16)] {
+                    ui.painter().circle_filled(
+                        capture_rect.center(),
+                        radius + hover * 2.,
+                        Color32::from_rgb(255, 86, 74).gamma_multiply(alpha + hover * 0.08),
+                    );
+                }
                 appearance::satin_with_palette(
                     ui.painter(),
                     capture_rect,
-                    54.,
+                    46.,
                     true,
-                    response.is_pointer_button_down_on(),
+                    pressed,
                     appearance::Palette {
-                        accent: Color32::from_rgb(193, 39, 36),
-                        accent_top: Color32::from_rgb(245, 82, 65),
+                        accent: Color32::from_rgb(214, 38, 44),
+                        accent_top: Color32::from_rgb(255, 106, 84)
+                            .lerp_to_gamma(Color32::from_rgb(255, 136, 112), hover),
                         ..p
                     },
                 );
                 ui.painter().rect_stroke(
                     capture_rect,
-                    54,
-                    Stroke::new(
-                        1.,
-                        if response.hovered() {
-                            Color32::from_rgb(255, 163, 143)
-                        } else {
-                            Color32::from_rgb(245, 105, 89)
-                        },
-                    ),
+                    46,
+                    Stroke::new(1., Color32::from_rgb(255, 150, 132)),
                     egui::StrokeKind::Inside,
                 );
             } else {
                 ui.painter()
-                    .circle_filled(capture_rect.center(), 54., p.base);
+                    .circle_filled(capture_rect.center(), 46., p.base);
             }
             let color = if ui.is_enabled() {
                 Color32::WHITE
             } else {
                 p.muted
             };
+            let nudge = Vec2::new(0., if pressed { 1. } else { 0. });
             appearance::icon(
                 ui.painter(),
-                capture_rect.center() - Vec2::new(0., 15.),
+                capture_rect.center() - Vec2::new(0., 12.) + nudge,
                 if settings.capture_mode == CaptureMode::Text {
                     Icon::TextSize
                 } else {
                     Icon::Capture
                 },
                 color,
-                26.,
+                24.,
             );
             ui.painter().text(
-                capture_rect.center() + Vec2::new(0., 17.),
+                capture_rect.center() + Vec2::new(0., 16.) + nudge,
                 egui::Align2::CENTER_CENTER,
                 if settings.capture_mode == CaptureMode::Text {
                     "Copy text"
                 } else {
                     "Capture"
                 },
-                egui::FontId::proportional(15.),
+                egui::FontId::proportional(14.),
                 color,
             );
             if response.has_focus() {
                 ui.painter().rect_stroke(
-                    capture_rect.expand(2.),
-                    56,
-                    Stroke::new(1.5, p.accent),
+                    capture_rect.expand(3.),
+                    49,
+                    Stroke::new(1.5, p.ginger),
                     egui::StrokeKind::Outside,
                 );
             }
@@ -730,52 +790,46 @@ fn launcher_content(
     if capture.clicked() {
         action = Some(Action::Capture);
     }
-    ui.painter().text(
-        bounds.min + Vec2::new(468., 236.),
-        egui::Align2::CENTER_CENTER,
-        if cfg!(target_os = "macos") {
-            "⌃ ⇧ C"
-        } else {
-            "Ctrl + Shift + C"
-        },
-        egui::FontId::proportional(11.),
-        p.muted,
-    );
-
-    ui.painter().line_segment(
-        [
-            bounds.min + Vec2::new(1., 248.),
-            bounds.min + Vec2::new(559., 248.),
-        ],
-        Stroke::new(0.7, p.border.lerp_to_gamma(p.paper, 0.35)),
-    );
-    for (label, icon, next, rect) in [
-        (
-            "Open Editor",
-            Icon::Edit,
-            Action::Editor,
-            at(14., 253., 112., 26.),
-        ),
-        (
-            "Library",
-            Icon::Library,
-            Action::Library,
-            at(132., 253., 82., 26.),
-        ),
-    ] {
-        if pearl_button(ui, rect, label, Some(icon), false).clicked() {
-            action = Some(next);
-        }
-    }
-    if pearl_icon_button(
-        ui,
-        at(516., 253., 28., 26.),
-        "More settings",
-        Icon::Settings,
-    )
-    .clicked()
-    {
-        action = Some(Action::Settings);
+    // The shortcut reads as raised keycaps: visible at a glance, not a caption.
+    let keys: &[&str] = if cfg!(target_os = "macos") {
+        &["⌃", "⇧", "C"]
+    } else {
+        &["Ctrl", "Shift", "C"]
+    };
+    let font = egui::FontId::proportional(12.5);
+    let caps: Vec<_> = keys
+        .iter()
+        .map(|key| {
+            ui.painter()
+                .layout_no_wrap((*key).into(), font.clone(), p.ink)
+        })
+        .collect();
+    let widths: Vec<f32> = caps
+        .iter()
+        .map(|cap| (cap.size().x + 12.).max(24.))
+        .collect();
+    let mut x =
+        capture_rect.center().x - (widths.iter().sum::<f32>() + 4. * (keys.len() - 1) as f32) * 0.5;
+    for (cap, width) in caps.into_iter().zip(widths) {
+        let key = Rect::from_min_size(egui::pos2(x, bounds.top() + 203.), Vec2::new(width, 21.));
+        ui.painter()
+            .rect_filled(key.translate(Vec2::new(0., 2.)), 5, p.navy);
+        appearance::gradient(
+            ui.painter(),
+            key,
+            5.,
+            p.base.lerp_to_gamma(p.accent_top, 0.25),
+            p.cream,
+        );
+        ui.painter().rect_stroke(
+            key,
+            5,
+            Stroke::new(1., p.accent_top.gamma_multiply(0.7)),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter()
+            .galley(key.center() - cap.size() * 0.5, cap, p.ink);
+        x += width + 4.;
     }
     (changed, action)
 }
@@ -843,13 +897,12 @@ mod tests {
                 })
                 .unwrap_or_else(|| panic!("Missing {label}"))
         };
-        for label in ["Open Editor", "Library"] {
-            let _ = center(&output, label);
-        }
-        // The quiet settings icon keeps its full accessible name and action.
+        // The quiet header icons keep their full accessible names and actions.
         for (at, expected) in [
-            (egui::pos2(530., 270.), Action::Settings),
-            (egui::pos2(530., 22.), Action::Close),
+            (egui::pos2(353., 30.), Action::Editor),
+            (egui::pos2(383., 30.), Action::Library),
+            (egui::pos2(413., 30.), Action::Settings),
+            (egui::pos2(443., 30.), Action::Close),
         ] {
             let event = |pressed| egui::Event::PointerButton {
                 pos: at,
@@ -943,6 +996,76 @@ mod tests {
         assert!(!labels.contains(&"Clipboard"));
         assert_eq!(settings.capture_destination, CaptureDestination::Editor);
         assert!(settings.include_pointer);
+    }
+
+    #[test]
+    fn every_theme_paints_the_whole_panel_and_leaves_the_editor_theme_alone() {
+        let ctx = egui::Context::default();
+        appearance::apply(&ctx);
+        for theme in crate::capture_panel::CaptureTheme::ALL {
+            let mut settings = Settings {
+                capture_theme: theme,
+                ..Default::default()
+            };
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SIZE)),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            launcher_content(ui, &mut settings, &[], true);
+                        });
+                },
+            );
+            let look = theme.look();
+            for label in [
+                "Capture Now",
+                "Region",
+                "Send to",
+                "Capture on release",
+                "Capture",
+            ] {
+                let text = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.job.text == label => Some(text),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("{theme:?} is missing {label}"));
+                assert_ne!(
+                    text.fallback_color, look.palette.paper,
+                    "{theme:?} paints {label} in its own surface color"
+                );
+            }
+            assert_eq!(settings.capture_theme, theme);
+            assert_eq!(
+                look.dark,
+                theme != crate::capture_panel::CaptureTheme::Porcelain
+            );
+        }
+        assert!(!ctx.style().visuals.dark_mode);
+        let restored: Settings = serde_json::from_str(
+            &serde_json::to_string(&Settings {
+                capture_theme: crate::capture_panel::CaptureTheme::Aurora,
+                ..Default::default()
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            restored.capture_theme,
+            crate::capture_panel::CaptureTheme::Aurora
+        );
+        assert_eq!(
+            serde_json::from_str::<Settings>("{}")
+                .unwrap()
+                .capture_theme,
+            crate::capture_panel::CaptureTheme::Midnight
+        );
     }
 
     #[test]

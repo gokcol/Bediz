@@ -286,7 +286,8 @@ impl EditorState {
                 "Tolerance",
                 "%",
             );
-            ui.checkbox(
+            crate::appearance::checkbox(
+                ui,
                 &mut self.extra_tools.global,
                 "Select matching colors everywhere",
             );

@@ -148,10 +148,7 @@ impl EditorState {
         .modal(ctx, egui::Id::new("Canvas size"), |ui| {
             ui.weak(format!("Current: {} × {} px", draft.base[0], draft.base[1]));
             let mut relative = draft.relative;
-            if ui
-                .checkbox(&mut relative, "Use relative dimensions")
-                .changed()
-            {
+            if crate::appearance::checkbox(ui, &mut relative, "Use relative dimensions").changed() {
                 draft.set_relative(relative);
             }
             egui::Grid::new("canvas-size-fields")

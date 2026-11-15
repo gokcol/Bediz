@@ -608,7 +608,8 @@ impl MyImageApp {
                                         &mut self.settings.capture_destination,
                                     );
                                 }
-                                ui.checkbox(
+                                crate::appearance::checkbox(
+                                    ui,
                                     &mut selection.magnifier,
                                     egui::RichText::new("Magnifier").color(Color32::WHITE),
                                 );

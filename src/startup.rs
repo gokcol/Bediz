@@ -63,10 +63,10 @@ impl Preference {
         let state = self.status.as_ref().and_then(|s| s.as_ref().ok()).copied();
         let mut enabled = state.is_some_and(Status::selected);
         if ui
-            .add_enabled(
-                state.is_some_and(Status::editable),
-                eframe::egui::Checkbox::new(&mut enabled, "Start MyImage at login"),
-            )
+            .add_enabled_ui(state.is_some_and(Status::editable), |ui| {
+                crate::appearance::checkbox(ui, &mut enabled, "Start MyImage at login")
+            })
+            .inner
             .on_hover_text(
                 "Open MyImage automatically when you sign in after restarting your computer. Off by default.",
             )

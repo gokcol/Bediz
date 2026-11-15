@@ -28,6 +28,79 @@ pub struct Availability {
     pub permission_needed: bool,
     pub demo: bool,
 }
+/// Capture Now has its own look, independent of the editor's GUI finish.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CaptureTheme {
+    #[default]
+    Midnight,
+    Ember,
+    Aurora,
+    Porcelain,
+}
+
+/// Everything the Capture Now panel paints with for one theme.
+#[derive(Clone, Copy)]
+pub struct CaptureLook {
+    pub palette: appearance::Palette,
+    /// Top of the surface gradient; `palette.paper` is its bottom.
+    pub top: Color32,
+    /// Track of a switch that is off.
+    pub off: Color32,
+    pub dark: bool,
+}
+
+impl CaptureTheme {
+    pub const ALL: [Self; 4] = [Self::Midnight, Self::Ember, Self::Aurora, Self::Porcelain];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Midnight => "Midnight",
+            Self::Ember => "Ember",
+            Self::Aurora => "Aurora",
+            Self::Porcelain => "Porcelain",
+        }
+    }
+    pub fn look(self) -> CaptureLook {
+        // ink, muted, accent, recess, surface, highlight, hover, border, base, accent top, top, off
+        let colors: [u32; 12] = match self {
+            Self::Midnight => [
+                0xf3f5fc, 0xacb5d4, 0x4f63f0, 0x151930, 0x1f2444, 0xcad1ff, 0x323b6e, 0x40497a,
+                0x343c68, 0x7c8cff, 0x313968, 0x464f7a,
+            ],
+            Self::Ember => [
+                0xf6f3ef, 0xbdb6ad, 0xdd5a22, 0x1a1b1e, 0x292a2f, 0xffcfb0, 0x44454c, 0x55565e,
+                0x494a51, 0xff9458, 0x3e3f46, 0x696a72,
+            ],
+            Self::Aurora => [
+                0xeefaf7, 0xa5c6c3, 0x0e9486, 0x0d2327, 0x153238, 0xa9f1e4, 0x23505a, 0x2f5f68,
+                0x285058, 0x3dd0b9, 0x22494f, 0x4a7078,
+            ],
+            Self::Porcelain => [
+                0x1f2637, 0x66708a, 0x2b65d9, 0xe4e9f4, 0xedf1f9, 0x2b65d9, 0xd8e3fb, 0xc0cadd,
+                0xdbe2ef, 0x5a8df2, 0xffffff, 0xa9b4c8,
+            ],
+        };
+        let c = colors.map(|hex| Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8));
+        CaptureLook {
+            palette: appearance::Palette {
+                ink: c[0],
+                muted: c[1],
+                accent: c[2],
+                navy: c[3],
+                paper: c[4],
+                ginger: c[5],
+                cream: c[6],
+                border: c[7],
+                base: c[8],
+                accent_top: c[9],
+            },
+            top: c[10],
+            off: c[11],
+            dark: self != Self::Porcelain,
+        }
+    }
+}
+
 pub fn display_label(index: usize, display: &DisplayInfo) -> String {
     format!(
         "Display {}{}",
@@ -105,6 +178,12 @@ fn card(ctx: &egui::Context) -> egui::Frame {
         .corner_radius(8)
         .inner_margin(14)
         .stroke(Stroke::new(1., appearance::palette(ctx).border))
+        .shadow(egui::Shadow {
+            offset: [0, 2],
+            blur: 10,
+            spread: 0,
+            color: Color32::from_black_alpha(14),
+        })
 }
 
 pub fn ui(
@@ -119,7 +198,7 @@ pub fn ui(
     ui.spacing_mut().interact_size.y = 28.;
     let mut result = Response::default();
     egui::ScrollArea::vertical().id_salt("capture-console-scroll").show(ui, |ui| {
-        let width = (ui.available_width() - 24.).clamp(560., 840.);
+        let width = (ui.available_width() - 24.).clamp(560., 780.);
         let offset = ((ui.available_width() - width) * 0.5).max(0.);
         ui.add_space(10.);
         ui.horizontal(|ui| {
@@ -164,33 +243,31 @@ pub fn ui(
                                 result.changed |= display_choices(ui, settings, displays);
                             });
                             ui.horizontal(|ui| {
-                                ui.label("Timer");
-                                ui.spacing_mut().item_spacing.x = 4.;
-                                for seconds in [0, 3, 5, 10] {
-                                    result.changed |= ui.selectable_value(&mut settings.delay_seconds, seconds,
-                                        if seconds == 0 { "Off".into() } else { format!("{seconds}s") }).changed();
-                                }
+                                ui.label(egui::RichText::new("Timer").color(appearance::palette(ui.ctx()).muted));
+                                result.changed |= appearance::segmented(ui, "capture-timer", &mut settings.delay_seconds, &[
+                                    (0, "Off", None, "Capture immediately"),
+                                    (3, "3s", None, "Wait 3 seconds before capturing"),
+                                    (5, "5s", None, "Wait 5 seconds before capturing"),
+                                    (10, "10s", None, "Wait 10 seconds before capturing"),
+                                ]);
                             });
-                            result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| ui.checkbox(&mut settings.include_pointer, "Include pointer")
-                                .on_hover_text("Show the mouse pointer in the saved capture. Turn off for a clean image.").changed()).inner;
-                            result.changed |= ui.checkbox(&mut settings.capture_on_release, "Capture immediately after selection")
-                                .on_hover_text("Off by default: adjust the selection, then click Capture. When enabled, releasing a region or clicking a window captures immediately. Multiple regions still wait for Capture or Enter.").changed();
+                            ui.horizontal_wrapped(|ui| {
+                                ui.spacing_mut().item_spacing = Vec2::new(18., 6.);
+                                result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| appearance::toggle(ui, &mut settings.include_pointer, "Include pointer")
+                                    .on_hover_text("Show the mouse pointer in the saved capture. Turn off for a clean image.").changed()).inner;
+                                result.changed |= appearance::toggle(ui, &mut settings.capture_on_release, "Capture immediately after selection")
+                                    .on_hover_text("Off by default: adjust the selection, then click Capture. When enabled, releasing a region or clicking a window captures immediately. Multiple regions still wait for Capture or Enter.").changed();
+                            });
                             ui.strong("After capture");
                             if settings.capture_mode == CaptureMode::Text {
                                 ui.label("Copy text to clipboard · no image saved");
                             } else {
-                            ui.horizontal(|ui| {
-                                for destination in CaptureDestination::ALL {
-                                    if appearance::action_button(
-                                        ui, destination.label(),
-                                        if destination == CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy },
-                                        true, settings.capture_destination == destination,
-                                    ).on_hover_text(destination.hint()).clicked() {
-                                        result.changed |= settings.capture_destination != destination;
-                                        settings.capture_destination = destination;
-                                    }
-                                }
-                            });
+                            let destinations = CaptureDestination::ALL.map(|destination| (
+                                destination, destination.label(),
+                                Some(if destination == CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }),
+                                destination.hint(),
+                            ));
+                            result.changed |= appearance::segmented(ui, "capture-destination", &mut settings.capture_destination, &destinations);
                             ui.separator();
                             ui.horizontal(|ui| {
                                 ui.strong("Save to library");
@@ -210,7 +287,7 @@ pub fn ui(
                         ui.label(egui::RichText::new("CAPTURE NOW").size(11.).strong().color(appearance::palette(ui.ctx()).ginger));
                         ui.label(egui::RichText::new(settings.capture_mode.label()).size(19.).strong().color(Color32::WHITE));
                         ui.add(egui::Label::new(egui::RichText::new(settings.capture_mode.hint()).size(13.).color(Color32::from_rgb(224, 213, 197))).wrap());
-                        if ui.add_enabled(available.capture, egui::Button::new(egui::RichText::new("Capture Now").strong().color(appearance::palette(ui.ctx()).ink)).fill(appearance::palette(ui.ctx()).ginger).min_size(Vec2::new(222., 36.))).clicked() {
+                        if ui.add_enabled_ui(available.capture, |ui| appearance::capture_button(ui, "Capture Now", Vec2::new(222., 40.))).inner.clicked() {
                             result.action = Some(Action::Capture);
                         }
                         ui.label(egui::RichText::new("Ctrl + Shift + C").strong().color(Color32::WHITE));
@@ -352,10 +429,10 @@ pub(super) fn compact_mode_tile(
     ui: &mut egui::Ui,
     mode: CaptureMode,
     selected: bool,
-    width: f32,
+    size: Vec2,
     palette: appearance::Palette,
 ) -> egui::Response {
-    sized_mode_tile(ui, mode, selected, Vec2::new(width, 48.), palette)
+    sized_mode_tile(ui, mode, selected, size, palette)
 }
 
 fn sized_mode_tile(
@@ -378,22 +455,38 @@ fn sized_mode_tile(
     if compact {
         let p = palette;
         if selected {
-            ui.painter().rect_filled(rect, 8, p.base);
+            appearance::satin_with_palette(
+                ui.painter(),
+                rect,
+                8.,
+                true,
+                response.is_pointer_button_down_on(),
+                p,
+            );
         } else if response.hovered() {
             ui.painter().rect_filled(rect, 8, p.cream);
         }
-        let color = if selected { p.ginger } else { p.muted };
+        let color = if selected {
+            Color32::WHITE
+        } else if response.hovered() {
+            p.ink
+        } else {
+            p.muted
+        };
         mode_icon(
             ui.painter(),
             mode,
-            Rect::from_center_size(rect.center_top() + Vec2::new(0., 15.), Vec2::new(21., 17.)),
+            Rect::from_center_size(
+                rect.center_top() + Vec2::new(0., size.y * 0.32),
+                Vec2::new(19., 15.),
+            ),
             color,
         );
         ui.painter().text(
-            rect.center_bottom() - Vec2::new(0., 10.),
+            rect.center_bottom() - Vec2::new(0., size.y * 0.22),
             egui::Align2::CENTER_CENTER,
             mode.label(),
-            egui::FontId::proportional(12.),
+            egui::FontId::proportional(11.5),
             color,
         );
         if response.has_focus() {

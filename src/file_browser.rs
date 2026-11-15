@@ -379,7 +379,7 @@ impl MyImageApp {
                     ui.strong("From"); ui.label(self.settings.output_dir.display().to_string());
                     ui.strong("To"); ui.label(destination.display().to_string());
                     ui.add_space(8.);
-                    ui.checkbox(move_existing, "Move existing captures and projects");
+                    crate::appearance::checkbox(ui, move_existing, "Move existing captures and projects");
                     if *move_existing {
                         ui.label("Move images and .myimage projects from the current library. Date folders, favorites and Recents follow automatically. Conflicting filenames get a new name.");
                         ui.weak("Files outside this library, linked folders and other file types stay where they are. Open projects keep their unsaved edits.");
@@ -398,7 +398,7 @@ impl MyImageApp {
                     ui.label("You can restore them from your system Trash or Recycle Bin. The selected projects, their embedded images and edits, and any linked legacy captures in MyImage storage will be moved.");
                     egui::ScrollArea::vertical().max_height(180.).show(ui,|ui| {for p in paths.iter() {ui.label(p.file_name().unwrap_or_default().to_string_lossy());}});
                     ui.add_space(8.);
-                    ui.checkbox(skip_confirmation, "Don’t ask again");
+                    crate::appearance::checkbox(ui, skip_confirmation, "Don’t ask again");
                     ui.weak("You can turn Trash confirmations back on in Settings.");
                     ui.add_space(8.);
                     ui.horizontal_wrapped(|ui| {

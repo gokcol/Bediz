@@ -3,7 +3,7 @@ use crate::text_path::{Placement, Shape, TextPath};
 pub(super) fn controls(ui: &mut egui::Ui, style: &mut crate::text_style::TextStyle) -> bool {
     let before = style.clone();
     let mut enabled = style.path.is_some();
-    if ui.checkbox(&mut enabled, "Text on a path").changed() {
+    if crate::appearance::checkbox(ui, &mut enabled, "Text on a path").changed() {
         style.path = enabled.then(TextPath::default);
     }
     let Some(path) = &mut style.path else {
@@ -43,12 +43,12 @@ pub(super) fn controls(ui: &mut egui::Ui, style: &mut crate::text_style::TextSty
     object_properties::slider(ui, &mut path.rotation, -180..=180, "Rotate", "°");
     object_properties::slider(ui, &mut path.offset, -100..=200, "Distance", " px");
     object_properties::slider(ui, &mut path.spacing, 0..=64, "Spacing", " px");
-    ui.checkbox(&mut path.fit, "Fit long text to path").on_hover_text("Reduce letters together when they are longer than the path. Turn off to extend beyond its end.");
+    crate::appearance::checkbox(ui, &mut path.fit, "Fit long text to path").on_hover_text("Reduce letters together when they are longer than the path. Turn off to extend beyond its end.");
     if path.shape == Shape::Custom {
         custom_pad(ui, path);
-        ui.checkbox(&mut path.closed, "Close path");
+        crate::appearance::checkbox(ui, &mut path.closed, "Close path");
     }
-    ui.checkbox(&mut path.visible, "Show path");
+    crate::appearance::checkbox(ui, &mut path.visible, "Show path");
     if path.visible {
         ui.horizontal(|ui| {
             ui.label("Path color");

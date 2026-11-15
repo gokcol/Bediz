@@ -190,7 +190,7 @@ impl MyImageApp {
                                     Some(Ok(Outcome::StoreInstallRequired)) => { ui.label("Open Microsoft Store to install the Store edition."); }
                                 }
                                 ui.add_space(6.);
-                                changed |= ui.checkbox(&mut self.settings.updates.automatic, "Check automatically once a day").changed();
+                                changed |= crate::appearance::checkbox(ui, &mut self.settings.updates.automatic, "Check automatically once a day").changed();
                                 ui.label(RichText::new(if cfg!(target_os = "macos") {
                                     "Checks contact GitHub. Your images and projects stay on your device. Downloads open in your browser."
                                 } else { "Checks use Microsoft Store services. Your images and projects stay on your device. Windows manages Store updates." }).size(11.).color(palette.muted));

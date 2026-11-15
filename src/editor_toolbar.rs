@@ -409,9 +409,12 @@ impl EditorState {
                                         crate::appearance::palette(ui.ctx()).ink,
                                     );
                                     let mut pinned = self.toolbar_pins.iter().any(|p| p == label);
-                                    if ui
-                                        .checkbox(&mut pinned, egui::RichText::new(label).size(13.))
-                                        .changed()
+                                    if crate::appearance::checkbox(
+                                        ui,
+                                        &mut pinned,
+                                        egui::RichText::new(label).size(13.),
+                                    )
+                                    .changed()
                                     {
                                         if pinned {
                                             self.toolbar_pins.push(label.into());

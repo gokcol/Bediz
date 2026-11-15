@@ -377,7 +377,7 @@ impl EditorState {
                         "Font and color are estimated. The replacement remains editable Text.",
                     );
                 }
-                ui.checkbox(&mut self.retouch.original, "Show original");
+                crate::appearance::checkbox(ui, &mut self.retouch.original, "Show original");
                 if ui.button("Apply").clicked() {
                     self.apply_retouch(document, history);
                 }

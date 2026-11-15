@@ -1133,7 +1133,7 @@ impl EditorState {
                     ui.end_row();
                 }
             });
-            if ui.checkbox(&mut draft.locked, "Lock aspect ratio").changed() && draft.locked {
+            if crate::appearance::checkbox(ui, &mut draft.locked, "Lock aspect ratio").changed() && draft.locked {
                 draft.ratio = draft.size[0] as f64 / draft.size[1] as f64;
             }
             if draft.units == ResizeUnits::Percent {

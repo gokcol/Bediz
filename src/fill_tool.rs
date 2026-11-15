@@ -384,7 +384,7 @@ impl EditorState {
             ui.add_space(7.);ui.separator();
             ui.horizontal(|ui| {ui.label("Color");ui.color_edit_button_srgba_unmultiplied(&mut self.fill_tool.color);});
             let mut transparent=self.fill_tool.color[3]==0;
-            if ui.checkbox(&mut transparent,"Transparent fill").changed() {self.fill_tool.color[3]=if transparent {0} else {255};}
+            if crate::appearance::checkbox(ui, &mut transparent,"Transparent fill").changed() {self.fill_tool.color[3]=if transparent {0} else {255};}
             ui.label("Opacity");
             let mut opacity=self.fill_tool.color[3] as f32/255.*100.;
             if crate::appearance::value_slider(ui,&mut opacity,0.0..=100.0,"Fill opacity","%").changed() {self.fill_tool.color[3]=(opacity*2.55).round() as u8;}
@@ -394,7 +394,7 @@ impl EditorState {
             ui.add_space(5.);ui.label("Tolerance");
             crate::appearance::value_slider(ui,&mut self.fill_tool.tolerance,0..=100,"Fill tolerance","%");
             ui.weak("Lower values protect edges. Higher values include more similar colors.");
-            ui.checkbox(&mut self.fill_tool.global,"Global fill").on_hover_text("Fill matching colors in disconnected regions too, within the selected area or canvas.");
+            crate::appearance::checkbox(ui, &mut self.fill_tool.global,"Global fill").on_hover_text("Fill matching colors in disconnected regions too, within the selected area or canvas.");
             if self.fill_tool.global {ui.weak("Matches colors across separate regions.");} else {ui.weak("Stops at boundaries around the clicked region.");}
             if previous != (self.fill_tool.color, self.fill_tool.tolerance, self.fill_tool.global) {
                 self.remember_fill_preferences();

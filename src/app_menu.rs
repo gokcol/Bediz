@@ -230,6 +230,7 @@ impl MyImageApp {
             return;
         }
         let mut finish = self.settings.gui_finish;
+        let mut capture_theme = self.settings.capture_theme;
         let mut icon_style = self.settings.icon_style;
         let mut pointer_style = self.settings.pointer_style;
         let mut confirm_trash = self.settings.confirm_trash;
@@ -252,6 +253,27 @@ impl MyImageApp {
                             }
                         });
                         if response.clicked() { finish = choice; }
+                    }
+                });
+                ui.strong("Capture Now").on_hover_text(
+                    "The look of the Capture Now panel in your menu bar or system tray.",
+                );
+                ui.horizontal(|ui| {
+                    let width = (ui.available_width() - 18.) / 4.;
+                    for choice in crate::capture_panel::CaptureTheme::ALL {
+                        let response = settings_choice(ui, choice.label(), capture_theme == choice, width, |painter, center| {
+                            let look = choice.look();
+                            let card = Rect::from_center_size(center, Vec2::new(46., 20.));
+                            appearance::gradient(painter, card, 5., look.top, look.palette.paper);
+                            painter.rect_stroke(card, 5, egui::Stroke::new(1., look.palette.border), egui::StrokeKind::Inside);
+                            appearance::gradient(
+                                painter,
+                                Rect::from_center_size(center - Vec2::new(8., 0.), Vec2::new(20., 10.)),
+                                3., look.palette.accent_top, look.palette.accent,
+                            );
+                            painter.circle_filled(center + Vec2::new(14., 0.), 5., egui::Color32::from_rgb(228, 62, 56));
+                        });
+                        if response.clicked() { capture_theme = choice; }
                     }
                 });
                 ui.strong("Icons");
@@ -285,9 +307,13 @@ impl MyImageApp {
                 ui.separator();
                 self.startup.ui(ui);
                 ui.separator();
-                ui.checkbox(&mut confirm_trash, "Ask before moving files to Trash");
+                crate::appearance::checkbox(ui, &mut confirm_trash, "Ask before moving files to Trash");
                 dialogs::actions(ui, |ui| dialogs::primary(ui, "Done", Icon::Check).clicked())
             });
+        if capture_theme != self.settings.capture_theme {
+            self.settings.capture_theme = capture_theme;
+            self.persist_settings();
+        }
         if finish != self.settings.gui_finish {
             self.settings.gui_finish = finish;
             appearance::set_finish(ctx, finish);

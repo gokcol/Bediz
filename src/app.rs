@@ -2304,12 +2304,22 @@ impl eframe::App for MyImageApp {
                 self.library.refresh();
             }
         }
-        egui::TopBottomPanel::bottom("status").show(ctx, |ui| {
+        egui::TopBottomPanel::bottom("status")
+            .frame(
+                egui::Frame::NONE
+                    .fill(Color32::WHITE)
+                    .inner_margin(egui::Margin::symmetric(10, 4)),
+            )
+            .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if self.busy {
                     ui.spinner();
                 }
-                ui.label(&self.status);
+                ui.label(
+                    egui::RichText::new(&self.status)
+                        .size(12.5)
+                        .color(appearance::palette(ui.ctx()).muted),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let menu = ui
                         .scope(|ui| {
@@ -2346,35 +2356,38 @@ impl eframe::App for MyImageApp {
         });
         self.recents_panel(ctx);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            if let Some(error) = &self.error {
-                dialogs::notice(ui, DialogIcon::Info, "MyImage needs attention", error, true);
-                if dialogs::secondary(ui, "Dismiss message", DialogIcon::Close).clicked() {
-                    self.error = None;
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()).fill(appearance::workspace_fill(ctx)))
+            .show(ctx, |ui| {
+                appearance::top_shade(ui);
+                if let Some(error) = &self.error {
+                    dialogs::notice(ui, DialogIcon::Info, "MyImage needs attention", error, true);
+                    if dialogs::secondary(ui, "Dismiss message", DialogIcon::Close).clicked() {
+                        self.error = None;
+                    }
                 }
-            }
-            if let Some(error) = self
-                .desktop
-                .as_ref()
-                .and_then(|desktop| desktop.hotkey_error())
-                .map(str::to_string)
-            {
-                dialogs::notice(
-                    ui,
-                    DialogIcon::Capture,
-                    "Capture shortcut unavailable",
-                    &error,
-                    true,
-                );
-                if dialogs::secondary(ui, "Retry unavailable shortcuts", DialogIcon::Refresh)
-                    .clicked()
-                    && let Some(desktop) = &mut self.desktop
+                if let Some(error) = self
+                    .desktop
+                    .as_ref()
+                    .and_then(|desktop| desktop.hotkey_error())
+                    .map(str::to_string)
                 {
-                    let _ = desktop.retry_hotkey();
+                    dialogs::notice(
+                        ui,
+                        DialogIcon::Capture,
+                        "Capture shortcut unavailable",
+                        &error,
+                        true,
+                    );
+                    if dialogs::secondary(ui, "Retry unavailable shortcuts", DialogIcon::Refresh)
+                        .clicked()
+                        && let Some(desktop) = &mut self.desktop
+                    {
+                        let _ = desktop.retry_hotkey();
+                    }
                 }
-            }
-            self.workspace_ui(ui, ctx);
-        });
+                self.workspace_ui(ui, ctx);
+            });
         if let Some(document) = &self.document {
             let size = document.output_size();
             let has_privacy = document
