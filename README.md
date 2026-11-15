@@ -2,7 +2,7 @@
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download MyImage v3.0 · build 107](https://github.com/gokcol/MyImage/releases/tag/v3.0.0-build107) — signed, notarized macOS Apple Silicon DMG/ZIP, plus an unsigned Windows x64 Setup installer and portable ZIP. Windows interactive validation remains pending.
+[Download MyImage v3.0 · build 108](https://github.com/gokcol/MyImage/releases/tag/v3.0.0-build108) — signed, notarized macOS Apple Silicon DMG/ZIP, plus an unsigned Windows x64 Setup installer and portable ZIP. Windows interactive validation remains pending.
 
 [Get MyImage (OG) from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). Microsoft approved Store package **2.2.4.0** (MyImage **2.2.1 build 100**); newer Store updates are submitted separately. The GitHub release does not indicate Store approval for v3.0; package 3.0.0.0 is being prepared as a separate Store update.
 
@@ -11,6 +11,10 @@ MyImage opens in **Home**, with **Editor**, **Library**, and **Create** beside i
 MyImage automatically creates and saves **`.myimage` projects**, keeping each original image and its editable changes together in one portable file. **Library and Recents show projects only**. Switching images or quitting flushes pending edits; opening a project keeps its place until you change it. Existing capture/project pairs are matched by their original pixels, and verified old captures in MyImage’s dated storage are moved to Trash. External imported originals stay untouched. Deleting a project also trashes any remaining managed legacy image associated with it. **Save As…** saves an editable `.myimage` project or a flattened JPG, PNG, GIF, HEIF, TIFF, WebP or PDF copy with visible annotations included. Image edits are stored as reversible settings in the project.
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
+
+## MyImage v3.0 · build 108
+
+Build 108 fixes light backgrounds left in the dark Graphite Night finish: the Shapes and Stamps pickers, callout and magnify shapes and the in-place text bar.
 
 ## MyImage v3.0 · build 107
 
