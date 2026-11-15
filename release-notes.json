@@ -1,13 +1,13 @@
 {
   "version": "3.0.0",
-  "build": 106,
+  "build": 107,
   "store_version": "3.0.0.0",
   "changes": [
-    "Capture Now is redesigned: about a third smaller, with clearer mode tiles, sliding Send to and Delay controls, animated switches and the capture shortcut shown as keycaps.",
-    "Choose a Capture Now theme in Settings: Midnight, Ember, Aurora or Porcelain.",
-    "The Capture view uses the same switches and segmented controls, with a prominent Capture Now button.",
-    "Help for Capture Now controls appears in the panel header instead of popups over the controls.",
-    "Checkboxes, the workspace background, toolbar shadow and status bar are refreshed across the app."
+    "One toolbar replaces the two top rows, giving the canvas more height. In the editor, the file name and saved state are in the status bar.",
+    "Graphite Night is a new dark finish in Settings, alongside the three light ones.",
+    "Drop an image or project on the window to open it. An empty editor offers Open, Capture and Paste.",
+    "Capture Now is redesigned and about a third smaller, with four themes in Settings: Midnight, Ember, Aurora and Porcelain. The Capture view and the capture overlay follow the chosen theme.",
+    "Help for Capture Now controls appears in the panel header instead of popups. Segmented controls step with the arrow keys."
   ],
   "macos": [
     "The macOS top MyImage menu opens the same About dialog as the in-app menu, with What’s New and Check for Updates actions.",
