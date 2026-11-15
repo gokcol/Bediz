@@ -50,7 +50,7 @@ pub(super) fn row(
             badge,
             5,
             if active {
-                Color32::WHITE
+                crate::appearance::surface(ui.ctx())
             } else {
                 appearance::palette(ui.ctx()).base
             },
@@ -62,7 +62,7 @@ pub(super) fn row(
             if active {
                 appearance::palette(ui.ctx()).accent
             } else {
-                crate::appearance::palette(ui.ctx()).navy
+                crate::appearance::deep_text(ui.ctx())
             },
             14.,
         );
@@ -71,7 +71,7 @@ pub(super) fn row(
             Align2::LEFT_CENTER,
             label,
             FontId::proportional(12.),
-            crate::appearance::palette(ui.ctx()).navy,
+            crate::appearance::deep_text(ui.ctx()),
         );
         ui.painter().text(
             rect.right_center() - Vec2::new(10., 0.),
@@ -189,7 +189,7 @@ impl MyImageApp {
                         let width = (ui.available_width() - 6.) / 4.;
                         for size in storage::UiTextSize::ALL {
                             let selected = self.settings.ui_text_size == size;
-                            let response = ui.add_sized([width, 27.], egui::Button::new(RichText::new(size.label()).size(10.5).color(if selected { Color32::WHITE } else { crate::appearance::palette(ui.ctx()).navy })).fill(if selected { crate::appearance::palette(ui.ctx()).navy } else { Color32::TRANSPARENT }).stroke(Stroke::NONE).corner_radius(4));
+                            let response = ui.add_sized([width, 27.], egui::Button::new(RichText::new(size.label()).size(10.5).color(if selected { Color32::WHITE } else { crate::appearance::deep_text(ui.ctx()) })).fill(if selected { crate::appearance::palette(ui.ctx()).navy } else { Color32::TRANSPARENT }).stroke(Stroke::NONE).corner_radius(4));
                             if response.clicked() {
                                 self.settings.ui_text_size = size;
                                 ctx.set_zoom_factor(size.factor());
@@ -234,14 +234,14 @@ impl MyImageApp {
         let mut icon_style = self.settings.icon_style;
         let mut pointer_style = self.settings.pointer_style;
         let mut confirm_trash = self.settings.confirm_trash;
-        let response = Dialog::new("Settings", "", Icon::Settings, 350.)
+        let response = Dialog::new("Settings", "", Icon::Settings, 380.)
             .modal(ctx, egui::Id::new("appearance-settings"), |ui| {
                 ui.spacing_mut().item_spacing = Vec2::new(6., 6.);
                 ui.strong("Interface").on_hover_text(
                     "Changes the app’s appearance only. Your image and annotation colors stay the same.",
                 );
                 ui.horizontal(|ui| {
-                    let width = (ui.available_width() - 12.) / 3.;
+                    let width = (ui.available_width() - 18.) / 4.;
                     for choice in appearance::GuiFinish::ALL {
                         let response = settings_choice(ui, choice.label(), finish == choice, width, |painter, center| {
                             let colors = choice.palette();

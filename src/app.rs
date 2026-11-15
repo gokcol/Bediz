@@ -1795,12 +1795,12 @@ impl MyImageApp {
             .show(ui, |ui| {
                 ui.add_space(top_space);
                 ui.vertical_centered(|ui| {
+                    ui.label(egui::RichText::new("Start here").size(24.).strong());
+                    ui.add_space(2.);
                     ui.label(
-                        egui::RichText::new(
-                            "Open a recent image, capture your screen, or create from a template.",
-                        )
-                        .size(18.)
-                        .color(appearance::palette(ui.ctx()).ink),
+                        egui::RichText::new("Drop an image anywhere, or pick a way to begin.")
+                            .size(14.)
+                            .color(appearance::palette(ui.ctx()).muted),
                     );
                     ui.add_space(22.);
                     let columns = if ui.available_width() >= 600. { 2 } else { 1 };
@@ -1823,7 +1823,7 @@ impl MyImageApp {
                             "Paste image",
                             "From your clipboard",
                             Icon::Copy,
-                            Color32::WHITE,
+                            appearance::surface(ui.ctx()),
                         ),
                         (
                             "Create",
@@ -1884,6 +1884,192 @@ impl MyImageApp {
                     });
                 }
             });
+    }
+
+    /// File name of the open project or image, if any.
+    fn document_name(&self) -> Option<String> {
+        self.document.as_ref()?;
+        Some(
+            self.project_path
+                .as_ref()
+                .or(self.last_path.as_ref())
+                .and_then(|p| p.file_name())
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| self.draft_title.clone()),
+        )
+    }
+
+    /// Title and one-line summary of the current page, beside the navigation.
+    fn page_title(&self, ui: &mut egui::Ui, view: View) {
+        let name = self.document_name();
+        let (title, summary) = match view {
+            View::Home => ("Home".to_owned(), "Capture. Annotate. Make it clear."),
+            View::Capture => ("Capture".to_owned(), "Set up here. Capture from anywhere."),
+            View::Create => (
+                "Create".to_owned(),
+                "A head start for your next visual guide.",
+            ),
+            View::Library => (
+                "Your image library".to_owned(),
+                if self.has_unsaved_edits() {
+                    "Your current image has unsaved changes in Edit"
+                } else {
+                    "Every capture. Ready when you need it."
+                },
+            ),
+            View::Viewer => (
+                name.unwrap_or_else(|| "Editor".into()),
+                "View only · Choose Editor to annotate",
+            ),
+            View::Editor => (
+                name.unwrap_or_else(|| "Editor".into()),
+                "Capture. Annotate. Make it clear.",
+            ),
+        };
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 1.;
+            ui.add_space(3.);
+            ui.add(egui::Label::new(egui::RichText::new(title).strong().size(15.)).truncate());
+            ui.add(
+                egui::Label::new(
+                    egui::RichText::new(summary)
+                        .size(11.5)
+                        .color(appearance::palette(ui.ctx()).muted),
+                )
+                .truncate(),
+            );
+        });
+    }
+
+    /// Open, save and print. In the editor these are icons, leaving the row to the tools.
+    fn document_actions(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, view: View) {
+        let has_doc = self.document.is_some();
+        let compact = view == View::Editor;
+        let action = |ui: &mut egui::Ui, label: &str, icon: Icon, enabled: bool, hint: &str| {
+            if compact {
+                ui.add_enabled_ui(enabled, |ui| {
+                    appearance::document_icon_button(ui, label, icon)
+                })
+                .inner
+                .on_hover_text(hint)
+                .clicked()
+            } else {
+                appearance::action_button(ui, label, icon, enabled, false)
+                    .on_hover_text(hint)
+                    .clicked()
+            }
+        };
+        if matches!(view, View::Viewer | View::Editor) {
+            if appearance::action_button(ui, "Save project", Icon::Save, has_doc, true)
+                .on_hover_text("Save the editable project · ⌘S / Ctrl+S")
+                .clicked()
+            {
+                self.save_project(ctx, false);
+            }
+            if view == View::Editor {
+                ui.add_enabled_ui(has_doc, |ui| {
+                    egui::containers::menu::MenuButton::new("Image ▾")
+                        .config(
+                            egui::containers::menu::MenuConfig::new()
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+                        )
+                        .ui(ui, |ui| {
+                            if let Some(document) = &mut self.document {
+                                self.editor.image_menu(ui, document, &mut self.history);
+                            }
+                        })
+                        .0
+                        .on_hover_text("Resize, extend canvas, rotate, flip and crop");
+                });
+            }
+            if action(
+                ui,
+                "Save As…",
+                Icon::SaveAs,
+                has_doc,
+                "Save a project or an image copy · ⇧⌘S / Ctrl+Shift+S",
+            ) {
+                self.begin_save_as();
+            }
+            if ui
+                .add_enabled_ui(has_doc, |ui| {
+                    appearance::document_icon_button(ui, "Print…", Icon::Print)
+                })
+                .inner
+                .on_hover_text("Print the finished image · ⌘P / Ctrl+P")
+                .clicked()
+            {
+                self.begin_print(ctx);
+            }
+        }
+        if action(
+            ui,
+            "Open project…",
+            Icon::OpenProject,
+            true,
+            "Open an editable .myimage project",
+        ) {
+            self.open_project(ctx);
+        }
+        if action(ui, "Open…", Icon::Open, true, "Open an image file") {
+            self.open_image(ctx);
+        }
+    }
+
+    /// Open an image or project dropped on the window; show where it will land.
+    fn dropped_files(&mut self, ctx: &egui::Context) {
+        const TYPES: [&str; 12] = [
+            "myimage", "snagx", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif", "heif",
+            "heic",
+        ];
+        let ready = !self.busy && self.workspace_unobscured() && !self.editor.has_modal();
+        let (hovering, dropped) = ctx.input(|input| {
+            (
+                !input.raw.hovered_files.is_empty(),
+                input
+                    .raw
+                    .dropped_files
+                    .iter()
+                    .find_map(|file| file.path.clone()),
+            )
+        });
+        if hovering && ready {
+            let rect = ctx.content_rect();
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("drop-target"),
+            ));
+            let p = appearance::palette(ctx);
+            painter.rect_filled(rect, 0, p.navy.gamma_multiply(0.55));
+            painter.rect_stroke(
+                rect.shrink(14.),
+                16,
+                egui::Stroke::new(2., p.ginger),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Drop to open in MyImage",
+                egui::FontId::proportional(24.),
+                Color32::WHITE,
+            );
+        }
+        let Some(path) = dropped else {
+            return;
+        };
+        if !ready {
+            return;
+        }
+        let supported = path
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| TYPES.contains(&extension.to_ascii_lowercase().as_str()));
+        if supported {
+            self.open_path(ctx, path, true);
+        } else {
+            self.status = "MyImage can’t open that kind of file.".into();
+        }
     }
 
     fn workspace_unobscured(&self) -> bool {
@@ -1957,13 +2143,60 @@ impl MyImageApp {
             }
         }
         let Some(document) = &mut self.document else {
-            ui.centered_and_justified(|ui| {
-                ui.weak(if self.busy {
-                    self.status.as_str()
-                } else {
-                    "Select an image from Recents, or open or capture an image to edit."
-                });
+            if self.busy {
+                ui.centered_and_justified(|ui| ui.weak(self.status.as_str()));
+                return;
+            }
+            // An empty editor offers the ways to fill it instead of a line of text.
+            let mut chosen = None;
+            ui.vertical_centered(|ui| {
+                ui.add_space((ui.available_height() * 0.28).max(12.));
+                let (badge, _) = ui.allocate_exact_size(egui::vec2(56., 56.), egui::Sense::hover());
+                ui.painter()
+                    .rect_filled(badge, 14, appearance::palette(ui.ctx()).cream);
+                appearance::icon(
+                    ui.painter(),
+                    badge.center(),
+                    Icon::Edit,
+                    appearance::palette(ui.ctx()).accent,
+                    28.,
+                );
+                ui.add_space(6.);
+                ui.label(egui::RichText::new("Nothing open yet").size(20.).strong());
+                ui.label(
+                    egui::RichText::new(
+                        "Drop an image here, pick one from Recents, or start below.",
+                    )
+                    .color(appearance::palette(ui.ctx()).muted),
+                );
+                ui.add_space(8.);
+                ui.allocate_ui_with_layout(
+                    egui::vec2(330., 30.),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        for (index, (label, icon)) in [
+                            ("Open image…", Icon::Open),
+                            ("Capture", Icon::Capture),
+                            ("Paste image", Icon::Copy),
+                        ]
+                        .into_iter()
+                        .enumerate()
+                        {
+                            if appearance::action_button(ui, label, icon, true, index == 0)
+                                .clicked()
+                            {
+                                chosen = Some(index);
+                            }
+                        }
+                    },
+                );
             });
+            match chosen {
+                Some(0) => self.open_image(ctx),
+                Some(1) => self.view = View::Capture,
+                Some(2) => self.paste_new_image(ctx),
+                _ => {}
+            }
             return;
         };
         if self.last_texture.is_none() {
@@ -2117,142 +2350,15 @@ impl eframe::App for MyImageApp {
                 self.begin_print(ctx);
             }
         }
-        egui::TopBottomPanel::top("document_bar")
-            .frame(egui::Frame::NONE.fill(Color32::WHITE).inner_margin(10))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        let title = if self.view == View::Home {
-                            "Home".into()
-                        } else if self.view == View::Capture {
-                            "Capture".into()
-                        } else if self.view == View::Create {
-                            "Create".into()
-                        } else if self.view == View::Library {
-                            "Your image library".into()
-                        } else {
-                            self.project_path
-                                .as_ref()
-                                .or(self.last_path.as_ref())
-                                .and_then(|p| p.file_name())
-                                .map(|s| s.to_string_lossy().into_owned())
-                                .unwrap_or_else(|| {
-                                    if self.document.is_some() {
-                                        self.draft_title.clone()
-                                    } else {
-                                        "Editor".into()
-                                    }
-                                })
-                        };
-                        ui.set_max_width((ui.available_width() - 640.0).max(150.0));
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(title).strong().size(16.0))
-                                .truncate(),
-                        );
-                        ui.label(
-                            egui::RichText::new(if self.view == View::Home {
-                                "Capture. Annotate. Make it clear."
-                            } else if self.view == View::Capture {
-                                "Set up here. Capture from anywhere."
-                            } else if self.view == View::Create {
-                                "A head start for your next visual guide."
-                            } else if self.view == View::Library && self.has_unsaved_edits() {
-                                "Your current image has unsaved changes in Edit"
-                            } else if self.view == View::Library {
-                                "Every capture. Ready when you need it."
-                            } else if self.view == View::Viewer {
-                                "View only · Choose Editor to annotate"
-                            } else if self.has_unsaved_edits() {
-                                "Unsaved changes"
-                            } else if self.project_path.is_some() {
-                                "Editable project · Saved"
-                            } else {
-                                "Capture. Annotate. Make it clear."
-                            })
-                            .size(12.0)
-                            .color(appearance::palette(ui.ctx()).muted),
-                        );
-                    });
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let unobscured = self.workspace_unobscured() && !self.editor.has_modal();
-                        appearance::input_scope(
-                            ui,
-                            !self.busy && unobscured,
-                            !self.workspace_has_dialog(),
-                            |ui| {
-                                let has_doc = self.document.is_some();
-                                if matches!(self.view, View::Viewer | View::Editor) {
-                                    if appearance::action_button(
-                                        ui,
-                                        "Save project",
-                                        Icon::Save,
-                                        has_doc,
-                                        true,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.save_project(ctx, false);
-                                    }
-                                    if self.view == View::Editor {
-                                        ui.add_enabled_ui(has_doc, |ui| {
-                                            egui::containers::menu::MenuButton::new("Image ▾").config(egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)).ui(ui, |ui| {
-                                                if let Some(document) = &mut self.document {
-                                                    self.editor.image_menu(
-                                                        ui,
-                                                        document,
-                                                        &mut self.history,
-                                                    );
-                                                }
-                                            })
-                                            .0
-                                            .on_hover_text(
-                                                "Resize, extend canvas, rotate, flip and crop",
-                                            );
-                                        });
-                                    }
-                                    if appearance::action_button(
-                                        ui,
-                                        "Save As…",
-                                        Icon::SaveAs,
-                                        has_doc,
-                                        false,
-                                    )
-                                    .clicked()
-                                    {
-                                        self.begin_save_as();
-                                    }
-                                }
-                                if matches!(self.view, View::Viewer | View::Editor)
-                                    && ui.add_enabled_ui(has_doc, |ui| appearance::document_icon_button(ui, "Print…", Icon::Print)).inner
-                                        .on_hover_text("Print the finished image · ⌘P / Ctrl+P")
-                                        .clicked()
-                                {
-                                    self.begin_print(ctx);
-                                }
-                                if appearance::action_button(
-                                    ui,
-                                    "Open project…",
-                                    Icon::OpenProject,
-                                    true,
-                                    false,
-                                )
-                                .clicked()
-                                {
-                                    self.open_project(ctx);
-                                }
-                                if appearance::action_button(ui, "Open…", Icon::Open, true, false)
-                                    .clicked()
-                                {
-                                    self.open_image(ctx);
-                                }
-                            },
-                        );
-                    });
-                });
-            });
+        self.dropped_files(ctx);
         let previous_view = self.view;
+        // One bar: navigation, then the editor tools or the page title, then document actions.
         egui::TopBottomPanel::top("workspace_toolbar")
-            .frame(egui::Frame::NONE.fill(Color32::WHITE).inner_margin(5))
+            .frame(
+                egui::Frame::NONE
+                    .fill(appearance::surface(ctx))
+                    .inner_margin(5),
+            )
             .show(ctx, |ui| {
                 ui.spacing_mut().item_spacing = egui::vec2(3., 3.);
                 let unobscured = self.workspace_unobscured() && !self.editor.has_modal();
@@ -2280,14 +2386,33 @@ impl eframe::App for MyImageApp {
                                     self.view = view;
                                 }
                             }
-                            if self.view == View::Editor {
-                                ui.add_space(8.);
-                                ui.separator();
-                                ui.add_space(8.);
-                                if let Some(document) = &mut self.document {
-                                    self.editor.toolbar(ui, document, &mut self.history);
-                                }
-                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.;
+                                    self.document_actions(ui, ctx, previous_view);
+                                    ui.with_layout(
+                                        egui::Layout::left_to_right(egui::Align::Center),
+                                        |ui| {
+                                            ui.spacing_mut().item_spacing = egui::vec2(3., 3.);
+                                            ui.add_space(8.);
+                                            ui.separator();
+                                            ui.add_space(8.);
+                                            if previous_view == View::Editor {
+                                                if let Some(document) = &mut self.document {
+                                                    self.editor.toolbar(
+                                                        ui,
+                                                        document,
+                                                        &mut self.history,
+                                                    );
+                                                }
+                                            } else {
+                                                self.page_title(ui, previous_view);
+                                            }
+                                        },
+                                    );
+                                },
+                            );
                         });
                     },
                 );
@@ -2307,13 +2432,34 @@ impl eframe::App for MyImageApp {
         egui::TopBottomPanel::bottom("status")
             .frame(
                 egui::Frame::NONE
-                    .fill(Color32::WHITE)
+                    .fill(crate::appearance::surface(ctx))
                     .inner_margin(egui::Margin::symmetric(10, 4)),
             )
             .show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if self.busy {
                     ui.spinner();
+                }
+                if self.view == View::Editor
+                    && let Some(name) = self.document_name()
+                {
+                    ui.spacing_mut().item_spacing.x = 6.;
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(name).size(12.5).strong())
+                            .truncate(),
+                    )
+                    .on_hover_text("The open project");
+                    ui.label(
+                        egui::RichText::new(if self.has_unsaved_edits() {
+                            "· Unsaved changes ·"
+                        } else if self.project_path.is_some() {
+                            "· Saved ·"
+                        } else {
+                            "·"
+                        })
+                        .size(12.5)
+                        .color(appearance::palette(ui.ctx()).muted),
+                    );
                 }
                 ui.label(
                     egui::RichText::new(&self.status)

@@ -119,7 +119,7 @@ impl LibraryPanel {
             ui.spacing_mut().button_padding = Vec2::new(7., 4.);
             ui.spacing_mut().interact_size.y = 28.;
             egui::Frame::new()
-                .fill(Color32::WHITE)
+                .fill(crate::appearance::surface(ui.ctx()))
                 .corner_radius(6)
                 .inner_margin(6)
                 .stroke(Stroke::new(1., crate::appearance::palette(ui.ctx()).border))
@@ -731,7 +731,7 @@ impl LibraryPanel {
             if selected {
                 appearance::palette(ui.ctx()).cream
             } else {
-                Color32::WHITE
+                crate::appearance::surface(ui.ctx())
             },
             border,
             egui::StrokeKind::Inside,
@@ -791,7 +791,8 @@ impl LibraryPanel {
             );
         }
         let checkbox_rect = Rect::from_min_size(rect.min + Vec2::splat(6.), Vec2::splat(24.));
-        ui.painter().rect_filled(checkbox_rect, 4., Color32::WHITE);
+        ui.painter()
+            .rect_filled(checkbox_rect, 4., crate::appearance::surface(ui.ctx()));
         let mut checked = self.selection.paths.contains(&entry.path);
         let checkbox = ui.put(checkbox_rect, egui::Checkbox::without_text(&mut checked));
         checkbox.widget_info(|| {
@@ -1036,6 +1037,8 @@ pub(super) fn navigation_row(
         3.,
         if selected {
             Color32::from_white_alpha(38)
+        } else if appearance::palette(ui.ctx()).is_dark() {
+            appearance::palette(ui.ctx()).border
         } else {
             appearance::palette(ui.ctx()).ink
         },
@@ -1083,7 +1086,7 @@ fn icon_button(
                 if selected {
                     appearance::palette(ui.ctx()).cream
                 } else {
-                    Color32::WHITE
+                    crate::appearance::surface(ui.ctx())
                 },
             );
         }
@@ -1126,7 +1129,7 @@ fn sort_tab(ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
             if selected {
                 appearance::palette(ui.ctx()).navy
             } else {
-                Color32::WHITE
+                crate::appearance::surface(ui.ctx())
             },
         );
     }

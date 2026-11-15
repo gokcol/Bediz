@@ -5,7 +5,11 @@ impl MyImageApp {
     pub(super) fn recents_panel(&mut self, ctx: &egui::Context) {
         if matches!(self.view, View::Home | View::Editor | View::Viewer) {
             egui::TopBottomPanel::bottom("recents")
-                .frame(egui::Frame::NONE.fill(Color32::WHITE).inner_margin(4))
+                .frame(
+                    egui::Frame::NONE
+                        .fill(crate::appearance::surface(ctx))
+                        .inner_margin(4),
+                )
                 .show(ctx, |ui| {
                     ui.spacing_mut().item_spacing.y = 3.;
                     let unobscured = self.workspace_unobscured() && !self.editor.has_modal();
@@ -800,12 +804,12 @@ mod tests {
                         }
                     })
                     .collect();
-                assert!(!text.contains("Open a recent image, capture your screen"));
+                assert!(!text.contains("pick a way to begin"));
                 assert!(!text.contains("Start from a template"));
                 assert!(text.contains(if busy {
                     "Opening image…"
                 } else {
-                    "Select an image from Recents"
+                    "Nothing open yet"
                 }));
             }
         }

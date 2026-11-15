@@ -68,7 +68,7 @@ fn step_card(
     accent: Color32,
 ) {
     egui::Frame::new()
-        .fill(Color32::WHITE)
+        .fill(crate::appearance::surface(ui.ctx()))
         .stroke(egui::Stroke::new(
             1.,
             appearance::palette(ui.ctx()).border.gamma_multiply(0.6),

@@ -8,29 +8,41 @@ pub enum GuiFinish {
     CobaltSatin,
     AmberEnamel,
     JadeGraphite,
+    /// The one dark finish: graphite surfaces with a cobalt accent.
+    GraphiteNight,
 }
 impl GuiFinish {
-    pub const ALL: [Self; 3] = [Self::CobaltSatin, Self::AmberEnamel, Self::JadeGraphite];
+    pub const ALL: [Self; 4] = [
+        Self::CobaltSatin,
+        Self::AmberEnamel,
+        Self::JadeGraphite,
+        Self::GraphiteNight,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::CobaltSatin => "Cobalt Satin",
             Self::AmberEnamel => "Amber Enamel",
             Self::JadeGraphite => "Jade Graphite",
+            Self::GraphiteNight => "Graphite Night",
         }
     }
     pub fn palette(self) -> Palette {
         let colors = match self {
             Self::CobaltSatin => [
                 0x293345, 0x6b7688, 0x2b65d9, 0x252a34, 0xfafbfe, 0x9cbdff, 0xe8f0ff, 0xc4cfe1,
-                0xe9edf3, 0x4180ed,
+                0xe9edf3, 0x4180ed, 0xffffff,
             ],
             Self::AmberEnamel => [
                 0x332d26, 0x807463, 0xa85c20, 0x2c2924, 0xfaf7f0, 0xf2c086, 0xf7e9d1, 0xd4bfa2,
-                0xeae5db, 0xc57c38,
+                0xeae5db, 0xc57c38, 0xffffff,
             ],
             Self::JadeGraphite => [
                 0x263e36, 0x678074, 0x21734f, 0x232d2c, 0xf3f8f6, 0x9ae2bd, 0xdff1e7, 0xaccaba,
-                0xdfeae5, 0x388b65,
+                0xdfeae5, 0x388b65, 0xffffff,
+            ],
+            Self::GraphiteNight => [
+                0xe9ecf3, 0x9ba4b7, 0x2f62da, 0x14161c, 0x23262e, 0x9cbdff, 0x2d3a5c, 0x3e4453,
+                0x1b1d24, 0x4f82f0, 0x2c303a,
             ],
         }
         .map(|hex| Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8));
@@ -45,6 +57,7 @@ impl GuiFinish {
             border: colors[7],
             base: colors[8],
             accent_top: colors[9],
+            surface: colors[10],
         }
     }
 }
@@ -60,6 +73,24 @@ pub struct Palette {
     pub border: Color32,
     pub base: Color32,
     pub accent_top: Color32,
+    /// Raised cards, bars and idle controls: white in the light finishes.
+    pub surface: Color32,
+}
+impl Palette {
+    pub fn is_dark(&self) -> bool {
+        self.surface.r() < 128
+    }
+}
+
+/// Fill for raised cards, bars and idle controls.
+pub fn surface(ctx: &egui::Context) -> Color32 {
+    palette(ctx).surface
+}
+
+/// The strongest text color: the deep navy on light finishes, the ink on dark ones.
+pub fn deep_text(ctx: &egui::Context) -> Color32 {
+    let p = palette(ctx);
+    if p.is_dark() { p.ink } else { p.navy }
 }
 
 pub fn palette(ctx: &egui::Context) -> Palette {
@@ -74,12 +105,15 @@ pub fn set_finish(ctx: &egui::Context, finish: GuiFinish) {
     let p = finish.palette();
     let mut style = (*ctx.style()).clone();
     let v = &mut style.visuals;
+    v.dark_mode = p.is_dark();
+    v.widgets.noninteractive.bg_fill = p.paper;
+    v.code_bg_color = p.base;
     v.override_text_color = Some(p.ink);
     v.weak_text_color = Some(p.muted);
     v.panel_fill = p.paper;
     v.window_fill = p.paper;
     v.window_stroke = Stroke::new(1., p.border);
-    v.extreme_bg_color = Color32::WHITE;
+    v.extreme_bg_color = if p.is_dark() { p.navy } else { p.surface };
     v.faint_bg_color = p.base;
     v.hyperlink_color = p.accent;
     v.selection.bg_fill = p.cream;
@@ -87,7 +121,7 @@ pub fn set_finish(ctx: &egui::Context, finish: GuiFinish) {
     v.widgets.noninteractive.bg_stroke.color = p.border;
     v.widgets.noninteractive.fg_stroke.color = p.muted;
     for (widget, fill, stroke) in [
-        (&mut v.widgets.inactive, Color32::WHITE, p.border),
+        (&mut v.widgets.inactive, p.surface, p.border),
         (&mut v.widgets.hovered, p.cream, p.accent),
         (&mut v.widgets.active, p.cream, p.accent),
         (&mut v.widgets.open, p.cream, p.accent),
@@ -121,7 +155,7 @@ pub fn satin_with_palette(
     let (mut top, mut bottom) = if selected {
         (p.accent_top, p.accent)
     } else {
-        (Color32::WHITE, p.paper)
+        (p.surface, p.paper)
     };
     if pressed {
         std::mem::swap(&mut top, &mut bottom);
@@ -152,7 +186,13 @@ pub fn satin_with_palette(
         ],
         Stroke::new(
             1.,
-            Color32::from_white_alpha(if selected { 50 } else { 180 }),
+            Color32::from_white_alpha(if selected {
+                50
+            } else if p.is_dark() {
+                14
+            } else {
+                180
+            }),
         ),
     );
 }
@@ -1077,9 +1117,18 @@ pub fn start_chip(
     let active = response.hovered() || response.has_focus();
     let pressed = response.is_pointer_button_down_on();
     let dark = matches!(kind, Icon::Open);
-    let ginger = palette(ui.ctx()).ginger;
-    let ink = palette(ui.ctx()).navy;
-    let foreground = if dark { Color32::WHITE } else { ink };
+    let finish = palette(ui.ctx());
+    let ginger = finish.ginger;
+    let ink = finish.navy;
+    // Text follows the chip, not the finish: dark ink on light chips, light ink on dark ones.
+    let light_chip = background.r() as u32 + background.g() as u32 + background.b() as u32 > 380;
+    let foreground = if dark {
+        Color32::WHITE
+    } else if light_chip {
+        ink
+    } else {
+        finish.ink
+    };
     let rect = response.rect.translate(Vec2::new(
         0.,
         if pressed {
@@ -1119,7 +1168,13 @@ pub fn start_chip(
         p,
         badge.center(),
         kind,
-        if dark { ink } else { palette(ui.ctx()).cream },
+        if dark {
+            ink
+        } else if finish.is_dark() {
+            ginger
+        } else {
+            finish.cream
+        },
         25.,
     );
     let text = rect.left_center() + Vec2::new(74., -12.);
@@ -1135,10 +1190,12 @@ pub fn start_chip(
         egui::Align2::LEFT_CENTER,
         hint,
         egui::FontId::proportional(12.),
-        if dark {
-            palette(ui.ctx()).base
+        if !finish.is_dark() {
+            if dark { finish.base } else { finish.muted }
+        } else if light_chip && !dark {
+            ink.gamma_multiply(0.75)
         } else {
-            palette(ui.ctx()).muted
+            finish.muted
         },
     );
     if let Some(texture) = cat {
@@ -1280,7 +1337,8 @@ pub fn segmented<T: PartialEq + Copy>(
         );
     }
     let mut changed = false;
-    for ((choice, label, icon, hint), rect) in items.iter().zip(cells) {
+    let mut focused = None;
+    for (index, ((choice, label, icon, hint), rect)) in items.iter().zip(cells).enumerate() {
         let selected = *choice == *value;
         let response = ui.interact(rect, ui.id().with((name, *label)), egui::Sense::click());
         response.widget_info(|| {
@@ -1338,8 +1396,46 @@ pub fn segmented<T: PartialEq + Copy>(
             *value = *choice;
             changed = true;
         }
+        if response.has_focus() {
+            focused = Some(index);
+        }
+    }
+    if let Some(index) = focused
+        && let Some(target) =
+            arrow_target(ui, ui.id().with((name, items[index].1)), index, items.len())
+    {
+        ui.memory_mut(|memory| memory.request_focus(ui.id().with((name, items[target].1))));
+        changed |= *value != items[target].0;
+        *value = items[target].0;
     }
     changed
+}
+
+/// Left and right arrows step through a focused group instead of leaving it.
+/// Returns the index to move to when one was pressed this frame.
+pub fn arrow_target(ui: &egui::Ui, focused: egui::Id, index: usize, count: usize) -> Option<usize> {
+    ui.memory_mut(|memory| {
+        memory.set_focus_lock_filter(
+            focused,
+            egui::EventFilter {
+                horizontal_arrows: true,
+                ..Default::default()
+            },
+        )
+    });
+    let (left, right) = ui.input(|input| {
+        (
+            input.key_pressed(egui::Key::ArrowLeft),
+            input.key_pressed(egui::Key::ArrowRight),
+        )
+    });
+    if right && index + 1 < count {
+        Some(index + 1)
+    } else if left && index > 0 {
+        Some(index - 1)
+    } else {
+        None
+    }
 }
 
 /// egui's checkbox behavior with a squared box that fills with the accent when on.
@@ -1370,6 +1466,20 @@ pub fn checkbox(
 
 /// The single most important action on a surface: a vivid capture-red satin button.
 pub fn capture_button(ui: &mut egui::Ui, label: &str, size: Vec2) -> egui::Response {
+    let text = ui.painter().layout_no_wrap(
+        label.into(),
+        egui::FontId::proportional(if size.y < 36. { 13.5 } else { 14.5 }),
+        Color32::WHITE,
+    );
+    // A zero width fits the label.
+    let size = Vec2::new(
+        if size.x > 0. {
+            size.x
+        } else {
+            text.size().x + 50.
+        },
+        size.y,
+    );
     let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
@@ -1392,11 +1502,6 @@ pub fn capture_button(ui: &mut egui::Ui, label: &str, size: Vec2) -> egui::Respo
                     .lerp_to_gamma(Color32::from_rgb(255, 128, 104), hover),
                 ..p
             },
-        );
-        let text = ui.painter().layout_no_wrap(
-            label.into(),
-            egui::FontId::proportional(14.5),
-            Color32::WHITE,
         );
         let left = rect.center().x - (text.size().x + 26.) * 0.5;
         let nudge = if pressed { 1. } else { 0. };
@@ -1604,6 +1709,56 @@ mod tests {
                 reference = Some(rectangles);
             }
         }
+    }
+
+    #[test]
+    fn arrow_keys_step_through_a_focused_segmented_control() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        let mut value = 0;
+        let mut frame = |events: Vec<egui::Event>| {
+            let mut changed = false;
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(320., 80.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        changed = segmented(
+                            ui,
+                            "delay",
+                            &mut value,
+                            &[
+                                (0, "Off", None, ""),
+                                (3, "3s", None, ""),
+                                (5, "5s", None, ""),
+                            ],
+                        );
+                    });
+                },
+            );
+            changed
+        };
+        let key = |key| egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        frame(vec![]);
+        frame(vec![key(egui::Key::Tab)]);
+        frame(vec![]);
+        assert!(frame(vec![key(egui::Key::ArrowRight)]));
+        frame(vec![]);
+        assert!(frame(vec![key(egui::Key::ArrowRight)]));
+        frame(vec![]);
+        // The last choice is an end stop, and Left steps back.
+        assert!(!frame(vec![key(egui::Key::ArrowRight)]));
+        assert!(frame(vec![key(egui::Key::ArrowLeft)]));
+        assert_eq!(value, 3);
     }
 
     #[test]

@@ -111,7 +111,7 @@ impl MyImageApp {
             .area(egui::Modal::default_area(id).anchor(Align2::CENTER_CENTER, Vec2::ZERO))
             .backdrop_color(Color32::from_black_alpha(100))
             .frame(Frame::new()
-                .fill(Color32::WHITE)
+                .fill(palette.surface)
                 .stroke(Stroke::new(1., palette.border))
                 .corner_radius(18)
                 .inner_margin(24)

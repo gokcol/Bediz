@@ -51,7 +51,7 @@ impl MyImageApp {
             .backdrop_color(Color32::from_black_alpha(100))
             .frame(
                 Frame::new()
-                    .fill(Color32::WHITE)
+                    .fill(palette.surface)
                     .stroke(Stroke::new(1., palette.border))
                     .corner_radius(18)
                     .inner_margin(24)

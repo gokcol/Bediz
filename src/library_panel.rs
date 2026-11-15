@@ -442,6 +442,8 @@ impl LibraryPanel {
                             5,
                             if selected {
                                 appearance::palette(ui.ctx()).cream
+                            } else if appearance::palette(ui.ctx()).is_dark() {
+                                appearance::palette(ui.ctx()).base
                             } else {
                                 Color32::from_gray(239)
                             },

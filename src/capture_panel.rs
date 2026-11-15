@@ -93,11 +93,44 @@ impl CaptureTheme {
                 border: c[7],
                 base: c[8],
                 accent_top: c[9],
+                surface: c[10],
             },
             top: c[10],
             off: c[11],
             dark: self != Self::Porcelain,
         }
+    }
+}
+
+/// Scope a Capture Now theme to `ui` and its popups; the editor theme is untouched.
+pub fn apply_look(ui: &mut egui::Ui, look: &CaptureLook) {
+    let p = look.palette;
+    let v = ui.visuals_mut();
+    *v = if look.dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    v.override_text_color = Some(p.ink);
+    v.weak_text_color = Some(p.muted);
+    v.window_fill = p.paper;
+    v.panel_fill = p.paper;
+    v.window_stroke = Stroke::new(1., p.border);
+    v.extreme_bg_color = p.navy;
+    v.selection.bg_fill = p.accent;
+    v.selection.stroke = Stroke::new(1., Color32::WHITE);
+    for (widget, fill, stroke) in [
+        (&mut v.widgets.inactive, p.navy, p.border),
+        (&mut v.widgets.hovered, p.cream, p.accent_top),
+        (&mut v.widgets.active, p.cream, p.accent_top),
+        (&mut v.widgets.open, p.navy, p.accent_top),
+    ] {
+        widget.bg_fill = fill;
+        widget.weak_bg_fill = fill;
+        widget.bg_stroke = Stroke::new(1., stroke);
+        widget.fg_stroke = Stroke::new(1., p.ink);
+        widget.corner_radius = egui::CornerRadius::same(8);
+        widget.expansion = 0.;
     }
 }
 
@@ -156,6 +189,17 @@ pub fn display_choices(
     before != (settings.capture_all_displays, settings.display_id)
 }
 
+/// A folder path that reads at a glance: the home folder becomes `~`.
+pub fn folder_label(path: &std::path::Path) -> String {
+    directories::UserDirs::new()
+        .and_then(|dirs| {
+            path.strip_prefix(dirs.home_dir())
+                .ok()
+                .map(|rest| std::path::Path::new("~").join(rest).display().to_string())
+        })
+        .unwrap_or_else(|| path.display().to_string())
+}
+
 pub fn delay_label(seconds: u32) -> String {
     match seconds {
         0 => "No delay".into(),
@@ -174,7 +218,7 @@ pub fn menu_summary(settings: &Settings, _shape: CaptureShape, displays: &[Displ
 }
 fn card(ctx: &egui::Context) -> egui::Frame {
     egui::Frame::new()
-        .fill(Color32::WHITE)
+        .fill(crate::appearance::surface(ctx))
         .corner_radius(8)
         .inner_margin(14)
         .stroke(Stroke::new(1., appearance::palette(ctx).border))
@@ -235,7 +279,7 @@ pub fn ui(
                             ui.horizontal(|ui| {
                                 ui.strong("Capture options");
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if ui.small_button("Refresh").on_hover_text("Find connected displays").clicked() { result.action = Some(Action::RefreshDisplays); }
+                                    if appearance::document_icon_button(ui, "Find connected displays", appearance::Icon::Refresh).clicked() { result.action = Some(Action::RefreshDisplays); }
                                 });
                             });
                             let label = selected_display_label(settings, displays);
@@ -271,29 +315,41 @@ pub fn ui(
                             ui.separator();
                             ui.horizontal(|ui| {
                                 ui.strong("Save to library");
-                                if ui.small_button("Change…").clicked() { result.action = Some(Action::ChooseFolder); }
-                                if ui.small_button("Browse").clicked() { result.action = Some(Action::Library); }
+                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    if appearance::action_button(ui, "Browse", appearance::Icon::Library, true, false).on_hover_text("Open your Library").clicked() { result.action = Some(Action::Library); }
+                                    if appearance::action_button(ui, "Change…", appearance::Icon::Open, true, false).on_hover_text("Choose where captures are saved").clicked() { result.action = Some(Action::ChooseFolder); }
+                                });
                             });
-                            ui.add(egui::Label::new(egui::RichText::new(settings.output_dir.display().to_string()).small().color(appearance::palette(ui.ctx()).muted)).truncate())
-                                .on_hover_text(settings.output_dir.display().to_string());
+                            let folder = folder_label(&settings.output_dir);
+                            egui::Frame::new().fill(appearance::palette(ui.ctx()).base).corner_radius(6).inner_margin(egui::Margin::symmetric(8, 5)).show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.horizontal(|ui| {
+                                    let (icon, _) = ui.allocate_exact_size(Vec2::splat(16.), egui::Sense::hover());
+                                    appearance::icon(ui.painter(), icon.center(), appearance::Icon::Open, appearance::palette(ui.ctx()).muted, 15.);
+                                    ui.add(egui::Label::new(egui::RichText::new(folder).size(12.5)).truncate())
+                                        .on_hover_text(settings.output_dir.display().to_string());
+                                });
+                            });
                             ui.small("PNG · Organized by year / month / day");
                             }
                         });
                     });
-                    egui::Frame::new().fill(appearance::palette(ui.ctx()).navy).corner_radius(8).inner_margin(16).show(ui, |ui| {
+                    let look = settings.capture_theme.look();
+                    egui::Frame::new().fill(look.palette.paper).stroke(Stroke::new(1., look.palette.border)).corner_radius(10).inner_margin(16).show(ui, |ui| {
                         ui.vertical(|ui| {
                         ui.set_width(222.);
                         ui.spacing_mut().item_spacing.y = 8.;
-                        ui.label(egui::RichText::new("CAPTURE NOW").size(11.).strong().color(appearance::palette(ui.ctx()).ginger));
-                        ui.label(egui::RichText::new(settings.capture_mode.label()).size(19.).strong().color(Color32::WHITE));
-                        ui.add(egui::Label::new(egui::RichText::new(settings.capture_mode.hint()).size(13.).color(Color32::from_rgb(224, 213, 197))).wrap());
+                        ui.label(egui::RichText::new("CAPTURE NOW").size(11.).strong().color(look.palette.ginger));
+                        ui.label(egui::RichText::new(settings.capture_mode.label()).size(19.).strong().color(look.palette.ink));
+                        ui.add(egui::Label::new(egui::RichText::new(settings.capture_mode.hint()).size(13.).color(look.palette.muted)).wrap());
                         if ui.add_enabled_ui(available.capture, |ui| appearance::capture_button(ui, "Capture Now", Vec2::new(222., 40.))).inner.clicked() {
                             result.action = Some(Action::Capture);
                         }
-                        ui.label(egui::RichText::new("Ctrl + Shift + C").strong().color(Color32::WHITE));
-                        ui.label(egui::RichText::new(if cfg!(target_os="macos") { "Also ⌃⇧. / ⌘⇧." } else { "Also Ctrl + Shift + ." }).size(12.).color(Color32::from_rgb(224, 213, 197)));
+                        ui.label(egui::RichText::new("Ctrl + Shift + C").strong().color(look.palette.ink));
+                        ui.label(egui::RichText::new(if cfg!(target_os="macos") { "Also ⌃⇧. / ⌘⇧." } else { "Also Ctrl + Shift + ." }).size(12.).color(look.palette.muted));
+                        ui.visuals_mut().widgets.noninteractive.bg_stroke.color = look.palette.border;
                         ui.separator();
-                        ui.label(egui::RichText::new(if settings.capture_mode == CaptureMode::Text { "Text is copied directly. Your editor and Library stay unchanged." } else { settings.capture_destination.hint() }).size(12.).color(Color32::from_rgb(224, 213, 197)));
+                        ui.label(egui::RichText::new(if settings.capture_mode == CaptureMode::Text { "Text is copied directly. Your editor and Library stay unchanged." } else { settings.capture_destination.hint() }).size(12.).color(look.palette.muted));
                         });
                     });
                 });
@@ -318,7 +374,11 @@ pub fn ui(
 
 pub fn destination_picker(ui: &mut egui::Ui, destination: &mut CaptureDestination) -> bool {
     let before = *destination;
+    let popup_visuals = ui.visuals().clone();
     egui::ComboBox::from_id_salt("capture-destination")
+        .popup_style(egui::style::StyleModifier::new(move |style| {
+            style.visuals = popup_visuals.clone()
+        }))
         .selected_text(format!("To: {}", destination.label()))
         .width(118.)
         .show_ui(ui, |ui| {
@@ -500,7 +560,9 @@ fn sized_mode_tile(
         // The compact launcher shows help in its header instead of a popup.
         return response.on_hover_cursor(egui::CursorIcon::PointingHand);
     }
-    let color = if selected {
+    let color = if selected && appearance::palette(ui.ctx()).is_dark() {
+        Color32::WHITE
+    } else if selected {
         appearance::palette(ui.ctx()).cream
     } else {
         appearance::palette(ui.ctx()).ink
@@ -511,7 +573,7 @@ fn sized_mode_tile(
         if selected {
             appearance::palette(ui.ctx()).navy
         } else {
-            Color32::WHITE
+            crate::appearance::surface(ui.ctx())
         },
     );
     ui.painter().rect_stroke(

@@ -189,10 +189,11 @@ fn apply_style(ui: &mut egui::Ui) {
     ui.spacing_mut().button_padding = egui::vec2(10., 6.);
     ui.spacing_mut().interact_size.y = 30.;
     let palette = appearance::palette(ui.ctx());
+    let deep_text = appearance::deep_text(ui.ctx());
     let visuals = &mut ui.style_mut().visuals;
-    visuals.override_text_color = Some(palette.navy);
+    visuals.override_text_color = Some(deep_text);
     visuals.weak_text_color = Some(palette.muted);
-    visuals.extreme_bg_color = Color32::WHITE;
+    visuals.extreme_bg_color = palette.surface;
     visuals.selection.bg_fill = palette.cream;
     for widget in [
         &mut visuals.widgets.inactive,
@@ -202,8 +203,8 @@ fn apply_style(ui: &mut egui::Ui) {
         widget.corner_radius = CornerRadius::same(5);
         widget.bg_stroke = Stroke::new(1., palette.border);
     }
-    visuals.widgets.inactive.bg_fill = Color32::WHITE;
-    visuals.widgets.inactive.weak_bg_fill = Color32::WHITE;
+    visuals.widgets.inactive.bg_fill = palette.surface;
+    visuals.widgets.inactive.weak_bg_fill = palette.surface;
     visuals.widgets.hovered.bg_fill = palette.cream;
     visuals.widgets.hovered.weak_bg_fill = visuals.widgets.hovered.bg_fill;
     visuals.widgets.hovered.bg_stroke = Stroke::new(1., palette.accent);
@@ -230,8 +231,8 @@ pub fn button(
             appearance::palette(ui.ctx()).accent,
         ),
         Action::Secondary => (
-            Color32::WHITE,
-            appearance::palette(ui.ctx()).navy,
+            appearance::surface(ui.ctx()),
+            appearance::deep_text(ui.ctx()),
             appearance::palette(ui.ctx()).border,
         ),
         Action::Danger => (
@@ -363,7 +364,7 @@ pub fn notice(ui: &mut egui::Ui, icon: Icon, title: &str, text: &str, error: boo
                         ui.label(
                             RichText::new(title)
                                 .strong()
-                                .color(appearance::palette(ui.ctx()).navy),
+                                .color(appearance::deep_text(ui.ctx())),
                         );
                     }
                     ui.add(

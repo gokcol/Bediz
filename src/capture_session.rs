@@ -566,21 +566,36 @@ impl MyImageApp {
         let bar = area
             .show(ctx, |ui| {
                 ui.push_id(selection.display.id, |ui| {
+                    let look = self.settings.capture_theme.look();
                     egui::Frame::new()
-                        .fill(appearance::palette(ui.ctx()).navy)
-                        .corner_radius(12)
+                        .fill(look.palette.paper)
+                        .stroke(egui::Stroke::new(1., look.palette.border))
+                        .corner_radius(14)
                         .inner_margin(12)
+                        .shadow(egui::Shadow {
+                            offset: [0, 6],
+                            blur: 18,
+                            spread: 0,
+                            color: Color32::from_black_alpha(90),
+                        })
                         .show(ui, |ui| {
+                            crate::capture_panel::apply_look(ui, &look);
                             ui.spacing_mut().item_spacing.x = 10.;
                             ui.horizontal(|ui| {
                                 ui.label(
                                     egui::RichText::new("Capture Now")
                                         .strong()
-                                        .color(Color32::WHITE),
+                                        .color(look.palette.ink),
                                 );
                                 egui::ComboBox::from_id_salt("capture_mode_live")
                                     .selected_text(mode.label())
                                     .width(110.)
+                                    .popup_style(egui::style::StyleModifier::new({
+                                        let visuals = ui.visuals().clone();
+                                        move |style: &mut egui::Style| {
+                                            style.visuals = visuals.clone()
+                                        }
+                                    }))
                                     .show_ui(ui, |ui| {
                                         for choice in [
                                             CaptureMode::Region,
@@ -600,7 +615,7 @@ impl MyImageApp {
                                 if mode == CaptureMode::Text {
                                     ui.label(
                                         egui::RichText::new("Text → clipboard")
-                                            .color(Color32::WHITE),
+                                            .color(look.palette.ink),
                                     );
                                 } else {
                                     destination_changed = crate::capture_panel::destination_picker(
@@ -611,7 +626,7 @@ impl MyImageApp {
                                 crate::appearance::checkbox(
                                     ui,
                                     &mut selection.magnifier,
-                                    egui::RichText::new("Magnifier").color(Color32::WHITE),
+                                    egui::RichText::new("Magnifier").color(look.palette.ink),
                                 );
                                 if ui.button("Reset").clicked() {
                                     selection.drag = RegionDrag::default();
@@ -627,7 +642,7 @@ impl MyImageApp {
                                             "{}/32",
                                             selection.multi.rects.len()
                                         ))
-                                        .color(Color32::WHITE),
+                                        .color(look.palette.ink),
                                     );
                                     if ui
                                         .add_enabled(
@@ -645,10 +660,9 @@ impl MyImageApp {
                                     || (mode == CaptureMode::MultiRegion
                                         && !selection.multi.rects.is_empty());
                                 if ui
-                                    .add_enabled(
-                                        ready,
-                                        appearance::primary(
-                                            ui.ctx(),
+                                    .add_enabled_ui(ready, |ui| {
+                                        appearance::capture_button(
+                                            ui,
                                             if mode == CaptureMode::Scrolling {
                                                 "Start scrolling"
                                             } else if mode == CaptureMode::Text {
@@ -656,8 +670,10 @@ impl MyImageApp {
                                             } else {
                                                 self.settings.capture_destination.capture_label()
                                             },
-                                        ),
-                                    )
+                                            Vec2::new(0., 30.),
+                                        )
+                                    })
+                                    .inner
                                     .clicked()
                                 {
                                     accepted = Some(selection::PixelRect {

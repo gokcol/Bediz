@@ -114,7 +114,7 @@ impl CreatePanel {
                         ui.painter().rect(
                             rect,
                             8,
-                            Color32::WHITE,
+                            crate::appearance::surface(ui.ctx()),
                             egui::Stroke::new(
                                 if kind == self.kind { 2. } else { 1. },
                                 if kind == self.kind {

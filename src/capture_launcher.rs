@@ -314,6 +314,7 @@ fn segmented(
         appearance::satin_with_palette(ui.painter(), cell(at), 6., true, false, p);
     }
     let mut clicked = None;
+    let mut focused = None;
     for (i, (label, icon, hint)) in items.iter().enumerate() {
         let rect = cell(i as f32);
         let is_selected = selected == Some(i);
@@ -368,6 +369,15 @@ fn segmented(
         if response.clicked() {
             clicked = Some(i);
         }
+        if response.has_focus() {
+            focused = Some(i);
+        }
+    }
+    if let Some(i) = focused
+        && let Some(target) = appearance::arrow_target(ui, ui.id().with(items[i].0), i, items.len())
+    {
+        ui.memory_mut(|memory| memory.request_focus(ui.id().with(items[target].0)));
+        clicked = Some(target);
     }
     clicked
 }
@@ -456,33 +466,7 @@ fn launcher_content(
         );
     }
     // Scope the dropdown and popup colors to this panel; never alter the editor theme.
-    let v = ui.visuals_mut();
-    *v = if dark {
-        egui::Visuals::dark()
-    } else {
-        egui::Visuals::light()
-    };
-    v.override_text_color = Some(p.ink);
-    v.weak_text_color = Some(p.muted);
-    v.window_fill = p.paper;
-    v.panel_fill = p.paper;
-    v.window_stroke = Stroke::new(1., p.border);
-    v.extreme_bg_color = p.navy;
-    v.selection.bg_fill = p.accent;
-    v.selection.stroke = Stroke::new(1., Color32::WHITE);
-    for (widget, fill, stroke) in [
-        (&mut v.widgets.inactive, p.navy, p.border),
-        (&mut v.widgets.hovered, p.cream, p.accent_top),
-        (&mut v.widgets.active, p.cream, p.accent_top),
-        (&mut v.widgets.open, p.navy, p.accent_top),
-    ] {
-        widget.bg_fill = fill;
-        widget.weak_bg_fill = fill;
-        widget.bg_stroke = Stroke::new(1., stroke);
-        widget.fg_stroke = Stroke::new(1., p.ink);
-        widget.corner_radius = egui::CornerRadius::same(8);
-        widget.expansion = 0.;
-    }
+    crate::capture_panel::apply_look(ui, &look(ui.ctx()));
     ui.spacing_mut().button_padding = Vec2::new(9., 4.);
     ui.spacing_mut().interact_size.y = 26.;
     ui.spacing_mut().item_spacing = Vec2::new(4., 0.);
