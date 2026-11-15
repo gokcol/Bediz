@@ -87,6 +87,16 @@ pub fn surface(ctx: &egui::Context) -> Color32 {
     palette(ctx).surface
 }
 
+/// A fixed light tint on the light finishes; the dark finish picks its own equivalent.
+pub fn adaptive(
+    ctx: &egui::Context,
+    light: Color32,
+    dark: impl FnOnce(&Palette) -> Color32,
+) -> Color32 {
+    let p = palette(ctx);
+    if p.is_dark() { dark(&p) } else { light }
+}
+
 /// The strongest text color: the deep navy on light finishes, the ink on dark ones.
 pub fn deep_text(ctx: &egui::Context) -> Color32 {
     let p = palette(ctx);
@@ -107,6 +117,7 @@ pub fn set_finish(ctx: &egui::Context, finish: GuiFinish) {
     let v = &mut style.visuals;
     v.dark_mode = p.is_dark();
     v.widgets.noninteractive.bg_fill = p.paper;
+    v.widgets.noninteractive.weak_bg_fill = p.paper;
     v.code_bg_color = p.base;
     v.override_text_color = Some(p.ink);
     v.weak_text_color = Some(p.muted);

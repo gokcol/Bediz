@@ -279,7 +279,7 @@ impl EditorState {
             .movable(false)
             .show(ctx, |ui| {
                 egui::Frame::popup(ui.style())
-                    .fill(Color32::WHITE)
+                    .fill(crate::appearance::surface(ui.ctx()))
                     .corner_radius(3)
                     .inner_margin(2)
                     .show(ui, |ui| {
@@ -466,7 +466,11 @@ fn inline_control(
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
     if response.hovered() || response.has_focus() {
-        ui.painter().rect_filled(rect, 2, Color32::from_gray(235));
+        ui.painter().rect_filled(
+            rect,
+            2,
+            crate::appearance::adaptive(ui.ctx(), Color32::from_gray(235), |p| p.cream),
+        );
     }
     paint(ui.painter(), rect);
     response.on_hover_text(label)

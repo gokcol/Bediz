@@ -304,7 +304,9 @@ pub fn picker(ui: &mut egui::Ui, current: &mut CalloutStyle) -> bool {
                         if selected {
                             crate::appearance::palette(ui.ctx()).accent
                         } else {
-                            Color32::from_gray(235)
+                            crate::appearance::adaptive(ui.ctx(), Color32::from_gray(235), |p| {
+                                p.surface
+                            })
                         },
                     );
                 }

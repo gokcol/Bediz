@@ -516,13 +516,32 @@ impl EditorState {
                                 )
                             });
                             let fill = if selected {
-                                Color32::from_rgb(222, 245, 244)
+                                crate::appearance::adaptive(
+                                    ui.ctx(),
+                                    Color32::from_rgb(222, 245, 244),
+                                    |p| p.cream,
+                                )
                             } else if response.hovered() {
-                                Color32::from_rgb(243, 246, 250)
+                                crate::appearance::adaptive(
+                                    ui.ctx(),
+                                    Color32::from_rgb(243, 246, 250),
+                                    |p| p.surface,
+                                )
                             } else {
                                 Color32::TRANSPARENT
                             };
                             ui.painter().rect_filled(rect, 7., fill);
+                            // Dark stamps need a light sticker sheet behind them on the dark finish.
+                            if crate::appearance::palette(ui.ctx()).is_dark() {
+                                ui.painter().rect_filled(
+                                    Rect::from_min_size(
+                                        rect.min + Vec2::splat(4.),
+                                        egui::vec2(cell_width - 8., cell_width - 8.),
+                                    ),
+                                    6.,
+                                    Color32::from_gray(214),
+                                );
+                            }
                             if selected {
                                 ui.painter().rect_stroke(
                                     rect,
@@ -553,7 +572,11 @@ impl EditorState {
                                 egui::Align2::CENTER_CENTER,
                                 label,
                                 egui::FontId::proportional(9.),
-                                Color32::from_rgb(73, 85, 101),
+                                crate::appearance::adaptive(
+                                    ui.ctx(),
+                                    Color32::from_rgb(73, 85, 101),
+                                    |p| p.muted,
+                                ),
                             );
                             response.dnd_set_drag_payload(source.clone());
                             if ui.is_enabled()

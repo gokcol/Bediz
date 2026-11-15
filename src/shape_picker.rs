@@ -101,15 +101,25 @@ impl EditorState {
                             )
                         });
                         let fill = if selected {
-                            Color32::from_rgb(218, 243, 239)
+                            appearance::adaptive(ui.ctx(), Color32::from_rgb(218, 243, 239), |p| {
+                                p.cream
+                            })
                         } else if response.hovered() {
-                            Color32::from_rgb(237, 242, 247)
+                            appearance::adaptive(ui.ctx(), Color32::from_rgb(237, 242, 247), |p| {
+                                p.surface
+                            })
                         } else {
-                            Color32::from_rgb(246, 248, 250)
+                            appearance::adaptive(ui.ctx(), Color32::from_rgb(246, 248, 250), |p| {
+                                p.base
+                            })
                         };
                         ui.painter().rect_filled(rect, 5, fill);
                         let color = if selected {
-                            appearance::palette(ui.ctx()).accent
+                            appearance::adaptive(
+                                ui.ctx(),
+                                appearance::palette(ui.ctx()).accent,
+                                |p| p.ginger,
+                            )
                         } else {
                             appearance::palette(ui.ctx()).ink
                         };

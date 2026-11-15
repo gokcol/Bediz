@@ -148,9 +148,15 @@ pub fn shape_picker(ui: &mut egui::Ui, options: &mut Options) -> bool {
                     r,
                     4.,
                     if selected {
-                        Color32::from_rgb(255, 238, 215)
+                        crate::appearance::adaptive(
+                            ui.ctx(),
+                            Color32::from_rgb(255, 238, 215),
+                            |p| p.cream,
+                        )
                     } else {
-                        Color32::from_gray(235)
+                        crate::appearance::adaptive(ui.ctx(), Color32::from_gray(235), |p| {
+                            p.surface
+                        })
                     },
                 );
             }
