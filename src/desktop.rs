@@ -231,7 +231,7 @@ impl DesktopIntegration {
         let tray = TrayIconBuilder::new()
             .with_id("myimage.tray")
             .with_tooltip(if cfg!(target_os = "macos") {
-                "MyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+. / Cmd+Shift+."
+                "SkyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+. / Cmd+Shift+."
             } else {
                 "SkyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+."
             })
@@ -336,7 +336,7 @@ impl DesktopIntegration {
             Err(error) => {
                 let message = format!(
                     "{error}. If another application owns an unavailable shortcut, free it and retry. \
-                     Capture in the MyImage menu or editor remains available."
+                     Capture in the SkyImage menu or editor remains available."
                 );
                 self.hotkey_error = Some(message.clone());
                 Err(message)

@@ -320,7 +320,7 @@ fn bundle(
     release: bool,
 ) -> TaskResult<()> {
     let mut stage = StagingDirectory::create(destination)?;
-    let app = stage.path.join("MyImage.app");
+    let app = stage.path.join("SkyImage.app");
     let contents = app.join("Contents");
     let macos = contents.join("MacOS");
     fs::create_dir_all(&macos)?;
@@ -356,7 +356,7 @@ fn bundle(
         }
         sign.args(["--options", "runtime", "--timestamp"]);
     }
-    checked(sign.arg(&app), "Sign MyImage.app")?;
+    checked(sign.arg(&app), "Sign SkyImage.app")?;
     checked(
         Command::new("/usr/bin/codesign")
             .args(["--verify", "--deep", "--strict"])
@@ -373,9 +373,9 @@ fn bundle(
             .args(["-c", "-k", "--sequesterRsrc", "--keepParent"])
             .arg(&app)
             .arg(&archive),
-        "Archive MyImage.app",
+        "Archive SkyImage.app",
     )?;
-    let final_app = destination.join("MyImage.app");
+    let final_app = destination.join("SkyImage.app");
     // Repackaging the same numbered release must not replace a useful older
     // rollback with another copy of the current release.
     let same_release = cleanup::same_file_contents(
@@ -512,7 +512,7 @@ mod packaging_tests {
             fs::create_dir_all(output.parent().unwrap()).unwrap();
             fs::copy(source.join(relative), output).unwrap();
         }
-        let executable = source.join("target/bundle/MyImage.app/Contents/MacOS/MyImage");
+        let executable = source.join("target/bundle/SkyImage.app/Contents/MacOS/MyImage");
         let destination = root.join("target/bundle");
         fs::create_dir_all(&destination).unwrap();
         let cache = root.join("target/debug/deps/old.rlib");
@@ -547,7 +547,7 @@ mod packaging_tests {
         assert_eq!(fs::read(&backup).unwrap(), previous);
         assert!(
             destination
-                .join("MyImage.app/Contents/MacOS/MyImage")
+                .join("SkyImage.app/Contents/MacOS/MyImage")
                 .exists()
         );
         // Repeated packaging retains that rollback rather than rotating again.

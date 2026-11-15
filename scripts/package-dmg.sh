@@ -1,9 +1,9 @@
 #!/bin/sh
 # Wrap an already signed, stapled release app without rebuilding or changing it.
 # MYIMAGE_SIGNING_IDENTITY=<fingerprint> MYIMAGE_NOTARY_PROFILE=MyPDF \
-#   sh scripts/package-dmg.sh target/bundle/MyImage.app dist/installers
+#   sh scripts/package-dmg.sh target/bundle/SkyImage.app dist/installers
 set -eu
-app=${1:?Supply the signed, notarized MyImage.app}
+app=${1:?Supply the signed, notarized SkyImage.app}
 out=${2:?Supply an output directory}
 identity=${MYIMAGE_SIGNING_IDENTITY:?Set the Developer ID Application fingerprint}
 profile=${MYIMAGE_NOTARY_PROFILE:?Set an existing notarytool Keychain profile}
@@ -38,15 +38,17 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir "$work/layout"
-ditto "$app" "$work/layout/MyImage.app"
+ditto "$app" "$work/layout/SkyImage.app"
 ln -s /Applications "$work/layout/Applications"
-cat > "$work/layout/Install MyImage.txt" <<'TEXT'
-Drag MyImage.app onto Applications, then open MyImage from Applications.
-If updating, save your work and quit MyImage from its menu before replacing it.
+cat > "$work/layout/Install SkyImage.txt" <<'TEXT'
+Drag SkyImage.app onto Applications, then open SkyImage from Applications.
+If updating, save your work and quit SkyImage from its menu before replacing it.
+When upgrading from MyImage.app, quit it and move the old application bundle out
+of Applications after installing SkyImage.app, so only one copy remains.
 Your projects, captures, settings and recovery data are kept separately.
 Requires macOS 14 or later. Source: https://github.com/gokcol/MyImage
 TEXT
-hdiutil create -volname "MyImage $version" -srcfolder "$work/layout" -format UDZO "$work/$name"
+hdiutil create -volname "SkyImage $version" -srcfolder "$work/layout" -format UDZO "$work/$name"
 codesign --force --timestamp --sign "$identity" "$work/$name"
 codesign --verify --strict -R "=anchor apple generic and certificate leaf[subject.OU] = \"$team\"" "$work/$name"
 xcrun notarytool submit "$work/$name" --keychain-profile "$profile" --wait --output-format json > "$work/notary.json"
@@ -60,9 +62,9 @@ mkdir "$work/mount"
 hdiutil attach -readonly -nobrowse -mountpoint "$work/mount" "$work/$name"
 mounted=true
 test "$(readlink "$work/mount/Applications")" = /Applications
-cmp "$app/Contents/MacOS/MyImage" "$work/mount/MyImage.app/Contents/MacOS/MyImage"
-codesign --verify --deep --strict "$work/mount/MyImage.app"
-xcrun stapler validate "$work/mount/MyImage.app"
+cmp "$app/Contents/MacOS/MyImage" "$work/mount/SkyImage.app/Contents/MacOS/MyImage"
+codesign --verify --deep --strict "$work/mount/SkyImage.app"
+xcrun stapler validate "$work/mount/SkyImage.app"
 hdiutil detach "$work/mount"
 mounted=false
 (cd "$work" && shasum -a 256 "$name" > "$name.sha256")

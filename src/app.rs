@@ -1605,7 +1605,7 @@ impl MyImageApp {
             Some(Action::Permission) => {
                 let granted = capture::request_screen_capture_permission();
                 self.status = if granted { "Screen capture permission granted" } else {
-                    "Enable MyImage in macOS Screen & System Audio Recording settings, then reopen if requested."
+                    "Enable SkyImage in macOS Screen & System Audio Recording settings, then reopen if requested."
                 }.into();
             }
             None => {}

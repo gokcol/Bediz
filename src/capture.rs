@@ -594,7 +594,7 @@ mod macos {
 
     fn describe_error(action: &str, error: &NSError) -> String {
         format!(
-            "ScreenCaptureKit could not {action}: {} ({} {}). Check MyImage's Screen & System Audio Recording permission, then quit and reopen this exact app bundle. If access is already enabled, macOS may be retaining a grant for an older signing identity.",
+            "ScreenCaptureKit could not {action}: {} ({} {}). Check SkyImage's Screen & System Audio Recording permission, then quit and reopen this exact app bundle. If access is already enabled, macOS may be retaining a grant for an older signing identity.",
             error.localizedDescription(),
             error.domain(),
             error.code(),

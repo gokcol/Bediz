@@ -28,12 +28,12 @@ impl ApplicationMenu {
             return Err("The application menu is already installed.".into());
         }
         let information = [
-            MenuItem::with_id(ABOUT_ID, "About MyImage", true, None),
+            MenuItem::with_id(ABOUT_ID, "About SkyImage", true, None),
             MenuItem::with_id(WHATS_NEW_ID, "What's New", true, None),
             MenuItem::with_id(CHECK_UPDATES_ID, "Check for Updates…", true, None),
         ];
         let application = Submenu::with_items(
-            "MyImage",
+            "SkyImage",
             true,
             &[
                 &information[0],
@@ -42,12 +42,12 @@ impl ApplicationMenu {
                 &Native::separator(),
                 &Native::services(None),
                 &Native::separator(),
-                &Native::hide(Some("Hide MyImage")),
+                &Native::hide(Some("Hide SkyImage")),
                 &Native::hide_others(None),
                 &Native::show_all(None),
                 &Native::separator(),
                 // Preserve the existing cancellable native termination hook and Cmd+Q.
-                &Native::quit(Some("Quit MyImage")),
+                &Native::quit(Some("Quit SkyImage")),
             ],
         )
         .map_err(|e| e.to_string())?;

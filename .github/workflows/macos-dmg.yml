@@ -41,7 +41,7 @@ jobs:
           ditto -x -k input/MyImage-macos-aarch64.zip input
           python3 - <<'PY'
           import os, plistlib, re
-          with open('input/MyImage.app/Contents/Info.plist', 'rb') as file:
+          with open('input/SkyImage.app/Contents/Info.plist', 'rb') as file:
               info = plistlib.load(file)
           match = re.fullmatch(r'v(\d+\.\d+(?:\.\d+)?)(?:-build(\d+))?', os.environ['RELEASE_TAG'])
           version = match[1] + ('.0' if match[1].count('.') == 1 else '')
@@ -72,7 +72,7 @@ jobs:
         env:
           MYIMAGE_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
           MYIMAGE_NOTARY_PROFILE: MyImageCI
-        run: sh scripts/package-dmg.sh input/MyImage.app dist/dmg
+        run: sh scripts/package-dmg.sh input/SkyImage.app dist/dmg
       - uses: actions/upload-artifact@v4
         with:
           name: MyImage-notarized-DMG

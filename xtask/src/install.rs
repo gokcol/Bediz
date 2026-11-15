@@ -67,7 +67,7 @@ fn stopped() -> TaskResult<()> {
     match result.status.code() {
         Some(1) => Ok(()),
         Some(0) => Err(
-            "Save your edits and quit MyImage before installing. No files were replaced.".into(),
+            "Save your edits and quit SkyImage or MyImage before installing. No files were replaced.".into(),
         ),
         _ => Err("Cannot establish whether MyImage is running. Installation stopped.".into()),
     }
@@ -105,9 +105,58 @@ fn check_upgrade(incoming: u64, installed: u64) -> TaskResult<()> {
     }
     Ok(())
 }
+// A rename must never overwrite an unrelated second installation.
+fn installed_path(applications: &Path) -> TaskResult<std::path::PathBuf> {
+    let current = applications.join("SkyImage.app");
+    let legacy = applications.join("MyImage.app");
+    let has_current = current.symlink_metadata().is_ok();
+    let has_legacy = legacy.symlink_metadata().is_ok();
+    match (has_current, has_legacy) {
+        (true, true) => Err("Both SkyImage.app and MyImage.app exist. Keep one verified installation before upgrading.".into()),
+        (false, true) => Ok(legacy),
+        _ => Ok(current),
+    }
+}
+
+fn publish_install(
+    stage: &mut StagingDirectory,
+    staged: &Path,
+    installed: &Path,
+    destination: &Path,
+    validate: impl FnOnce(&Path) -> TaskResult<()>,
+) -> TaskResult<()> {
+    if installed != destination && destination.symlink_metadata().is_ok() {
+        return Err("The renamed destination already exists; no files were replaced.".into());
+    }
+    let previous = stage.path.join("previous.app");
+    let had_previous = installed.symlink_metadata().is_ok();
+    // Retain recovery material if any move or verification fails.
+    stage.remove_on_drop = false;
+    if had_previous {
+        fs::rename(installed, &previous)?;
+    }
+    if let Err(error) = fs::rename(staged, destination) {
+        if had_previous {
+            fs::rename(&previous, installed)?;
+        }
+        return Err(error.into());
+    }
+    if let Err(error) = validate(destination) {
+        fs::rename(destination, stage.path.join("failed.app"))?;
+        if had_previous {
+            fs::rename(&previous, installed)?;
+        }
+        return Err(format!("Update verification failed and was rolled back: {error}").into());
+    }
+    stage.remove_on_drop = true;
+    Ok(())
+}
+
 pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<()> {
-    let source = workspace.join("target/bundle/MyImage.app");
-    let installed = Path::new("/Applications/MyImage.app");
+    let source = workspace.join("target/bundle/SkyImage.app");
+    let destination = Path::new("/Applications/SkyImage.app");
+    let current = installed_path(Path::new("/Applications"))?;
+    let installed = current.as_path();
     stopped()?;
     verify(&source)?;
     // Updates must be signed by this app's distributor, not merely any Apple developer.
@@ -134,7 +183,7 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
     cleanup::check_workspace(workspace)?;
     let _lock = cleanup::release_lock(workspace)?;
     let mut stage = StagingDirectory::create(Path::new("/Applications"))?;
-    let staged = stage.path.join("MyImage.app");
+    let staged = stage.path.join("SkyImage.app");
     checked(
         Command::new("/usr/bin/ditto").arg(&source).arg(&staged),
         "Stage update",
@@ -163,7 +212,10 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
                 .arg(&unpacked),
             "Verify rollback archive",
         )?;
-        if !same_tree(installed, &unpacked.join("MyImage.app"))? {
+        if !same_tree(
+            installed,
+            &unpacked.join(installed.file_name().ok_or("Invalid installed app path")?),
+        )? {
             return Err("Rollback archive differs from installed app".into());
         }
         backup.publish(
@@ -176,18 +228,9 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
         )?;
     }
     stopped()?;
-    stage.publish(&staged, installed, "previous.app")?;
-    if let Err(error) = verify(installed) {
-        // Keep the entire staging directory if either restore operation fails.
-        stage.remove_on_drop = false;
-        fs::rename(installed, stage.path.join("failed.app"))?;
-        if stage.path.join("previous.app").exists() {
-            fs::rename(stage.path.join("previous.app"), installed)?;
-        }
-        return Err(format!("Update verification failed and was rolled back: {error}").into());
-    }
+    publish_install(&mut stage, &staged, installed, destination, verify)?;
     println!(
-        "Installed MyImage build {build}. Captures, projects, settings and permission records were not modified."
+        "Installed SkyImage build {build}. Captures, projects, settings and permission records were not modified."
     );
     if migration {
         println!(
@@ -198,7 +241,7 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
 }
 pub fn notarize(workspace: &Path, profile: &str) -> TaskResult<()> {
     let bundle = workspace.join("target/bundle");
-    let app = bundle.join("MyImage.app");
+    let app = bundle.join("SkyImage.app");
     let zip = bundle.join(format!("MyImage-macos-{}.zip", std::env::consts::ARCH));
     verify(&app)?;
     checked(
@@ -240,6 +283,58 @@ pub fn notarize(workspace: &Path, profile: &str) -> TaskResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn installs_and_renames_restore_the_previous_bundle_on_failure() {
+        for previous_name in ["MyImage.app", "SkyImage.app"] {
+            for succeeds in [true, false] {
+                let root = tempfile::tempdir().unwrap();
+                let old = root.path().join(previous_name);
+                let new = root.path().join("SkyImage.app");
+                fs::create_dir(&old).unwrap();
+                fs::write(old.join("binary"), b"old").unwrap();
+                assert_eq!(installed_path(root.path()).unwrap(), old);
+                let mut stage = StagingDirectory::create(root.path()).unwrap();
+                let incoming = stage.path.join("incoming.app");
+                fs::create_dir(&incoming).unwrap();
+                fs::write(incoming.join("binary"), b"new").unwrap();
+                let result = publish_install(&mut stage, &incoming, &old, &new, |_| {
+                    if succeeds {
+                        Ok(())
+                    } else {
+                        Err("invalid signature".into())
+                    }
+                });
+                assert_eq!(result.is_ok(), succeeds);
+                if succeeds {
+                    assert_eq!(old.exists(), old == new);
+                    assert_eq!(fs::read(new.join("binary")).unwrap(), b"new");
+                    assert_eq!(installed_path(root.path()).unwrap(), new);
+                } else {
+                    assert_eq!(new.exists(), old == new);
+                    assert_eq!(fs::read(old.join("binary")).unwrap(), b"old");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn renamed_install_rejects_duplicate_destination_and_restores_failed_move() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join("MyImage.app");
+        let new = root.path().join("SkyImage.app");
+        fs::create_dir(&old).unwrap();
+        fs::write(old.join("binary"), b"old").unwrap();
+        fs::create_dir(&new).unwrap();
+        assert!(installed_path(root.path()).is_err());
+        let mut stage = StagingDirectory::create(root.path()).unwrap();
+        let missing = stage.path.join("missing.app");
+        assert!(publish_install(&mut stage, &missing, &old, &new, |_| Ok(())).is_err());
+        fs::remove_dir(&new).unwrap();
+        assert!(publish_install(&mut stage, &missing, &old, &new, |_| Ok(())).is_err());
+        assert_eq!(fs::read(old.join("binary")).unwrap(), b"old");
+        assert!(!new.exists());
+    }
+
     #[test]
     fn inline_requirement_is_parsed_and_enforced_by_codesign() {
         let apple_binary = Path::new("/usr/bin/true");

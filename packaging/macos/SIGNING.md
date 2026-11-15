@@ -44,7 +44,7 @@ certificate's fingerprint; do not run setup again to create another identity.
 ## Installation and the one-time transition
 
 Quit MyImage normally, preserving any unsaved document. Install the complete signed
-bundle at `/Applications/MyImage.app`. Launch that exact copy. Transitioning from
+bundle at `/Applications/SkyImage.app`. Launch that exact copy. Transitioning from
 the old ad-hoc identity to the persistent identity requires one fresh Screen &
 System Audio Recording grant, followed by Quit & Reopen if macOS requests it.
 Subsequent builds signed by the same certificate satisfy the same designated
@@ -103,7 +103,7 @@ After notarizing the app, create a DMG without rebuilding or modifying it:
 
 ```sh
 MYIMAGE_SIGNING_IDENTITY=<SHA-1-fingerprint> MYIMAGE_NOTARY_PROFILE=MyPDF \
-  sh scripts/package-dmg.sh target/bundle/MyImage.app dist/installers
+  sh scripts/package-dmg.sh target/bundle/SkyImage.app dist/installers
 ```
 
 This creates `MyImage-<version>-build<N>-macos-<arch>.dmg`, its SHA-256 checksum
@@ -126,3 +126,7 @@ the maintainer's Keychain. Until they are configured, use the local command abov
 and attach the DMG/checksum with `gh release upload`. The workflow fails clearly
 if its signing configuration is missing. Temporary hosted signing material is
 removed even if packaging fails; no unsigned DMG is published as a fallback.
+
+## SkyImage rename (build 110)
+
+The bundle is now SkyImage.app. The installer accepts one existing MyImage.app or SkyImage.app, verifies its signature and build, saves a verified rollback ZIP, and migrates it to /Applications/SkyImage.app. Failed publication or verification restores the original path. Both existing names at once are rejected for manual resolution. The bundle identifier com.myimage.app, executable MyImage, signing requirement and storage locations remain stable. Download filenames retain MyImage so older update clients can find the new release.

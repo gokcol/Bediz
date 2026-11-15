@@ -4,6 +4,7 @@ Effective date: 15 November 2026
 
 MyImage is a desktop screen-capture and image editor by Orhan Gökçöl.
 From version 3.0.1, its Windows display name is SkyImage (previously MyImage).
+The Mac app also uses SkyImage from build 110.
 References to MyImage in this policy include SkyImage. This policy applies to
 version 3.0.x, its GitHub distribution and its Microsoft Store edition.
 The name change does not change data processing or storage locations.

@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>MyImage</string>
+    <string>SkyImage</string>
     <key>CFBundleDisplayName</key>
-    <string>MyImage</string>
+    <string>SkyImage</string>
     <key>CFBundleIdentifier</key>
     <string>com.myimage.app</string>
     <key>CFBundleExecutable</key>
@@ -19,7 +19,7 @@
     <key>CFBundleShortVersionString</key>
     <string>3.0.1</string>
     <key>CFBundleVersion</key>
-    <string>109</string>
+    <string>110</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

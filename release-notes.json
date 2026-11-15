@@ -1,18 +1,14 @@
 {
   "version": "3.0.1",
-  "build": 109,
+  "build": 110,
   "store_version": "3.0.1.0",
   "changes": [
-    "One toolbar replaces the two top rows, giving the canvas more height. In the editor, the file name and saved state are in the status bar.",
-    "Graphite Night is a new dark finish in Settings, alongside the three light ones.",
-    "Graphite Night fixes: the Shapes and Stamps pickers, callout and magnify shapes and the in-place text bar now use dark backgrounds.",
-    "Drop an image or project on the window to open it. An empty editor offers Open, Capture and Paste.",
-    "Capture Now is redesigned and about a third smaller, with four themes in Settings: Midnight, Ember, Aurora and Porcelain. The Capture view and the capture overlay follow the chosen theme.",
-    "Help for Capture Now controls appears in the panel header instead of popups. Segmented controls step with the arrow keys."
+    "MyImage is now SkyImage on Mac as well as Windows. Existing projects, settings and update channels are preserved."
   ],
   "macos": [
-    "The macOS top MyImage menu opens the same About dialog as the in-app menu, with What’s New and Check for Updates actions.",
-    "Check GitHub for a newer Mac version and build, then open the matching Mac download."
+    "The app, Dock, menu bar, About dialog, capture windows and installer now display SkyImage, with Previously MyImage shown in About.",
+    "The Mac bundle identifier, signing identity and local storage paths stay unchanged. Existing MyImage installations can upgrade to SkyImage.",
+    "Check for Updates continues to use GitHub."
   ],
   "windows": [
     "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",
