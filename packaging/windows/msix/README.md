@@ -21,7 +21,7 @@ release signatures.
 
 ## Product identity and build
 
-Reserve MyImage's name in Partner Center. Copy these **public identity values**
+SkyImage and MyImage (OG) are reserved for the same Partner Center product. Copy these **public identity values**
 from Product management → Product identity to the repository's Actions variables:
 
 | Variable | Exact Partner Center value |
@@ -46,7 +46,8 @@ These public values are configured as GitHub Actions variables. The product's
 reserved display name is configured separately in `MSIX_DISPLAY_NAME`; it must
 match Partner Center exactly, including punctuation.
 
-Current source app version is **3.0.0**, build **108**; the independent MSIX version is **3.0.0.0**.
+Current source app version is **3.0.1**, build **109**; the independent MSIX version is **3.0.1.0**.
+Windows display branding is SkyImage; the registered package identity remains MyImage. See [rename compatibility](../../../docs/SKYIMAGE-STORE.md).
 This source version includes Store-aware update checks; Microsoft approval of a previous version does not approve this new package.
 This preserves increasing package order after the earlier 1.x packages.
 Increase `version.txt` for subsequent Store releases. Revision (fourth field)

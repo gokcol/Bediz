@@ -1,10 +1,12 @@
-# MyImage privacy policy
+# MyImage / SkyImage privacy policy
 
-Effective date: 13 November 2026
+Effective date: 15 November 2026
 
 MyImage is a desktop screen-capture and image editor by Orhan Gökçöl.
-This policy describes version 3.0.0 and applies to its GitHub distribution
-and any Microsoft Store edition using this source.
+From version 3.0.1, its Windows display name is SkyImage (previously MyImage).
+References to MyImage in this policy include SkyImage. This policy applies to
+version 3.0.x, its GitHub distribution and its Microsoft Store edition.
+The name change does not change data processing or storage locations.
 
 ## On-device processing
 

@@ -15,10 +15,19 @@ Type in place in text boxes and callouts. Add arrows, shapes, stamps, numbered s
 DRAW ATTENTION TO THE DETAILS
 Use adjustable Magnify lenses and linked source areas. Blur or pixelate selected content, highlight important areas, or use Fill to recolor or clear connected backgrounds. Quick Effects include borders, shadows, edge styles, reflection, perspective, color adjustments and fade.
 
+MORE PRECISE EDITING
+Copy annotation appearance with Style Brush, measure distances, and sample colors with a magnified Color Inspector, including outside the canvas. More tools also includes Connected Arrows, Smart Erase / Repair, Edit Screenshot Text and Redact for Sharing. Add editable text along straight, vertical, diagonal, circular, square or custom paths, with adjustable placement and visible or hidden path styling.
+
+ORGANIZE AND REUSE
+A compact ribbon and pinnable Styles panel leave more room for your image. Quick-style tabs include user-defined styles, and drawing styles and colors stay remembered. Select Library projects by dragging or using individual/day checkboxes, with year/month/day groups and filtered Select all/Deselect. Compact canvas menus provide Rotate, Flip and Select rows, resize presets and repeatable 10% steps with temporary pixel-size feedback. Visible Undo/Redo controls support rotation and resize through automatic saving.
+
+IMPORT AND RESIZE
+Open supported single-page version-1 Snagit .snagx projects as editable MyImage projects while preserving the originals. Import notes explain supported style approximations; unsupported content is reported. Canvas resizing keeps artwork stable during dragging, with relative dimensions and nine placement positions.
+
 MAKE THE WORKSPACE YOURS
-Choose Cobalt Satin, Amber Enamel, Jade Graphite or the dark Graphite Night finish, with independent icon and pointer styles. Use Standard pointers or subtle Calico pointers. Resize the properties panel, customize your toolbar and keep Recents close at hand. Background capture and optional start at login are available; start at login is off by default.
+Choose Cobalt Satin, Amber Enamel, Jade Graphite or the dark Graphite Night finish, with independent icon and pointer styles. Use Standard pointers or subtle Calico pointers. Resize the properties panel, customize your toolbar and keep Recents close at hand. Browse the visible Recents strip with Left/Right arrow keys; the active thumbnail scrolls into view and edits save before switching. Project opening stays steady, with nearby strip projects prepared in the background for faster browsing, and moving projects to the Recycle Bin preserves the remaining Library and Recents view. Delete confirmation can be remembered and restored in Settings. Background capture and optional start at login are available; start at login is off by default.
 
 LOCAL AND READY TO SHARE
-Images are processed on your computer. No account, subscription or AI service is required. Export flattened PNG, JPEG, WebP, TIFF or PDF copies, or copy an image to paste into another app. The optional SVG stamp designer lets you copy a prompt and paste SVG from an AI service of your choice.
+Images are processed on your computer. No account, subscription or AI service is required. Save flattened JPG, PNG, GIF, HEIF, TIFF, WebP or PDF copies, or copy an image to paste into another app. Print the finished image, including annotations and effects, through the native Windows print dialog using the Print button or Ctrl+P. Save As offers format-specific quality, transparency, background and PDF page-size controls. HEIF requires compatible Windows codecs; GIF output is static. The optional SVG stamp designer lets you copy a prompt and paste SVG from an AI service of your choice.
 
 Animated images open as a still frame. Scrolling capture is guided and vertical. Video recording is not included.
