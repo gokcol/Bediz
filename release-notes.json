@@ -1,11 +1,12 @@
 {
   "version": "3.0.0",
-  "build": 105,
+  "build": 106,
   "store_version": "3.0.0.0",
   "changes": [
     "Capture Now is redesigned: about a third smaller, with clearer mode tiles, sliding Send to and Delay controls, animated switches and the capture shortcut shown as keycaps.",
     "Choose a Capture Now theme in Settings: Midnight, Ember, Aurora or Porcelain.",
     "The Capture view uses the same switches and segmented controls, with a prominent Capture Now button.",
+    "Help for Capture Now controls appears in the panel header instead of popups over the controls.",
     "Checkboxes, the workspace background, toolbar shadow and status bar are refreshed across the app."
   ],
   "macos": [
