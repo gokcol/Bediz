@@ -1,12 +1,12 @@
 {
   "version": "3.0.0",
-  "build": 104,
+  "build": 105,
   "store_version": "3.0.0.0",
   "changes": [
-    "About matches MyPDF’s centered card, with version details, support links and separate What’s New and Check for Updates actions.",
-    "What’s New has a refreshed layout with clear release highlights, a version badge and a dedicated update card, even offline.",
-    "Release notes appear once after an upgrade and remain available from the app menu.",
-    "Optional daily update checks show a quiet notice when an update is available. Background checks are off by default."
+    "Capture Now is redesigned: about a third smaller, with clearer mode tiles, sliding Send to and Delay controls, animated switches and the capture shortcut shown as keycaps.",
+    "Choose a Capture Now theme in Settings: Midnight, Ember, Aurora or Porcelain.",
+    "The Capture view uses the same switches and segmented controls, with a prominent Capture Now button.",
+    "Checkboxes, the workspace background, toolbar shadow and status bar are refreshed across the app."
   ],
   "macos": [
     "The macOS top MyImage menu opens the same About dialog as the in-app menu, with What’s New and Check for Updates actions.",
