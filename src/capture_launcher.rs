@@ -214,6 +214,16 @@ enum Action {
     Close,
 }
 
+/// Help for the control under the pointer is shown in the panel header rather than
+/// in a popup, so it can never cover the controls of this small window.
+fn hint(response: &egui::Response, text: &str) {
+    if (response.hovered() || response.has_focus()) && !text.is_empty() {
+        response
+            .ctx
+            .data_mut(|data| data.insert_temp(egui::Id::new("capture-hint"), text.to_owned()));
+    }
+}
+
 fn switch(ui: &mut egui::Ui, rect: Rect, value: &mut bool, label: &str, help: &str) -> bool {
     let id = ui.id().with(label);
     let mut response = ui.interact(rect, id, egui::Sense::click());
@@ -267,9 +277,9 @@ fn switch(ui: &mut egui::Ui, rect: Rect, value: &mut bool, label: &str, help: &s
             egui::StrokeKind::Inside,
         );
     }
+    hint(&response, help);
     response
         .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(help)
         .changed()
 }
 
@@ -354,11 +364,7 @@ fn segmented(
             );
         }
         let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
-        let response = if hint.is_empty() {
-            response
-        } else {
-            response.on_hover_text(*hint)
-        };
+        self::hint(&response, hint);
         if response.clicked() {
             clicked = Some(i);
         }
@@ -391,9 +397,8 @@ fn pearl_icon_button(ui: &mut egui::Ui, rect: Rect, label: &str, icon: Icon) -> 
         if active { p.ink } else { p.muted },
         15.,
     );
-    response
-        .on_hover_cursor(egui::CursorIcon::PointingHand)
-        .on_hover_text(label)
+    hint(&response, label);
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 fn launcher_content(
@@ -510,17 +515,38 @@ fn launcher_content(
     } else {
         Color32::from_rgb(244, 183, 86)
     };
+    // Last frame's hover help replaces the status; it is consumed so it clears itself.
+    let help = ui
+        .ctx()
+        .data_mut(|data| data.remove_temp::<String>(egui::Id::new("capture-hint")));
     let dot = egui::pos2(title.right() + 14., title.center().y);
-    ui.painter()
-        .circle_filled(dot, 5., status.gamma_multiply(0.25));
-    ui.painter().circle_filled(dot, 2.5, status);
-    ui.painter().text(
-        dot + Vec2::new(9., 0.),
-        egui::Align2::LEFT_CENTER,
-        if enabled { "Ready" } else { "Busy" },
-        egui::FontId::proportional(11.),
-        p.muted,
-    );
+    if let Some(help) = help {
+        let mut job = egui::text::LayoutJob::simple_singleline(
+            help,
+            egui::FontId::proportional(11.),
+            p.ginger,
+        );
+        job.wrap = egui::text::TextWrapping::truncate_at_width(
+            W - 4. * 30. - 20. - (dot.x - bounds.left()),
+        );
+        let galley = ui.painter().layout_job(job);
+        ui.painter().galley(
+            egui::pos2(dot.x - 4., dot.y - galley.size().y * 0.5),
+            galley,
+            p.ginger,
+        );
+    } else {
+        ui.painter()
+            .circle_filled(dot, 5., status.gamma_multiply(0.25));
+        ui.painter().circle_filled(dot, 2.5, status);
+        ui.painter().text(
+            dot + Vec2::new(9., 0.),
+            egui::Align2::LEFT_CENTER,
+            if enabled { "Ready" } else { "Busy" },
+            egui::FontId::proportional(11.),
+            p.muted,
+        );
+    }
     for (i, (label, icon, next)) in [
         ("Close capture panel", Icon::Close, Action::Close),
         ("More settings", Icon::Settings, Action::Settings),
@@ -554,15 +580,25 @@ fn launcher_content(
     modes.spacing_mut().item_spacing.x = 2.;
     let count = CaptureMode::ALL.len() as f32;
     for mode in CaptureMode::ALL {
-        if crate::capture_panel::compact_mode_tile(
+        let tile = crate::capture_panel::compact_mode_tile(
             &mut modes,
             mode,
             settings.capture_mode == mode,
             Vec2::new((W - 30. - 2. * (count - 1.)) / count, 44.),
             p,
-        )
-        .clicked()
-        {
+        );
+        hint(
+            &tile,
+            match mode {
+                CaptureMode::Region => "Drag an area or click a window",
+                CaptureMode::MultiRegion => "Select several areas, capture together",
+                CaptureMode::Window => "Click a window to capture it",
+                CaptureMode::FullScreen => "Capture a whole display",
+                CaptureMode::Scrolling => "Scroll a window to capture all of it",
+                CaptureMode::Text => "Copy the text in a region",
+            },
+        );
+        if tile.clicked() {
             changed |= settings.capture_mode != mode;
             settings.capture_mode = mode;
         }
@@ -630,7 +666,11 @@ fn launcher_content(
                 } else {
                     Icon::Copy
                 }),
-                dest.hint(),
+                if dest == CaptureDestination::Editor {
+                    "Save to Library and open in Editor"
+                } else {
+                    "Copy and save to Library"
+                },
             )
         });
         let selected = CaptureDestination::ALL
@@ -666,7 +706,7 @@ fn launcher_content(
                 at(16., 201., 134., 26.),
                 &mut settings.include_pointer,
                 "Include pointer",
-                "Include the mouse pointer in your capture.",
+                "Show the mouse pointer in the capture",
             )
         })
         .inner;
@@ -675,7 +715,7 @@ fn launcher_content(
         at(166., 201., 156., 26.),
         &mut settings.capture_on_release,
         "Capture on release",
-        "Skip confirmation for single regions and windows. Multi-region capture still waits for Capture or Enter.",
+        "Capture on release, without confirming",
     );
 
     ui.painter().line_segment(
@@ -778,15 +818,17 @@ fn launcher_content(
             }
             response.on_hover_cursor(egui::CursorIcon::PointingHand)
         })
-        .inner
-        .on_hover_text(if cfg!(target_os = "macos") {
-            "Capture now · Ctrl + Shift + C · Control/Command + Shift + ."
+        .inner;
+    hint(
+        &capture,
+        if !enabled {
+            "Finish the current task in Editor first"
+        } else if cfg!(target_os = "macos") {
+            "Also ⌃ ⇧ .  or  ⌘ ⇧ ."
         } else {
-            "Capture now · Ctrl + Shift + C or Ctrl + Shift + ."
-        })
-        .on_disabled_hover_text(
-            "Open Editor to finish the current task before starting another capture.",
-        );
+            "Also Ctrl + Shift + ."
+        },
+    );
     if capture.clicked() {
         action = Some(Action::Capture);
     }
@@ -1065,6 +1107,80 @@ mod tests {
                 .unwrap()
                 .capture_theme,
             crate::capture_panel::CaptureTheme::Midnight
+        );
+    }
+
+    #[test]
+    fn hover_help_appears_in_the_header_and_never_as_a_popup_over_controls() {
+        let ctx = egui::Context::default();
+        appearance::apply(&ctx);
+        let mut settings = Settings::default();
+        let mut frame = |events: Vec<egui::Event>| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, SIZE)),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE)
+                        .show(ctx, |ui| {
+                            launcher_content(ui, &mut settings, &[], true);
+                        });
+                },
+            )
+        };
+        let texts = |output: &egui::FullOutput| -> Vec<(String, Rect)> {
+            output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => Some((
+                        text.galley.job.text.clone(),
+                        Rect::from_min_size(text.pos, text.galley.size()),
+                    )),
+                    _ => None,
+                })
+                .collect()
+        };
+        let idle = frame(vec![]);
+        let idle_texts = texts(&idle);
+        assert!(idle_texts.iter().any(|(text, _)| text == "Ready"));
+        let switch = idle_texts
+            .iter()
+            .find(|(text, _)| text == "Capture on release")
+            .unwrap()
+            .1
+            .center();
+        frame(vec![egui::Event::PointerMoved(switch)]);
+        // Stay long enough for any tooltip delay to have elapsed.
+        for _ in 0..3 {
+            frame(vec![]);
+        }
+        let hovered = frame(vec![]);
+        let hovered_texts = texts(&hovered);
+        let help = hovered_texts
+            .iter()
+            .find(|(text, _)| text == "Capture on release, without confirming")
+            .expect("help is shown in the header");
+        assert!(
+            help.1.bottom() < 44.,
+            "help stays in the header: {:?}",
+            help.1
+        );
+        assert!(!hovered_texts.iter().any(|(text, _)| text == "Ready"));
+        assert_eq!(
+            hovered_texts.len(),
+            idle_texts.len(),
+            "no extra popup text is painted over the controls"
+        );
+        frame(vec![egui::Event::PointerGone]);
+        frame(vec![]);
+        assert!(
+            texts(&frame(vec![]))
+                .iter()
+                .any(|(text, _)| text == "Ready")
         );
     }
 

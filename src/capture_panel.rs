@@ -497,9 +497,8 @@ fn sized_mode_tile(
                 egui::StrokeKind::Inside,
             );
         }
-        return response
-            .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text(mode.hint());
+        // The compact launcher shows help in its header instead of a popup.
+        return response.on_hover_cursor(egui::CursorIcon::PointingHand);
     }
     let color = if selected {
         appearance::palette(ui.ctx()).cream
