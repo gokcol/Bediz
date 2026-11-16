@@ -479,6 +479,11 @@ impl MyImageApp {
     }
 
     fn show(&mut self, ctx: &egui::Context) {
+        // Also restores opacity after capture cancellation, capture errors, or
+        // returning from the background following a completed capture.
+        if !self.demo {
+            crate::capture_window::reveal_after_paint(crate::branding::NAME);
+        }
         if let Some(desktop) = &self.desktop {
             desktop.reveal_application();
         }
@@ -537,6 +542,9 @@ impl MyImageApp {
         let generation = self.generation;
         let cancel = Arc::new(AtomicBool::new(false));
         self.capture_cancel = Some(cancel.clone());
+        if !self.demo {
+            crate::capture_window::hide_before_capture();
+        }
         self.hidden.store(true, Ordering::Relaxed);
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
         let tx = self.work_tx.clone();

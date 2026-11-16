@@ -1,16 +1,14 @@
 {
   "version": "3.0.1",
-  "build": 113,
+  "build": 114,
   "store_version": "3.0.1.0",
   "changes": [
-    "Capture overlays prepare while hidden, then gently dim the screen without delaying selection.",
-    "Keep region drags active through transient pointer exits, with safe cancellation on focus loss."
+    "Refine the capture transition while retaining full-screen Region selection and interrupted-drag fixes."
   ],
   "macos": [
-    "Capture overlays cover the menu bar and Dock so selection can reach every screen edge.",
-    "Avoid revealing the old editor window while the capture overlay is being resized and positioned.",
-    "Fade capture dimming in over 160 milliseconds; the first click or drag remains immediately usable.",
-    "Retain the direct background wake-up fix for capture shortcuts and capture completion."
+    "Hide the native editor before the framework paints the capture-pending frame.",
+    "Reveal capture surfaces after painting, with automatic window animations disabled during capture.",
+    "Retain menu-bar and Dock selection, immediate first-drag input, and background hotkey wake-up."
   ],
   "windows": [
     "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",

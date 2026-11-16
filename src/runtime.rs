@@ -123,7 +123,13 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
         {
             crate::image_clipboard::request_paste();
         }
+        let redraw = matches!(event, WindowEvent::RedrawRequested);
         self.inner.window_event(event_loop, id, event);
+        if redraw {
+            // Visibility commands are applied by eframe after painting. Reveal
+            // capture backing surfaces only after that entire operation returns.
+            crate::capture_window::after_paint();
+        }
     }
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         self.wakeup.schedule(
@@ -153,6 +159,7 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
         {
             self.inner
                 .window_event(event_loop, id, WindowEvent::RedrawRequested);
+            crate::capture_window::after_paint();
         }
 
         if (self.hidden.load(Ordering::Relaxed) || self.root.occluded)

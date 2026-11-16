@@ -5,39 +5,110 @@ pub fn title(display: &str) -> String {
 }
 
 #[cfg(target_os = "macos")]
-pub fn prepare() {
+mod macos {
     use objc2::{MainThreadMarker, rc::Retained};
-    use objc2_app_kit::NSWindow;
-    use objc2_core_graphics::{CGWindowLevelForKey, CGWindowLevelKey};
+    use objc2_app_kit::{NSWindow, NSWindowAnimationBehavior};
     use objc2_foundation::NSArray;
+    use std::{cell::RefCell, collections::BTreeSet};
 
-    let Some(_main_thread) = MainThreadMarker::new() else {
-        return;
-    };
-    // winit's AlwaysOnTop maps to the floating level, below the Dock and menu
-    // bar. Use the actual Quartz overlay level for our temporary capture windows.
-    // This runs during hidden placement, before any overlay is revealed.
-    let level = CGWindowLevelForKey(CGWindowLevelKey::OverlayWindowLevelKey) as isize;
-    // SAFETY: AppKit is initialized, accessed on its main thread, and this list
-    // contains only windows owned by this application. Retain it while iterating.
-    let windows: Retained<NSArray<NSWindow>> = unsafe {
-        let app: *mut objc2::runtime::AnyObject =
-            objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
-        objc2::msg_send![app, windows]
-    };
-    for window in windows {
-        if window.title().to_string().starts_with(&title("")) && window.level() != level {
-            window.setLevel(level);
-            log::debug!(
-                "Prepared capture window above system chrome: {}",
-                window.title()
-            );
+    thread_local! {
+        static REVEALS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+    }
+
+    fn windows(mut visit: impl FnMut(&NSWindow)) {
+        let Some(_main_thread) = MainThreadMarker::new() else {
+            return;
+        };
+        // SAFETY: AppKit is initialized and accessed only on its main thread.
+        // These retained windows belong to this application, not other apps.
+        let windows: Retained<NSArray<NSWindow>> = unsafe {
+            let app: *mut objc2::runtime::AnyObject =
+                objc2::msg_send![objc2::class!(NSApplication), sharedApplication];
+            objc2::msg_send![app, windows]
+        };
+        for window in windows {
+            visit(&window);
         }
+    }
+
+    pub fn hide_before_capture() {
+        REVEALS.with(|pending| pending.borrow_mut().clear());
+        let launcher = format!("{} Capture Now", crate::branding::NAME);
+        windows(|window| {
+            let name = window.title().to_string();
+            if name == crate::branding::NAME || name == launcher {
+                window.setAnimationBehavior(NSWindowAnimationBehavior::None);
+                window.setAlphaValue(0.);
+                // eframe applies Visible(false) after painting. Order out now,
+                // before the pending-capture update returns an empty scene.
+                window.orderOut(None);
+            }
+        });
+    }
+
+    pub fn prepare() {
+        use objc2_core_graphics::{CGWindowLevelForKey, CGWindowLevelKey};
+        let level = CGWindowLevelForKey(CGWindowLevelKey::OverlayWindowLevelKey) as isize;
+        windows(|window| {
+            if window.title().to_string().starts_with(&super::title("")) {
+                window.setAnimationBehavior(NSWindowAnimationBehavior::None);
+                // A native show/unhide can expose a backing surface before its
+                // first painted frame. Keep that surface transparent until the
+                // runtime has finished painting and applied viewport commands.
+                if !window.isVisible() {
+                    window.setAlphaValue(0.);
+                }
+                if window.level() != level {
+                    window.setLevel(level);
+                }
+            }
+        });
+    }
+
+    pub fn reveal_after_paint(name: &str) {
+        REVEALS.with(|pending| {
+            pending.borrow_mut().insert(name.into());
+        });
+    }
+
+    pub fn after_paint() {
+        let names = REVEALS.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
+        if names.is_empty() {
+            return;
+        }
+        windows(|window| {
+            let name = window.title().to_string();
+            if names.contains(&name) && window.isVisible() {
+                window.setAlphaValue(1.);
+                if name == crate::branding::NAME {
+                    window.setAnimationBehavior(NSWindowAnimationBehavior::Default);
+                }
+            }
+        });
     }
 }
 
-#[cfg(not(target_os = "macos"))]
-pub fn prepare() {}
+pub fn hide_before_capture() {
+    #[cfg(target_os = "macos")]
+    macos::hide_before_capture();
+}
+
+pub fn prepare() {
+    #[cfg(target_os = "macos")]
+    macos::prepare();
+}
+
+pub fn reveal_after_paint(name: &str) {
+    #[cfg(target_os = "macos")]
+    macos::reveal_after_paint(name);
+    #[cfg(not(target_os = "macos"))]
+    let _ = name;
+}
+
+pub fn after_paint() {
+    #[cfg(target_os = "macos")]
+    macos::after_paint();
+}
 
 /// Recover a mouse release that happened outside a capture viewport. egui-winit
 /// drops mouse-button events when that viewport has no current pointer position.

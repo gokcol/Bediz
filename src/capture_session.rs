@@ -540,6 +540,11 @@ impl MyImageApp {
             return Some(SelectionAction::Cancel);
         }
         let placing_overlay = selection.placement_frames < 4;
+        if !placing_overlay && !self.demo {
+            crate::capture_window::reveal_after_paint(&crate::capture_window::title(
+                &selection.display.name,
+            ));
+        }
         if placing_overlay {
             if selection.placement_frames == 0 && ctx.viewport_id() == egui::ViewportId::ROOT {
                 ctx.send_viewport_cmd(ViewportCommand::Title(crate::capture_window::title(
