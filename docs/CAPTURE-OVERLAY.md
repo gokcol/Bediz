@@ -48,3 +48,13 @@ Local validation: 684 app tests and 17 packaging tests passed; formatting and Cl
 Build 115 is signed, notarized and installed. Mac CI passed: https://github.com/gokcol/MyImage/actions/runs/43976730888. The dedicated overlay opens, and Escape restores the normal window. Automated mouse input moved the crosshair but did not create a selection; the user separately confirmed that selection works with their mouse. The user also confirmed that the startup blink remains. Dedicated windows alone did not resolve the visual issue; publication stays on hold.
 
 Windows build and MSIX validation, including disposable installation/removal, passed: https://github.com/gokcol/MyImage/actions/runs/43977029329. Source: 53a45f1124d048c522c84af52843df53774de1af. The notarized app ZIP, DMG and checksums are stored in draft v3.0.1-build115. No Store submission was made. The next diagnosis needs the remaining blink's sequence: brightness briefly reverses, or the desktop simply darkens once. Snagit and SkyImage both have frozen-background selection, crosshairs and window highlighting; Snagit's compact confirmation toolbar appears after selection.
+
+## Follow-up — build 116
+
+The user confirmed Snagit does not blink, and clarified that SkyImage shows a very brief blink followed by abrupt darkening. This is not being treated as normal capture behavior.
+
+Idle capture now keeps the screenshot at its original brightness, including while hovering over a window. Crosshairs, window outlines, magnifier and controls remain. Once a real selection exists, only its outside area dims over 160 ms; clearing the selection resets that transition. Empty Multi-region capture also stays undimmed.
+
+The capture viewport requests native transparency on macOS. eframe 0.33 configures transparency support for the shared wgpu painter from the root viewport, not from each child. Mac startup therefore enables transparent backbuffers at that root setting too. The app already clears to transparent, and its editor panels paint their normal opaque surfaces. Previously, the capture viewport and shared painter used opaque defaults, allowing a transparent clear frame to become a solid backing surface while the first Metal image was being presented. Hidden placement, native opacity protection and post-paint reveal are retained; the brief-blink outcome still requires native/user validation.
+
+Local checks passed: 686 app tests and 17 packaging tests, formatting and Clippy. New rendering regressions exercise all six capture modes before selection and during window hover, and verify that a drawn Region shades exactly its outside area and resets the dimming state when cleared.

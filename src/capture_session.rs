@@ -1,10 +1,10 @@
 use super::*;
 use crate::{capture::CaptureMode, scroll_capture::Stitcher};
 
-const OVERLAY_FADE_SECONDS: f64 = 0.16;
+const SELECTION_FADE_SECONDS: f64 = 0.16;
 
-fn overlay_shade_alpha(elapsed: f64) -> u8 {
-    let t = (elapsed / OVERLAY_FADE_SECONDS).clamp(0., 1.);
+fn selection_shade_alpha(elapsed: f64) -> u8 {
+    let t = (elapsed / SELECTION_FADE_SECONDS).clamp(0., 1.);
     // Smooth endpoints without delaying pointer input.
     (145. * t * t * (3. - 2. * t)).round() as u8
 }
@@ -395,6 +395,7 @@ impl SelectionSession {
                     return_hidden,
                     placement_frames: 0,
                     reveal_time: None,
+                    shade_started_at: None,
                     drag: Default::default(),
                     multi: Default::default(),
                     window_id: None,
@@ -493,6 +494,7 @@ impl MyImageApp {
                 .with_resizable(false)
                 .with_taskbar(false)
                 .with_has_shadow(false)
+                .with_transparent(cfg!(target_os = "macos"))
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_active(false)
                 .with_visible(screen.placement_frames >= 4);
@@ -563,17 +565,11 @@ impl MyImageApp {
             selection.placement_frames += 1;
             ctx.request_repaint();
         }
-        let shade_alpha = if placing_overlay {
-            0
-        } else {
-            let now = ctx.input(|i| i.time);
-            let start = *selection.reveal_time.get_or_insert(now);
-            let elapsed = now - start;
-            if elapsed < OVERLAY_FADE_SECONDS {
-                ctx.request_repaint();
-            }
-            overlay_shade_alpha(elapsed)
-        };
+        if !placing_overlay {
+            selection
+                .reveal_time
+                .get_or_insert_with(|| ctx.input(|i| i.time));
+        }
         // Placement changes invalidate window-relative coordinates. Only real
         // events on this overlay enable selection; leaving clears stale hover.
         let pointer_moved = ctx.input(|i| {
@@ -916,6 +912,24 @@ impl MyImageApp {
                     && !menu_interaction
                     && capture_on_completion(self.settings.capture_on_release, mode, selection.drag.completed);
                 let chosen = selection.drag.bounds().map(|r| r.intersect(bounds));
+                // Enter capture at the desktop's original brightness. Hover
+                // outlines must not darken the entire screen before the user
+                // makes a selection. Ease in the outside shade only once a
+                // real region exists, and reset it when the selection clears.
+                let has_selection = chosen.is_some()
+                    || (mode == CaptureMode::MultiRegion && !selection.multi.rects.is_empty());
+                let shade_alpha = if !placing_overlay && has_selection {
+                    let now = ctx.input(|i| i.time);
+                    let start = *selection.shade_started_at.get_or_insert(now);
+                    let elapsed = now - start;
+                    if elapsed < SELECTION_FADE_SECONDS {
+                        ctx.request_repaint();
+                    }
+                    selection_shade_alpha(elapsed)
+                } else {
+                    selection.shade_started_at = None;
+                    0
+                };
                 let selected = (mode == CaptureMode::FullScreen).then_some(bounds).or(chosen).or_else(|| {
                     (mode != CaptureMode::Text && !selection.drag.active)
                         .then(|| hovered_window.map(|w| window_rect(w).intersect(bounds)))
@@ -930,7 +944,9 @@ impl MyImageApp {
                 );
                 let shade = Color32::from_black_alpha(shade_alpha);
                 if mode == CaptureMode::MultiRegion {
-                    painter.rect_filled(bounds, 0, shade);
+                    if has_selection {
+                        painter.rect_filled(bounds, 0, shade);
+                    }
                     for (index, rect) in selection.multi.preview(&selection.drag).into_iter().enumerate() {
                         let uv = Rect::from_min_max(
                             ((rect.min - bounds.min) / bounds.size()).to_pos2(),
@@ -1013,8 +1029,6 @@ impl MyImageApp {
                         egui::FontId::proportional(12.),
                         Color32::WHITE,
                     );
-                } else {
-                    painter.rect_filled(bounds, 0, shade);
                 }
                 if let Some(p) = pointer.filter(|p| !bar.contains(*p))
                     && chosen.is_none()
@@ -1658,16 +1672,110 @@ mod tests {
     }
 
     #[test]
-    fn overlay_dimming_is_bounded_monotonic_and_finishes_promptly() {
-        assert_eq!(overlay_shade_alpha(-1.), 0);
-        assert_eq!(overlay_shade_alpha(0.), 0);
-        assert_eq!(overlay_shade_alpha(OVERLAY_FADE_SECONDS), 145);
-        assert_eq!(overlay_shade_alpha(10.), 145);
+    fn selection_dimming_is_bounded_monotonic_and_finishes_promptly() {
+        assert_eq!(selection_shade_alpha(-1.), 0);
+        assert_eq!(selection_shade_alpha(0.), 0);
+        assert_eq!(selection_shade_alpha(SELECTION_FADE_SECONDS), 145);
+        assert_eq!(selection_shade_alpha(10.), 145);
         let levels: Vec<_> = (0..=16)
-            .map(|frame| overlay_shade_alpha(f64::from(frame) * 0.01))
+            .map(|frame| selection_shade_alpha(f64::from(frame) * 0.01))
             .collect();
         assert!(levels.windows(2).all(|pair| pair[0] <= pair[1]));
-        assert!((70..=75).contains(&overlay_shade_alpha(0.08)));
+        assert!((70..=75).contains(&selection_shade_alpha(0.08)));
+    }
+
+    #[test]
+    fn capture_start_and_window_hover_never_dim_the_desktop() {
+        for mode in CaptureMode::ALL {
+            let ctx = egui::Context::default();
+            let mut app =
+                MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+            app.settings.capture_mode = mode;
+            let mut screen = test_screens(&ctx, mode).screens.remove(0);
+            screen.windows.push(capture::WindowInfo {
+                id: 42,
+                name: "Test window".into(),
+                x: 200,
+                y: 120,
+                width: 300,
+                height: 250,
+            });
+            for (time, events) in [
+                (10., vec![]),
+                (10.3, vec![]),
+                (10.4, vec![egui::Event::PointerMoved(Pos2::new(250., 200.))]),
+                (10.7, vec![]),
+            ] {
+                let output = ctx.run(
+                    egui::RawInput {
+                        time: Some(time),
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        assert!(app.selection_overlay_ui(ctx, &mut screen).is_none());
+                    },
+                );
+                assert!(
+                    screen.shade_started_at.is_none(),
+                    "Unexpected idle shade in {mode:?}"
+                );
+                assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+                    egui::epaint::Shape::Rect(rect) if rect.fill == Color32::from_black_alpha(145))),
+                    "Desktop darkened before selection in {mode:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn drawing_dims_only_outside_the_region_and_reset_restores_brightness() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+        app.settings.capture_mode = CaptureMode::Region;
+        let mut screen = test_screens(&ctx, CaptureMode::Region).screens.remove(0);
+        let bounds = Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.));
+        for (time, events) in [
+            (20., vec![pointer_button(Pos2::new(100., 150.), true)]),
+            (20.1, vec![egui::Event::PointerMoved(Pos2::new(300., 350.))]),
+            (20.3, vec![pointer_button(Pos2::new(300., 350.), false)]),
+        ] {
+            let output = ctx.run(
+                egui::RawInput {
+                    time: Some(time),
+                    screen_rect: Some(bounds),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    assert!(app.selection_overlay_ui(ctx, &mut screen).is_none());
+                },
+            );
+            if time == 20.3 {
+                let selected = screen.drag.bounds().unwrap();
+                let shaded: Vec<_> = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| match &shape.shape {
+                        egui::epaint::Shape::Rect(rect)
+                            if rect.fill == Color32::from_black_alpha(145) =>
+                        {
+                            Some(rect.rect)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(shaded.len(), 4);
+                assert!(shaded.iter().all(|r| !r.contains(selected.center())));
+                assert_eq!(
+                    shaded.iter().map(|r| r.area()).sum::<f32>(),
+                    bounds.area() - selected.area()
+                );
+            }
+        }
+        screen.drag = RegionDrag::default();
+        overlay_frame(&mut app, &ctx, &mut screen, vec![]);
+        assert!(screen.shade_started_at.is_none());
     }
 
     fn test_screens(ctx: &egui::Context, mode: CaptureMode) -> SelectionSession {
@@ -2181,6 +2289,7 @@ mod tests {
             return_hidden: true,
             placement_frames: 4,
             reveal_time: None,
+            shade_started_at: None,
             windows: vec![capture::WindowInfo {
                 id: 9,
                 name: "Underlying window".into(),

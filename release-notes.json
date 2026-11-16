@@ -1,12 +1,12 @@
 {
   "version": "3.0.1",
-  "build": 115,
+  "build": 116,
   "store_version": "3.0.1.0",
   "changes": [
-    "Capture uses separate selection windows, keeping your editor at its original size."
+    "Capture starts at normal screen brightness, with dimming only outside the area you select."
   ],
   "macos": [
-    "Refine the transition into capture with dedicated selection windows.",
+    "Refine the first capture frame to avoid a solid background flashing into view.",
     "Capture the menu bar and Dock, and start selecting as soon as the overlay appears.",
     "Keep capture active when returning to SkyImage from another app."
   ],

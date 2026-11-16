@@ -120,6 +120,7 @@ struct Selection {
     return_hidden: bool,
     placement_frames: u8,
     reveal_time: Option<f64>,
+    shade_started_at: Option<f64>,
     windows: Vec<capture::WindowInfo>,
     window_id: Option<u32>,
     hover_cycle: usize,

@@ -23,6 +23,11 @@ pub fn run(background: bool) -> eframe::Result {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
             .with_title(crate::branding::NAME)
+            // eframe configures backbuffer alpha support once from the root,
+            // including for child viewports. Capture windows need a clear
+            // backing surface while their first Metal frame is being presented.
+            // The editor still paints its ordinary opaque background.
+            .with_transparent(cfg!(target_os = "macos"))
             .with_icon(
                 eframe::icon_data::from_png_bytes(include_bytes!(
                     "../assets/branding/myimage-app-icon-256.png"
