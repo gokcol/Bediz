@@ -1,6 +1,14 @@
 use super::*;
 use crate::{capture::CaptureMode, scroll_capture::Stitcher};
 
+const OVERLAY_FADE_SECONDS: f64 = 0.16;
+
+fn overlay_shade_alpha(elapsed: f64) -> u8 {
+    let t = (elapsed / OVERLAY_FADE_SECONDS).clamp(0., 1.);
+    // Smooth endpoints without delaying pointer input.
+    (145. * t * t * (3. - 2. * t)).round() as u8
+}
+
 #[derive(Default)]
 pub(super) struct RegionDrag {
     start: Option<Pos2>,
@@ -339,6 +347,7 @@ impl SelectionSession {
                     mode,
                     return_hidden,
                     placement_frames: 0,
+                    reveal_time: None,
                     drag: Default::default(),
                     multi: Default::default(),
                     window_id: None,
@@ -403,6 +412,11 @@ impl MyImageApp {
                 screen.hover_cycle = 0;
             }
             if index == 0 {
+                if screen.placement_frames >= 4 && screen.reveal_time.is_none() {
+                    // Earlier hidden frames have painted the snapshot at its
+                    // final size. Never reveal the old editor-sized surface.
+                    self.show(ctx);
+                }
                 // Immediate viewports repaint through their parent. Keep the
                 // root visible as one overlay so native child input can wake
                 // it reliably, including mouse release, Enter and Escape.
@@ -501,6 +515,17 @@ impl MyImageApp {
             selection.placement_frames += 1;
             ctx.request_repaint();
         }
+        let shade_alpha = if placing_overlay {
+            0
+        } else {
+            let now = ctx.input(|i| i.time);
+            let start = *selection.reveal_time.get_or_insert(now);
+            let elapsed = now - start;
+            if elapsed < OVERLAY_FADE_SECONDS {
+                ctx.request_repaint();
+            }
+            overlay_shade_alpha(elapsed)
+        };
         // Placement changes invalidate window-relative coordinates. Only real
         // events on this overlay enable selection; leaving clears stale hover.
         let pointer_moved = ctx.input(|i| {
@@ -848,7 +873,7 @@ impl MyImageApp {
                     Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
                     Color32::WHITE,
                 );
-                let shade = Color32::from_black_alpha(145);
+                let shade = Color32::from_black_alpha(shade_alpha);
                 if mode == CaptureMode::MultiRegion {
                     painter.rect_filled(bounds, 0, shade);
                     for (index, rect) in selection.multi.preview(&selection.drag).into_iter().enumerate() {
@@ -1476,6 +1501,85 @@ fn window_selection(area: Rect, window: Rect) -> Option<[f32; 4]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_prepares_hidden_then_reveals_once_and_accepts_first_drag_during_fade() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+        app.settings.capture_mode = CaptureMode::Region;
+        app.guide_open = false;
+        app.pending_capture = Some(true);
+        app.generation = 7;
+        let mut frames = test_screens(&ctx, CaptureMode::Region).screens;
+        let screen = frames.remove(0);
+        app.work_tx
+            .send(WorkEvent::Captured(
+                7,
+                Local::now(),
+                Ok(vec![CapturedFrame {
+                    display: screen.display,
+                    image: screen.image,
+                    windows: vec![],
+                }]),
+            ))
+            .unwrap();
+        let output = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
+        assert!(app.selection.is_some());
+        assert!(app.hidden.load(Ordering::Relaxed));
+        assert!(
+            !output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&ViewportCommand::Visible(true))
+        );
+
+        for frame in 0..7 {
+            let output = ctx.run(
+                egui::RawInput {
+                    time: Some(10. + f64::from(frame) * 0.01),
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
+                    events: match frame {
+                        5 => vec![pointer_button(Pos2::new(100., 150.), true)],
+                        6 => vec![egui::Event::PointerMoved(Pos2::new(300., 350.))],
+                        _ => vec![],
+                    },
+                    ..Default::default()
+                },
+                |ctx| app.selection_ui(ctx),
+            );
+            let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            assert_eq!(
+                commands.contains(&ViewportCommand::Visible(true)),
+                frame == 4
+            );
+            assert_eq!(app.hidden.load(Ordering::Relaxed), frame < 4);
+            let screen = &app.selection.as_ref().unwrap().screens[0];
+            assert_eq!(screen.reveal_time.is_some(), frame >= 4);
+            if frame == 6 {
+                assert!(screen.drag.active);
+                assert_eq!(
+                    screen.drag.bounds(),
+                    Some(Rect::from_min_max(
+                        Pos2::new(100., 150.),
+                        Pos2::new(300., 350.)
+                    ))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn overlay_dimming_is_bounded_monotonic_and_finishes_promptly() {
+        assert_eq!(overlay_shade_alpha(-1.), 0);
+        assert_eq!(overlay_shade_alpha(0.), 0);
+        assert_eq!(overlay_shade_alpha(OVERLAY_FADE_SECONDS), 145);
+        assert_eq!(overlay_shade_alpha(10.), 145);
+        let levels: Vec<_> = (0..=16)
+            .map(|frame| overlay_shade_alpha(f64::from(frame) * 0.01))
+            .collect();
+        assert!(levels.windows(2).all(|pair| pair[0] <= pair[1]));
+        assert!((70..=75).contains(&overlay_shade_alpha(0.08)));
+    }
+
     fn test_screens(ctx: &egui::Context, mode: CaptureMode) -> SelectionSession {
         let frames = [
             (1, 0, 0, 1., [240, 10, 20, 255]),
@@ -1858,6 +1962,7 @@ mod tests {
             mode: CaptureMode::Text,
             return_hidden: true,
             placement_frames: 4,
+            reveal_time: None,
             windows: vec![capture::WindowInfo {
                 id: 9,
                 name: "Underlying window".into(),

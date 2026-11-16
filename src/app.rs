@@ -119,6 +119,7 @@ struct Selection {
     mode: capture::CaptureMode,
     return_hidden: bool,
     placement_frames: u8,
+    reveal_time: Option<f64>,
     windows: Vec<capture::WindowInfo>,
     window_id: Option<u32>,
     hover_cycle: usize,
@@ -1237,7 +1238,10 @@ impl MyImageApp {
                                 self.settings.capture_mode,
                                 return_hidden,
                             ));
-                            self.show(ctx);
+                            // Prepare and paint the overlay while the editor is
+                            // still hidden. selection_ui reveals it after native
+                            // geometry settles, avoiding a flash of the old window.
+                            crate::runtime::wake_root(ctx);
                         }
                         result => {
                             self.error = Some(
@@ -2308,16 +2312,20 @@ impl eframe::App for MyImageApp {
             self.capture_launcher_ui(ctx);
             self.screen_text_ui(ctx);
         }
-        if self.quitting || self.hidden.load(Ordering::Relaxed) {
+        if self.quitting {
+            return;
+        }
+        // Capture placement must advance even while its native window is hidden.
+        if self.selection.is_some() {
+            self.selection_ui(ctx);
+            return;
+        }
+        if self.hidden.load(Ordering::Relaxed) {
             return;
         }
         if self.scroll_session.is_some() {
             self.scroll_session_ui(ctx);
             crate::pointer_style::paint(ctx, self.settings.pointer_style);
-            return;
-        }
-        if self.selection.is_some() {
-            self.selection_ui(ctx);
             return;
         }
         self.prepare_updates(ctx);

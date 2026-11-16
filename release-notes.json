@@ -1,14 +1,14 @@
 {
   "version": "3.0.1",
-  "build": 111,
+  "build": 112,
   "store_version": "3.0.1.0",
   "changes": [
-    "Background commands now wake the editor event loop directly, even when a previous repaint is still pending."
+    "Capture overlays prepare while hidden, then gently dim the screen without delaying selection."
   ],
   "macos": [
-    "Fix capture hotkeys waiting until you click SkyImage: both the shortcut and capture result wake the app without relying on a native redraw.",
-    "Native menu, Dock reopen and Quit commands use the same wake-up path.",
-    "SkyImage retains its existing signing identity, projects, settings and GitHub update channel."
+    "Avoid revealing the old editor window while the capture overlay is being resized and positioned.",
+    "Fade capture dimming in over 160 milliseconds; the first click or drag remains immediately usable.",
+    "Retain the direct background wake-up fix for capture shortcuts and capture completion."
   ],
   "windows": [
     "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",
