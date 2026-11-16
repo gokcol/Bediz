@@ -1,14 +1,14 @@
 {
   "version": "3.0.1",
-  "build": 114,
+  "build": 115,
   "store_version": "3.0.1.0",
   "changes": [
-    "Refine the capture transition while retaining full-screen Region selection and interrupted-drag fixes."
+    "Capture uses separate selection windows, keeping your editor at its original size."
   ],
   "macos": [
-    "Hide the native editor before the framework paints the capture-pending frame.",
-    "Reveal capture surfaces after painting, with automatic window animations disabled during capture.",
-    "Retain menu-bar and Dock selection, immediate first-drag input, and background hotkey wake-up."
+    "Refine the transition into capture with dedicated selection windows.",
+    "Capture the menu bar and Dock, and start selecting as soon as the overlay appears.",
+    "Keep capture active when returning to SkyImage from another app."
   ],
   "windows": [
     "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",

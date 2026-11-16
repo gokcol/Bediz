@@ -32,3 +32,15 @@ Capture windows remain at zero native opacity through placement and native show/
 Build 114: 684 app tests and 17 packaging tests passed; formatting and Clippy passed. Source: 573756af64ee6e2d803b193402d5950734b309d6. Native CI: https://github.com/gokcol/MyImage/actions/runs/43972014577 (passed).
 
 The temporary Keychain-access failure cleared after the user unlocked the Mac. The app and DMG were accepted by Apple notarization. Build 114 is installed; native checks confirmed a visible Region overlay, first-drag selection and restoration of the normal window on Escape. The user was asked to confirm whether the bright/dark screen blink is gone before publication.
+
+## Follow-up — build 115
+
+The user reports that build 114 reduced the bright/dark blink but did not remove it. Its GitHub release remains a draft.
+
+Snagit was inspected with its selection crosshair active. Its desktop snapshot stayed frozen, it showed a full-screen crosshair and a hovered-window outline, and its compact confirmation toolbar appeared after selection. Capture ran in its separate SnagitHelper application. Static inspection does not establish whether Snagit has a startup blink or measure its duration.
+
+SkyImage now creates a dedicated immediate viewport for every captured display, including the primary display. The editor remains hidden at its normal geometry; it is no longer restyled, resized and revealed as the first overlay. The existing resident runtime continues draining child input/repaints through the hidden root. The first overlay gains keyboard focus once it is ready. Reopening the app during capture focuses that overlay, and completion/cancellation closes every capture viewport.
+
+The current capture controls and the menu-bar/Dock level, hidden placement, post-paint reveal, dimming transition and Region drag recovery are retained. Native testing and user confirmation of the remaining blink are pending; this candidate must not be published as a confirmed flash fix.
+
+Local validation: 684 app tests and 17 packaging tests passed; formatting and Clippy passed. Lifecycle coverage verifies that the editor receives no reveal, focus, style or geometry commands during selection; the dedicated overlay gains focus once and accepts the first drag during dimming. Reopen routes focus to the overlay, and cancellation closes all display viewports. When capture ends, the editor is painted in the same update before its post-paint reveal.

@@ -408,12 +408,19 @@ impl SelectionSession {
     }
 
     pub fn close(&self, ctx: &egui::Context) {
-        ctx.send_viewport_cmd_to(egui::ViewportId::ROOT, ViewportCommand::Visible(false));
-        for screen in self.screens.iter().skip(1) {
+        for screen in &self.screens {
             ctx.send_viewport_cmd_to(overlay_id(&screen.display), ViewportCommand::Visible(false));
             ctx.send_viewport_cmd_to(overlay_id(&screen.display), ViewportCommand::Close);
         }
         ctx.request_repaint();
+    }
+
+    pub fn focus(&self, ctx: &egui::Context) {
+        if let Some(screen) = self.screens.first()
+            && screen.placement_frames >= 4
+        {
+            ctx.send_viewport_cmd_to(overlay_id(&screen.display), ViewportCommand::Focus);
+        }
     }
 }
 
@@ -461,46 +468,45 @@ impl MyImageApp {
                 screen.window_id = None;
                 screen.hover_cycle = 0;
             }
-            if index == 0 {
-                if screen.placement_frames >= 4 && screen.reveal_time.is_none() {
-                    // Earlier hidden frames have painted the snapshot at its
-                    // final size. Never reveal the old editor-sized surface.
-                    self.show(ctx);
-                }
-                // Immediate viewports repaint through their parent. Keep the
-                // root visible as one overlay so native child input can wake
-                // it reliably, including mouse release, Enter and Escape.
-                if let Some(action) = self.selection_overlay_ui(ctx, screen) {
+            let first_reveal = screen.placement_frames >= 4 && screen.reveal_time.is_none();
+            if index == 0
+                && first_reveal
+                && let Some(desktop) = &self.desktop
+            {
+                // Cmd+H may have hidden the application as well as its editor.
+                // Unhide without showing or resizing the editor window.
+                desktop.reveal_application();
+            }
+            let divisor = ctx.zoom_factor()
+                * if cfg!(target_os = "windows") {
+                    screen.display.scale_factor
+                } else {
+                    1.
+                };
+            let (position, size) = overlay_geometry(&screen.display, divisor);
+            let builder = egui::ViewportBuilder::default()
+                .with_title(crate::capture_window::title(&screen.display.name))
+                .with_position(position)
+                .with_inner_size(size)
+                .with_min_inner_size(Vec2::ZERO)
+                .with_decorations(false)
+                .with_resizable(false)
+                .with_taskbar(false)
+                .with_has_shadow(false)
+                .with_window_level(WindowLevel::AlwaysOnTop)
+                .with_active(false)
+                .with_visible(screen.placement_frames >= 4);
+            // Every display has a dedicated surface. The resident runtime
+            // drains child repaint/input requests while the editor stays hidden.
+            ctx.show_viewport_immediate(overlay_id(&screen.display), builder, |child, _| {
+                if let Some(action) = self.selection_overlay_ui(child, screen) {
                     chosen = Some((index, action));
                 }
-                crate::pointer_style::paint(ctx, self.settings.pointer_style);
-            } else {
-                let divisor = ctx.zoom_factor()
-                    * if cfg!(target_os = "windows") {
-                        screen.display.scale_factor
-                    } else {
-                        1.
-                    };
-                let (position, size) = overlay_geometry(&screen.display, divisor);
-                let builder = egui::ViewportBuilder::default()
-                    .with_title(crate::capture_window::title(&screen.display.name))
-                    .with_position(position)
-                    .with_inner_size(size)
-                    .with_min_inner_size(Vec2::ZERO)
-                    .with_decorations(false)
-                    .with_resizable(false)
-                    .with_taskbar(false)
-                    .with_has_shadow(false)
-                    .with_window_level(WindowLevel::AlwaysOnTop)
-                    .with_active(false)
-                    .with_visible(screen.placement_frames >= 4);
-                ctx.show_viewport_immediate(overlay_id(&screen.display), builder, |child, _| {
-                    if let Some(action) = self.selection_overlay_ui(child, screen) {
-                        chosen = Some((index, action));
-                    }
-                    crate::pointer_style::paint(child, self.settings.pointer_style);
-                });
-            }
+                if index == 0 && first_reveal {
+                    child.send_viewport_cmd(ViewportCommand::Focus);
+                }
+                crate::pointer_style::paint(child, self.settings.pointer_style);
+            });
             if chosen.is_some() {
                 break;
             }
@@ -546,18 +552,6 @@ impl MyImageApp {
             ));
         }
         if placing_overlay {
-            if selection.placement_frames == 0 && ctx.viewport_id() == egui::ViewportId::ROOT {
-                ctx.send_viewport_cmd(ViewportCommand::Title(crate::capture_window::title(
-                    &selection.display.name,
-                )));
-                if cfg!(target_os = "windows") {
-                    ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
-                }
-                ctx.send_viewport_cmd(ViewportCommand::Decorations(false));
-                ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
-                ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(Vec2::ZERO));
-                ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop));
-            }
             let divisor = if cfg!(target_os = "windows") {
                 ctx.pixels_per_point()
             } else {
@@ -1564,8 +1558,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capture_prepares_hidden_then_reveals_once_and_accepts_first_drag_during_fade() {
+    fn dedicated_capture_keeps_editor_hidden_and_accepts_first_drag_during_fade() {
+        use std::{cell::RefCell, rc::Rc};
         let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
         let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
         app.settings.capture_mode = CaptureMode::Region;
         app.guide_open = false;
@@ -1593,9 +1589,18 @@ mod tests {
                 .contains(&ViewportCommand::Visible(true))
         );
 
-        for frame in 0..7 {
-            let output = ctx.run(
+        let render_frame = Rc::new(RefCell::new(0));
+        let frame_for_renderer = render_frame.clone();
+        let rendered = Rc::new(RefCell::new(Vec::new()));
+        let rendered_for_renderer = rendered.clone();
+        egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+            let frame = *frame_for_renderer.borrow();
+            let _ = ctx.run(
                 egui::RawInput {
+                    viewport_id: viewport.ids.this,
+                    viewports: [(viewport.ids.this, egui::ViewportInfo::default())]
+                        .into_iter()
+                        .collect(),
                     time: Some(10. + f64::from(frame) * 0.01),
                     screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
                     events: match frame {
@@ -1605,15 +1610,38 @@ mod tests {
                     },
                     ..Default::default()
                 },
-                |ctx| app.selection_ui(ctx),
+                |ctx| (viewport.viewport_ui_cb)(ctx),
             );
+            rendered_for_renderer
+                .borrow_mut()
+                .push((viewport.ids.this, viewport.builder.visible));
+        });
+        for frame in 0..7 {
+            *render_frame.borrow_mut() = frame;
+            rendered.borrow_mut().clear();
+            let output = ctx.run(egui::RawInput::default(), |ctx| app.selection_ui(ctx));
             let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+            // Capturing must never reveal, focus, restyle or resize the editor.
+            assert!(
+                commands.is_empty(),
+                "Unexpected editor commands: {commands:?}"
+            );
+            assert!(app.hidden.load(Ordering::Relaxed));
+            let screen = &app.selection.as_ref().unwrap().screens[0];
+            let rendered = rendered.borrow();
+            assert!(!rendered.is_empty());
+            assert!(
+                rendered
+                    .iter()
+                    .all(|&(id, visible)| id == overlay_id(&screen.display)
+                        && visible == Some(frame >= 4))
+            );
             assert_eq!(
-                commands.contains(&ViewportCommand::Visible(true)),
+                output.viewport_output[&overlay_id(&screen.display)]
+                    .commands
+                    .contains(&ViewportCommand::Focus),
                 frame == 4
             );
-            assert_eq!(app.hidden.load(Ordering::Relaxed), frame < 4);
-            let screen = &app.selection.as_ref().unwrap().screens[0];
             assert_eq!(screen.reveal_time.is_some(), frame >= 4);
             if frame == 6 {
                 assert!(screen.drag.active);
@@ -1626,6 +1654,7 @@ mod tests {
                 );
             }
         }
+        ctx.set_embed_viewports(true);
     }
 
     #[test]
@@ -1794,7 +1823,14 @@ mod tests {
         for placement in [0, 4] {
             app.selection.as_mut().unwrap().screens[0].placement_frames = placement;
             app.desktop_tx.send(DesktopEvent::Reopen).unwrap();
-            let output = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
+            let overlay = overlay_id(&app.selection.as_ref().unwrap().screens[0].display);
+            let mut overlay_focused = false;
+            let output = ctx.run(egui::RawInput::default(), |ctx| {
+                app.handle_events(ctx);
+                overlay_focused |= ctx.viewport_for(overlay, |viewport| {
+                    viewport.commands.contains(&ViewportCommand::Focus)
+                });
+            });
             assert_eq!(
                 app.selection
                     .as_ref()
@@ -1809,7 +1845,8 @@ mod tests {
             assert!(!cancel.load(Ordering::Acquire));
             assert!(matches!(app.view, View::Capture));
             let commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
-            assert_eq!(commands.contains(&ViewportCommand::Focus), placement == 4);
+            assert!(!commands.contains(&ViewportCommand::Focus));
+            assert_eq!(overlay_focused, placement == 4);
             assert!(!commands.contains(&ViewportCommand::Decorations(true)));
         }
 
@@ -2050,10 +2087,10 @@ mod tests {
         });
         app.selection = Some(session);
         let output = ctx.run(egui::RawInput::default(), |ctx| app.selection_ui(ctx));
-        assert_eq!(*shown.borrow(), vec![secondary]);
+        assert_eq!(*shown.borrow(), ids);
         assert!(app.selection.is_none());
         assert_eq!(app.status, "Capture canceled");
-        for id in ids.into_iter().skip(1) {
+        for id in ids {
             let commands = &output.viewport_output[&id].commands;
             assert!(commands.contains(&ViewportCommand::Visible(false)));
             assert!(commands.contains(&ViewportCommand::Close));

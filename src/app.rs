@@ -1064,13 +1064,8 @@ impl MyImageApp {
                     // Native activation can arrive while the editor is hidden
                     // for capture. Keep that capture alive and let placement
                     // finish before focusing its overlay.
-                    if self.selection.as_ref().is_some_and(|session| {
-                        session
-                            .screens
-                            .first()
-                            .is_some_and(|screen| screen.placement_frames >= 4)
-                    }) {
-                        ctx.send_viewport_cmd(ViewportCommand::Focus);
+                    if let Some(session) = &self.selection {
+                        session.focus(ctx);
                     }
                     ctx.request_repaint();
                 }
@@ -1247,9 +1242,8 @@ impl MyImageApp {
                                 self.settings.capture_mode,
                                 return_hidden,
                             ));
-                            // Prepare and paint the overlay while the editor is
-                            // still hidden. selection_ui reveals it after native
-                            // geometry settles, avoiding a flash of the old window.
+                            // Prepare dedicated overlays while the editor stays
+                            // hidden at its normal geometry throughout capture.
                             crate::runtime::wake_root(ctx);
                         }
                         result => {
@@ -2324,10 +2318,14 @@ impl eframe::App for MyImageApp {
         if self.quitting {
             return;
         }
-        // Capture placement must advance even while its native window is hidden.
+        // Dedicated overlays advance while the editor remains hidden. If an
+        // overlay closes and shows the editor, paint it in this same frame so
+        // the post-paint reveal never exposes an empty editor surface.
         if self.selection.is_some() {
             self.selection_ui(ctx);
-            return;
+            if self.selection.is_some() {
+                return;
+            }
         }
         if self.hidden.load(Ordering::Relaxed) {
             return;
