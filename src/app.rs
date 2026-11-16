@@ -734,6 +734,7 @@ impl MyImageApp {
     }
 
     fn restore_window(&mut self, ctx: &egui::Context, hide: bool) {
+        ctx.send_viewport_cmd(ViewportCommand::Title(crate::branding::NAME.into()));
         // Change native styles once per transition. On macOS even querying
         // maximization of a borderless window temporarily adds a title bar;
         // repeated Maximized(false) requests can change its native geometry.

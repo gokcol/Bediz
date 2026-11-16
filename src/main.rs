@@ -18,6 +18,7 @@ mod canvas_zoom;
 mod capture;
 mod capture_magnifier;
 mod capture_panel;
+mod capture_window;
 mod connectors;
 mod desktop;
 mod dialogs;

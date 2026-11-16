@@ -1,11 +1,13 @@
 {
   "version": "3.0.1",
-  "build": 112,
+  "build": 113,
   "store_version": "3.0.1.0",
   "changes": [
-    "Capture overlays prepare while hidden, then gently dim the screen without delaying selection."
+    "Capture overlays prepare while hidden, then gently dim the screen without delaying selection.",
+    "Keep region drags active through transient pointer exits, with safe cancellation on focus loss."
   ],
   "macos": [
+    "Capture overlays cover the menu bar and Dock so selection can reach every screen edge.",
     "Avoid revealing the old editor window while the capture overlay is being resized and positioned.",
     "Fade capture dimming in over 160 milliseconds; the first click or drag remains immediately usable.",
     "Retain the direct background wake-up fix for capture shortcuts and capture completion."

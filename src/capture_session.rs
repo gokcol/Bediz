@@ -15,9 +15,47 @@ pub(super) struct RegionDrag {
     end: Option<Pos2>,
     active: bool,
     completed: bool,
+    pointer_left: bool,
     adjustment: Option<(Pos2, Rect, [bool; 4])>,
 }
 impl RegionDrag {
+    fn recover_release(
+        &self,
+        events: &mut Vec<egui::Event>,
+        primary_down: Option<bool>,
+        modifiers: egui::Modifiers,
+    ) {
+        if !self.active
+            || primary_down != Some(false)
+            || events.iter().any(|event| {
+                matches!(
+                    event,
+                    egui::Event::WindowFocused(false)
+                        | egui::Event::PointerButton {
+                            button: egui::PointerButton::Primary,
+                            pressed: false,
+                            ..
+                        }
+                )
+            })
+        {
+            return;
+        }
+        if let Some(pos) = self.end.or(self.start) {
+            // Finish the previous drag before a possible new press, using the
+            // last position it actually reached, not the re-entry position.
+            events.insert(
+                0,
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    modifiers,
+                },
+            );
+        }
+    }
+
     /// A click snaps to the frontmost window; a drag remains a free region.
     fn update_smart_region(
         &mut self,
@@ -113,6 +151,7 @@ impl RegionDrag {
                     }
                     self.active = true;
                     self.completed = false;
+                    self.pointer_left = false;
                 }
                 egui::Event::PointerMoved(pos) if self.active => self.move_to(pos, bounds),
                 egui::Event::PointerButton {
@@ -123,10 +162,18 @@ impl RegionDrag {
                 } if self.active => {
                     self.move_to(pos, bounds);
                     self.active = false;
+                    self.pointer_left = false;
                     self.adjustment = None;
                     self.completed = self.bounds().is_some();
                 }
-                egui::Event::PointerGone => self.active = false,
+                // Leaving a viewport is not releasing the mouse. Keep an
+                // in-progress drag so a transient native leave cannot truncate it.
+                egui::Event::PointerGone if self.active => self.pointer_left = true,
+                egui::Event::WindowFocused(false) => {
+                    self.active = false;
+                    self.pointer_left = false;
+                    self.adjustment = None;
+                }
                 _ => {}
             }
         }
@@ -402,6 +449,9 @@ impl MyImageApp {
             return;
         };
         let mut chosen = None;
+        if !self.demo {
+            crate::capture_window::prepare();
+        }
         for (index, screen) in session.screens.iter_mut().enumerate() {
             // Mode changes in one controller apply to every screen.
             if screen.mode != self.settings.capture_mode {
@@ -433,11 +483,7 @@ impl MyImageApp {
                     };
                 let (position, size) = overlay_geometry(&screen.display, divisor);
                 let builder = egui::ViewportBuilder::default()
-                    .with_title(format!(
-                        "{} Capture — {}",
-                        crate::branding::NAME,
-                        screen.display.name
-                    ))
+                    .with_title(crate::capture_window::title(&screen.display.name))
                     .with_position(position)
                     .with_inner_size(size)
                     .with_min_inner_size(Vec2::ZERO)
@@ -496,6 +542,9 @@ impl MyImageApp {
         let placing_overlay = selection.placement_frames < 4;
         if placing_overlay {
             if selection.placement_frames == 0 && ctx.viewport_id() == egui::ViewportId::ROOT {
+                ctx.send_viewport_cmd(ViewportCommand::Title(crate::capture_window::title(
+                    &selection.display.name,
+                )));
                 if cfg!(target_os = "windows") {
                     ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
                 }
@@ -542,14 +591,21 @@ impl MyImageApp {
                 .any(|event| matches!(event, egui::Event::PointerGone))
         }) {
             selection.pointer_ready = false;
-            selection.drag.active = false;
-            selection.drag.adjustment = None;
         } else if !placing_overlay && pointer_moved {
             selection.pointer_ready = true;
             if !ctx.input(|i| i.viewport().focused.unwrap_or(i.focused)) {
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
             }
         }
+        let mut selection_events = ctx.input(|i| i.events.clone());
+        if selection.drag.active && selection.drag.pointer_left && !self.demo {
+            selection.drag.recover_release(
+                &mut selection_events,
+                crate::capture_window::primary_button_down(),
+                ctx.input(|i| i.modifiers),
+            );
+        }
+        let can_drag = selection.pointer_ready || selection.drag.active;
         let mut mode = selection.mode;
         let old_mode = mode;
         if !menu_was_open
@@ -800,9 +856,9 @@ impl MyImageApp {
                     if ctx.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
                         selection.multi.remove_selected(&mut selection.drag);
                     }
-                    if selection.pointer_ready {
+                    if can_drag {
                         let windows: Vec<_> = selection.windows.iter().map(|w| (w.id, window_rect(w))).collect();
-                        selection.multi.update(&mut selection.drag, &ctx.input(|i| i.events.clone()), bounds, bar, &windows);
+                        selection.multi.update(&mut selection.drag, &selection_events, bounds, bar, &windows);
                     }
                 } else if mode == CaptureMode::Window {
                     if !placing_overlay && selection.pointer_ready && !menu_interaction
@@ -818,28 +874,28 @@ impl MyImageApp {
                 } else if mode == CaptureMode::FullScreen {
                     confirm |= !placing_overlay && !menu_interaction && selection.pointer_ready && response.clicked()
                         && pointer.is_some_and(|p| !bar.contains(p));
-                } else if !placing_overlay && selection.pointer_ready && !menu_interaction && mode == CaptureMode::Scrolling {
+                } else if !placing_overlay && can_drag && !menu_interaction && mode == CaptureMode::Scrolling {
                     let windows: Vec<_> = selection
                         .windows
                         .iter()
                         .map(|w| (w.id, window_rect(w)))
                         .collect();
                     selection.drag.update_window(
-                        &ctx.input(|i| i.events.clone()),
+                        &selection_events,
                         bounds,
                         bar,
                         &windows,
                         &mut selection.window_id,
                     );
-                } else if !placing_overlay && selection.pointer_ready && !menu_interaction && mode == CaptureMode::Text {
+                } else if !placing_overlay && can_drag && !menu_interaction && mode == CaptureMode::Text {
                     // Text capture is a free rectangle. A click or modifier must
                     // not silently snap to a window or become an image capture.
                     selection.drag.update(
-                        &ctx.input(|i| i.events.clone()),
+                        &selection_events,
                         bounds,
                         bar,
                     );
-                } else if !placing_overlay && selection.pointer_ready && !menu_interaction && mode == CaptureMode::Region {
+                } else if !placing_overlay && can_drag && !menu_interaction && mode == CaptureMode::Region {
                     let windows: Vec<_> = hovered_window
                         .into_iter()
                         .chain(
@@ -851,7 +907,7 @@ impl MyImageApp {
                         .map(|w| (w.id, window_rect(w)))
                         .collect();
                     selection.drag.update_smart_region(
-                        &ctx.input(|i| i.events.clone()),
+                        &selection_events,
                         bounds,
                         bar,
                         &windows,
@@ -1811,7 +1867,7 @@ mod tests {
     }
 
     #[test]
-    fn leaving_overlay_clears_hover_and_unfinished_drag() {
+    fn leaving_overlay_clears_hover_but_drag_can_resume_and_finish() {
         let ctx = egui::Context::default();
         let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
         let mut session = test_screens(&ctx, CaptureMode::Region);
@@ -1826,11 +1882,131 @@ mod tests {
         );
         assert!(screen.drag.active && screen.pointer_ready);
         overlay_frame(&mut app, &ctx, screen, vec![egui::Event::PointerGone]);
-        assert!(!screen.drag.active && !screen.pointer_ready);
+        assert!(screen.drag.active && !screen.pointer_ready);
+        let end = Pos2::new(700., 599.);
+        overlay_frame(&mut app, &ctx, screen, vec![egui::Event::PointerMoved(end)]);
+        assert!(screen.drag.active);
+        assert_eq!(screen.drag.bounds(), Some(Rect::from_min_max(pos, end)));
+        overlay_frame(&mut app, &ctx, screen, vec![pointer_button(end, false)]);
+        assert!(!screen.drag.active);
+        assert!(screen.drag.completed);
         assert_eq!(
             overlay_frame(&mut app, &ctx, screen, vec![key(egui::Key::Escape)]),
             Some(SelectionAction::Cancel)
         );
+    }
+
+    #[test]
+    fn region_drag_crosses_window_edges_and_includes_screen_top_and_bottom() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        app.settings.capture_mode = CaptureMode::Region;
+        let mut session = test_screens(&ctx, CaptureMode::Region);
+        let screen = &mut session.screens[0];
+        screen.windows.push(capture::WindowInfo {
+            id: 9,
+            name: "Underlying window".into(),
+            x: 50,
+            y: 50,
+            width: 400,
+            height: 300,
+        });
+        overlay_frame(&mut app, &ctx, screen, vec![]);
+        let start = Pos2::new(100., 150.);
+        overlay_frame(&mut app, &ctx, screen, vec![pointer_button(start, true)]);
+        let end = Pos2::new(799., 599.);
+        overlay_frame(
+            &mut app,
+            &ctx,
+            screen,
+            vec![egui::Event::PointerMoved(end), pointer_button(end, false)],
+        );
+        assert_eq!(screen.drag.bounds(), Some(Rect::from_min_max(start, end)));
+
+        screen.drag = RegionDrag::default();
+        let top = Pos2::new(0., 0.);
+        overlay_frame(&mut app, &ctx, screen, vec![pointer_button(top, true)]);
+        overlay_frame(
+            &mut app,
+            &ctx,
+            screen,
+            vec![egui::Event::PointerMoved(end), pointer_button(end, false)],
+        );
+        assert_eq!(screen.drag.bounds(), Some(Rect::from_min_max(top, end)));
+    }
+
+    #[test]
+    fn losing_focus_stops_drag_without_accepting_partial_capture() {
+        let mut drag = RegionDrag::default();
+        let bounds = Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.));
+        drag.update(
+            &[
+                pointer_button(Pos2::new(10., 10.), true),
+                egui::Event::PointerMoved(Pos2::new(100., 100.)),
+            ],
+            bounds,
+            Rect::NOTHING,
+        );
+        drag.update(
+            &[
+                egui::Event::WindowFocused(false),
+                egui::Event::PointerMoved(Pos2::new(700., 500.)),
+            ],
+            bounds,
+            Rect::NOTHING,
+        );
+        assert!(!drag.active);
+        assert!(!drag.completed);
+        assert_eq!(
+            drag.bounds(),
+            Some(Rect::from_min_max(
+                Pos2::new(10., 10.),
+                Pos2::new(100., 100.)
+            ))
+        );
+    }
+
+    #[test]
+    fn missed_release_finishes_at_last_drag_point_before_a_new_press() {
+        let bounds = Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.));
+        let mut drag = RegionDrag::default();
+        drag.update(
+            &[
+                pointer_button(Pos2::new(10., 10.), true),
+                egui::Event::PointerMoved(Pos2::new(100., 100.)),
+                egui::Event::PointerGone,
+            ],
+            bounds,
+            Rect::NOTHING,
+        );
+        let mut events = vec![];
+        drag.recover_release(&mut events, Some(true), egui::Modifiers::NONE);
+        assert!(events.is_empty());
+        drag.recover_release(&mut events, Some(false), egui::Modifiers::NONE);
+        assert_eq!(events.len(), 1);
+        drag.update(&events, bounds, Rect::NOTHING);
+        assert!(!drag.active && drag.completed);
+        assert_eq!(
+            drag.bounds(),
+            Some(Rect::from_min_max(
+                Pos2::new(10., 10.),
+                Pos2::new(100., 100.)
+            ))
+        );
+
+        drag.active = true;
+        let mut events = vec![pointer_button(Pos2::new(500., 400.), true)];
+        drag.recover_release(&mut events, Some(false), egui::Modifiers::NONE);
+        drag.update(&events, bounds, Rect::NOTHING);
+        assert!(drag.active && !drag.completed);
+        assert_eq!(drag.start, Some(Pos2::new(500., 400.)));
+
+        let mut events = vec![egui::Event::WindowFocused(false)];
+        drag.recover_release(&mut events, Some(false), egui::Modifiers::NONE);
+        assert_eq!(events.len(), 1);
+        let mut events = vec![pointer_button(Pos2::new(600., 500.), false)];
+        drag.recover_release(&mut events, Some(false), egui::Modifiers::NONE);
+        assert_eq!(events.len(), 1);
     }
 
     #[test]
