@@ -31,4 +31,4 @@ Capture windows remain at zero native opacity through placement and native show/
 
 Build 114: 684 app tests and 17 packaging tests passed; formatting and Clippy passed. Source: 573756af64ee6e2d803b193402d5950734b309d6. Native CI: https://github.com/gokcol/MyImage/actions/runs/43972014577 (passed).
 
-The Developer ID-signed bundle is prepared, but notarization currently reports that the saved MyPDF Keychain profile is unavailable, including when the login Keychain is specified explicitly. The same profile notarized build 113 earlier in this session. Mac UI access also failed (cgWindowNotFound); the user was asked to unlock the Mac/login Keychain before retrying. Build 113 remains installed. Build 114 is not published and needs installed-app/visual confirmation.
+The temporary Keychain-access failure cleared after the user unlocked the Mac. The app and DMG were accepted by Apple notarization. Build 114 is installed; native checks confirmed a visible Region overlay, first-drag selection and restoration of the normal window on Escape. The user was asked to confirm whether the bright/dark screen blink is gone before publication.
