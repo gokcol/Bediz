@@ -87,7 +87,7 @@ pub(super) fn send(event: DesktopEvent) -> bool {
     if let Some(sink) = sink
         && sink.sender.send(event).is_ok()
     {
-        sink.ctx.request_repaint_of(egui::ViewportId::ROOT);
+        crate::runtime::wake_root(&sink.ctx);
         return true;
     }
     false

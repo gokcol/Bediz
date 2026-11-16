@@ -1,14 +1,14 @@
 {
   "version": "3.0.1",
-  "build": 110,
+  "build": 111,
   "store_version": "3.0.1.0",
   "changes": [
-    "MyImage is now SkyImage on Mac as well as Windows. Existing projects, settings and update channels are preserved."
+    "Background commands now wake the editor event loop directly, even when a previous repaint is still pending."
   ],
   "macos": [
-    "The app, Dock, menu bar, About dialog, capture windows and installer now display SkyImage, with Previously MyImage shown in About.",
-    "The Mac bundle identifier, signing identity and local storage paths stay unchanged. Existing MyImage installations can upgrade to SkyImage.",
-    "Check for Updates continues to use GitHub."
+    "Fix capture hotkeys waiting until you click SkyImage: both the shortcut and capture result wake the app without relying on a native redraw.",
+    "Native menu, Dock reopen and Quit commands use the same wake-up path.",
+    "SkyImage retains its existing signing identity, projects, settings and GitHub update channel."
   ],
   "windows": [
     "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",

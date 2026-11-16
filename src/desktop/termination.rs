@@ -193,7 +193,7 @@ extern "C-unwind" fn application_should_handle_reopen(
     if let Some(sink) = sink
         && sink.sender.send(DesktopEvent::Reopen).is_ok()
     {
-        sink.ctx.request_repaint_of(egui::ViewportId::ROOT);
+        crate::runtime::wake_root(&sink.ctx);
         objc2::runtime::Bool::NO
     } else {
         objc2::runtime::Bool::YES
@@ -214,7 +214,7 @@ extern "C-unwind" fn application_should_terminate(
     {
         // Only enqueue work. AppKit is still inside terminate: and must return
         // before the app opens its save/discard prompt or a native file dialog.
-        sink.ctx.request_repaint_of(egui::ViewportId::ROOT);
+        crate::runtime::wake_root(&sink.ctx);
         TERMINATE_CANCEL
     } else {
         TERMINATE_NOW

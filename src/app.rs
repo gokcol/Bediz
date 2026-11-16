@@ -647,7 +647,7 @@ impl MyImageApp {
                 return;
             }
             let _ = tx.send(WorkEvent::Captured(generation, at, result));
-            ctx.request_repaint();
+            crate::runtime::wake_root(&ctx);
         });
     }
 

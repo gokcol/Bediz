@@ -16,6 +16,9 @@ pub fn run(background: bool) -> eframe::Result {
     event_loop.set_control_flow(ControlFlow::Wait);
     let hidden = Arc::new(AtomicBool::new(false));
     let app_hidden = hidden.clone();
+    let external_wake = Arc::new(AtomicBool::new(false));
+    let app_wake = external_wake.clone();
+    let proxy = event_loop.create_proxy();
     let options = NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default()
@@ -34,6 +37,21 @@ pub fn run(background: bool) -> eframe::Result {
         "MyImage",
         options,
         Box::new(move |cc| {
+            cc.egui_ctx.data_mut(|data| {
+                data.insert_temp(
+                    egui::Id::new("root-command-waker"),
+                    CommandWaker {
+                        pending: app_wake,
+                        notify: Arc::new(move |cumulative_pass_nr| {
+                            let _ = proxy.send_event(UserEvent::RequestRepaint {
+                                viewport_id: egui::ViewportId::ROOT,
+                                when: std::time::Instant::now(),
+                                cumulative_pass_nr,
+                            });
+                        }),
+                    },
+                );
+            });
             Ok(Box::new(crate::app::MyImageApp::new(
                 cc, background, app_hidden,
             )))
@@ -45,9 +63,29 @@ pub fn run(background: bool) -> eframe::Result {
         hidden,
         root: RootWindow::default(),
         wakeup: RootWakeup::default(),
+        external_wake,
         modifiers: winit::keyboard::ModifiersState::empty(),
     })?;
     Ok(())
+}
+
+// Command delivery must bypass egui's repaint coalescing. A previous redraw can
+// remain outstanding when macOS suppresses drawing for an inactive window.
+#[derive(Clone)]
+struct CommandWaker {
+    pending: Arc<AtomicBool>,
+    notify: Arc<dyn Fn(u64) + Send + Sync>,
+}
+
+pub fn wake_root(ctx: &egui::Context) {
+    let waker = ctx.data(|data| data.get_temp::<CommandWaker>(egui::Id::new("root-command-waker")));
+    if let Some(waker) = waker {
+        waker.pending.store(true, Ordering::Release);
+        (waker.notify)(ctx.cumulative_pass_nr_for(egui::ViewportId::ROOT));
+    } else {
+        // Headless tests and independently constructed contexts have no native loop.
+        ctx.request_repaint_of(egui::ViewportId::ROOT);
+    }
 }
 
 struct ResidentRuntime<'a> {
@@ -55,6 +93,7 @@ struct ResidentRuntime<'a> {
     hidden: Arc<AtomicBool>,
     root: RootWindow,
     wakeup: RootWakeup,
+    external_wake: Arc<AtomicBool>,
     modifiers: winit::keyboard::ModifiersState,
 }
 
@@ -102,9 +141,14 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
         // wakeups until native input has been drained, then render once. Rendering
         // inside user_event can feed child repaint requests back into the same
         // queue indefinitely, starving mouse-up, keyboard and occlusion events.
-        if self
+        let redraw = self
             .wakeup
-            .take(self.hidden.load(Ordering::Relaxed) || self.root.occluded)
+            .take(self.hidden.load(Ordering::Relaxed) || self.root.occluded);
+        // External commands get one root update even if native occlusion state
+        // is stale. Drain only here, after native input, never recursively from
+        // user_event (immediate child viewports may enqueue more repaints).
+        let command = self.external_wake.swap(false, Ordering::AcqRel);
+        if (command || redraw)
             && let Some(id) = self.root.id
         {
             self.inner
@@ -165,6 +209,46 @@ impl RootWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn commands_wake_even_when_egui_has_an_outstanding_repaint() {
+        use std::sync::atomic::AtomicUsize;
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        let callbacks = Arc::new(AtomicUsize::new(0));
+        let count = callbacks.clone();
+        ctx.set_request_repaint_callback(move |_| {
+            count.fetch_add(1, Ordering::Relaxed);
+        });
+        ctx.request_repaint();
+        let before = callbacks.load(Ordering::Relaxed);
+        // A second request alone does not notify the native loop again.
+        ctx.request_repaint();
+        assert_eq!(callbacks.load(Ordering::Relaxed), before);
+        let pending = Arc::new(AtomicBool::new(false));
+        let notifications = Arc::new(AtomicUsize::new(0));
+        let count = notifications.clone();
+        ctx.data_mut(|data| {
+            data.insert_temp(
+                egui::Id::new("root-command-waker"),
+                CommandWaker {
+                    pending: pending.clone(),
+                    notify: Arc::new(move |_| {
+                        count.fetch_add(1, Ordering::Relaxed);
+                    }),
+                },
+            )
+        });
+        // Hotkey delivery and a worker result must both escape that suppression.
+        wake_root(&ctx);
+        wake_root(&ctx);
+        assert_eq!(notifications.load(Ordering::Relaxed), 2);
+        assert!(pending.swap(false, Ordering::AcqRel));
+        assert!(!pending.swap(false, Ordering::AcqRel));
+        // No continuous repaint loop: only another explicit command re-arms it.
+        wake_root(&ctx);
+        assert!(pending.swap(false, Ordering::AcqRel));
+    }
+
     #[test]
     fn child_repaints_coalesce_until_native_input_can_run() {
         let mut wakeup = RootWakeup::default();

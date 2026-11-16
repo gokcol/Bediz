@@ -77,8 +77,8 @@ impl RegisteredHotkey {
 impl EventSink {
     fn send(&self, event: DesktopEvent) {
         if self.sender.send(event).is_ok() {
-            // This wakes eframe even when its editor window is hidden.
-            self.ctx.request_repaint_of(egui::ViewportId::ROOT);
+            // Deliver commands even when native redraws or egui callbacks are suppressed.
+            crate::runtime::wake_root(&self.ctx);
         }
     }
 }
