@@ -9,6 +9,7 @@ impl MyImageApp {
             && self.pending_capture.is_none()
             && self.selection.is_none()
             && self.scroll_session.is_none()
+            && self.capture_hotkey_editor.is_none()
             && !self.guide_open
             && !self.appearance_open
             && !self.recovery.prompt

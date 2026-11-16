@@ -16,8 +16,10 @@ impl CaptureOutput {
         folder: &std::path::Path,
         at: DateTime<Local>,
         destination: CaptureDestination,
+        size: crate::capture_size::OutputSize,
         copy: impl FnOnce(&image::RgbaImage) -> Result<(), String>,
     ) -> Self {
+        let image = size.apply(image);
         // Publish the clipboard first, so slow disk storage never delays pasting.
         // Either operation may succeed independently of the other.
         let clipboard = if destination == CaptureDestination::Clipboard {
@@ -64,6 +66,7 @@ impl MyImageApp {
         self.restore_window(ctx, self.desktop.is_some());
         let folder = self.settings.output_dir.clone();
         let destination = self.settings.capture_destination;
+        let output_size = self.settings.capture_output_size;
         let tx = self.work_tx.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
@@ -73,6 +76,7 @@ impl MyImageApp {
                     &folder,
                     at,
                     destination,
+                    output_size,
                     crate::image_clipboard::write_image,
                 )
             });
@@ -226,6 +230,39 @@ mod tests {
     }
 
     #[test]
+    fn output_size_is_applied_once_and_identically_to_clipboard_library_and_editor() {
+        for size in crate::capture_size::OutputSize::ALL {
+            for destination in CaptureDestination::ALL {
+                let dir = tempfile::tempdir().unwrap();
+                let original = pixels();
+                let expected = size.apply(original.clone());
+                let output = CaptureOutput::prepare(
+                    original,
+                    dir.path(),
+                    Local::now(),
+                    destination,
+                    size,
+                    |image| {
+                        assert_eq!(destination, CaptureDestination::Clipboard);
+                        assert_eq!(*image, expected);
+                        Ok(())
+                    },
+                );
+                assert_eq!(*output.image, expected);
+                assert_eq!(
+                    *document::load_project(output.path.as_ref().unwrap())
+                        .unwrap()
+                        .image,
+                    expected
+                );
+                // Clipboard retries and Open in Editor reuse these exact pixels.
+                let retained = output.clone();
+                assert!(Arc::ptr_eq(&retained.image, &output.image));
+            }
+        }
+    }
+
+    #[test]
     fn clipboard_gets_exact_pixels_before_library_save_and_editor_does_not_copy() {
         let dir = tempfile::tempdir().unwrap();
         let expected = pixels();
@@ -234,6 +271,7 @@ mod tests {
             dir.path(),
             Local::now(),
             CaptureDestination::Clipboard,
+            crate::capture_size::OutputSize::Original,
             |image| {
                 assert_eq!(*image, expected);
                 assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 0);
@@ -250,6 +288,7 @@ mod tests {
             dir.path(),
             Local::now(),
             CaptureDestination::Editor,
+            crate::capture_size::OutputSize::Original,
             |_| panic!("Editor capture must not overwrite the user's clipboard"),
         );
         assert!(output.path.is_ok());
@@ -269,6 +308,7 @@ mod tests {
             &blocked,
             Local::now(),
             CaptureDestination::Clipboard,
+            crate::capture_size::OutputSize::Original,
             |_| Ok(()),
         );
         assert!(output.path.is_err());
@@ -306,6 +346,7 @@ mod tests {
             dir.path(),
             Local::now(),
             CaptureDestination::Clipboard,
+            crate::capture_size::OutputSize::Original,
             |_| Err("Clipboard busy".into()),
         );
         let path = output.path.clone().unwrap();
@@ -343,6 +384,7 @@ mod tests {
             dir.path(),
             Local::now(),
             CaptureDestination::Editor,
+            crate::capture_size::OutputSize::Original,
             |_| unreachable!(),
         );
         app.finish_capture_output(&ctx, Ok(output));

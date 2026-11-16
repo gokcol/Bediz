@@ -4,6 +4,8 @@ use crate::dialogs::{self, Dialog};
 mod about_ui;
 #[path = "app_menu.rs"]
 mod app_menu;
+#[path = "capture_hotkey_ui.rs"]
+mod capture_hotkey_ui;
 #[path = "capture_launcher.rs"]
 mod capture_launcher;
 #[path = "capture_output.rs"]
@@ -153,6 +155,7 @@ pub struct MyImageApp {
     updates: crate::updates::State,
     appearance_open: bool,
     guide_open: bool,
+    capture_hotkey_editor: Option<capture_hotkey_ui::State>,
     source_textures: crate::texture_cache::SourceTextures,
     recovery: recovery_ui::RecoveryState,
     settings: Settings,
@@ -298,6 +301,7 @@ impl MyImageApp {
             about_open: false,
             updates: crate::updates::State::new(&settings.updates, settings.guide_version > 0),
             appearance_open: false,
+            capture_hotkey_editor: None,
             guide_open: !background && settings.guide_version < crate::onboarding::VERSION,
             source_textures: Default::default(),
             recovery: Default::default(),
@@ -508,6 +512,7 @@ impl MyImageApp {
             || self.about_open
             || self.updates.open
             || self.appearance_open
+            || self.capture_hotkey_editor.is_some()
             || self.guide_open
             || self.pending_action.is_some()
             || self.save_as_panel.open
@@ -560,7 +565,10 @@ impl MyImageApp {
         std::thread::spawn(move || {
             // Capture every target before showing any overlay, so no capture
             // contains MyImage or an overlay from another display.
-            std::thread::sleep(Duration::from_millis(250) + Duration::from_secs(delay.into()));
+            // ScreenCaptureKit excludes our application explicitly on Mac.
+            // GDI still needs time for the hidden editor to leave the desktop.
+            let settle = if cfg!(target_os = "macos") { 0 } else { 250 };
+            std::thread::sleep(Duration::from_millis(settle) + Duration::from_secs(delay.into()));
             if cancel.load(Ordering::Acquire) {
                 return;
             }
@@ -999,6 +1007,7 @@ impl MyImageApp {
             || self.about_open
             || self.updates.open
             || self.appearance_open
+            || self.capture_hotkey_editor.is_some()
             || self.guide_open
             || self.pending_action.is_some()
             || self.editor.has_modal()
@@ -1092,6 +1101,7 @@ impl MyImageApp {
                         cancel.store(true, Ordering::Release);
                     }
                     if !self.busy
+                        && self.capture_hotkey_editor.is_none()
                         && !self.guide_open
                         && !self.about_open
                         && !self.updates.open
@@ -1602,6 +1612,7 @@ impl MyImageApp {
         }
         match response.action {
             Some(Action::Capture) => self.begin_capture(ctx),
+            Some(Action::EditHotkey) => self.open_capture_hotkey(ctx),
             Some(Action::Panel) => self.toggle_capture_launcher(ctx),
             Some(Action::RefreshDisplays) => self.refresh_displays(ctx),
             Some(Action::ChooseFolder) => self.choose_library_folder(),
@@ -2081,7 +2092,8 @@ impl MyImageApp {
     }
 
     fn workspace_unobscured(&self) -> bool {
-        !self.guide_open
+        self.capture_hotkey_editor.is_none()
+            && !self.guide_open
             && !self.about_open
             && !self.updates.open
             && !self.appearance_open
@@ -2254,7 +2266,11 @@ impl eframe::App for MyImageApp {
                 Ok(menu) => self.application_menu = Some(menu),
                 Err(error) => self.error = Some(format!("Application menu unavailable: {error}")),
             }
-            match DesktopIntegration::new(ctx.clone(), self.desktop_tx.clone()) {
+            match DesktopIntegration::new(
+                ctx.clone(),
+                self.desktop_tx.clone(),
+                self.settings.capture_shortcut.clone(),
+            ) {
                 Ok(desktop) => self.desktop = Some(desktop),
                 Err(error) => {
                     self.error = Some(format!("Background integration unavailable: {error}"))
@@ -2283,6 +2299,7 @@ impl eframe::App for MyImageApp {
                     && !self.screen_text.open
                     && self.pending_capture.is_none()
                     && self.selection.is_none()
+                    && self.capture_hotkey_editor.is_none()
                     && !self.guide_open
                     && !self.about_open
                     && !self.updates.open
@@ -2338,6 +2355,7 @@ impl eframe::App for MyImageApp {
         }
         self.prepare_updates(ctx);
         if !self.busy
+            && self.capture_hotkey_editor.is_none()
             && !self.guide_open
             && !self.about_open
             && !self.updates.open
@@ -2582,11 +2600,17 @@ impl eframe::App for MyImageApp {
         self.about_ui(ctx, frame);
         self.updates_ui(ctx, frame);
         self.appearance_ui(ctx);
+        self.capture_hotkey_ui(ctx);
         if self.recovery.ready
             && !self.recovery.prompt
             && self.pending_action.is_none()
             && self.file_dialog.is_none()
-            && crate::onboarding::show(ctx, &mut self.guide_open, &self.app_icon)
+            && crate::onboarding::show(
+                ctx,
+                &mut self.guide_open,
+                &self.app_icon,
+                &self.settings.capture_shortcut,
+            )
         {
             self.settings.guide_version = crate::onboarding::VERSION;
             self.persist_settings();

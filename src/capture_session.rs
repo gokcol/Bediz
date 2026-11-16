@@ -633,9 +633,9 @@ impl MyImageApp {
                 rect,
                 Vec2::new(
                     if mode == CaptureMode::MultiRegion {
-                        930.
+                        1090.
                     } else {
-                        770.
+                        930.
                     },
                     62.,
                 ),
@@ -661,7 +661,8 @@ impl MyImageApp {
                         .show(ui, |ui| {
                             crate::capture_panel::apply_look(ui, &look);
                             ui.spacing_mut().item_spacing.x = 10.;
-                            ui.horizontal(|ui| {
+                            ui.set_max_width((ctx.content_rect().width() - 48.).max(240.));
+                            ui.horizontal_wrapped(|ui| {
                                 ui.label(
                                     egui::RichText::new("Capture Now")
                                         .strong()
@@ -698,9 +699,13 @@ impl MyImageApp {
                                             .color(look.palette.ink),
                                     );
                                 } else {
-                                    destination_changed = crate::capture_panel::destination_picker(
+                                    destination_changed |= crate::capture_panel::destination_picker(
                                         ui,
                                         &mut self.settings.capture_destination,
+                                    );
+                                    destination_changed |= crate::capture_panel::output_size_picker(
+                                        ui,
+                                        &mut self.settings.capture_output_size,
                                     );
                                 }
                                 crate::appearance::checkbox(

@@ -392,7 +392,7 @@ impl ImageGeometry {
 
 /// Triangle filtering with a wider footprint when downsampling. Keep only a few
 /// floating-point scanlines, avoiding full-image RGBA32F intermediate buffers.
-fn resize_premultiplied(source: &RgbaImage, width: u32, height: u32) -> RgbaImage {
+pub(crate) fn resize_premultiplied(source: &RgbaImage, width: u32, height: u32) -> RgbaImage {
     // Filter the shrinking axis first when aspect ratio changes substantially.
     // A virtual transpose avoids both an extra image buffer and a huge expanded
     // intermediate workload (for example a tall, thin image resized very wide).

@@ -2,7 +2,7 @@
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download SkyImage for Mac · build 113](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build113) — signed, notarized macOS Apple Silicon DMG/ZIP. [Windows build 109 downloads](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build109) include the unsigned SkyImage Setup installer and portable ZIP. Windows interactive validation remains pending.
+[Download SkyImage for Mac · build 116](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build116) — signed, notarized macOS Apple Silicon DMG/ZIP. [Windows build 109 downloads](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build109) include the unsigned SkyImage Setup installer and portable ZIP. Windows interactive validation remains pending.
 
 [Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). Store package **3.0.0.0** is approved. **SkyImage 3.0.1 (build 109)** was submitted as package **3.0.1.0** on 15 November 2026 and is in certification. It uses the same product and package identity; MyImage remains its previous name. The live Store name changes after Microsoft approves and publishes the update.
 

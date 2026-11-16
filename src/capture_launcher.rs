@@ -3,7 +3,7 @@ use super::*;
 use crate::capture::{CaptureDestination, CaptureMode};
 
 const W: f32 = 468.;
-const SIZE: Vec2 = Vec2::new(W, 248.);
+const SIZE: Vec2 = Vec2::new(W, 280.);
 const NOTCH: f32 = 8.;
 const FIELD_X: f32 = 72.;
 const FIELD_W: f32 = 250.;
@@ -132,6 +132,7 @@ impl MyImageApp {
             && self.pending_capture.is_none()
             && self.scroll_session.is_none()
             && !self.recovery.prompt
+            && self.capture_hotkey_editor.is_none()
             && !self.guide_open
             && !self.about_open
             && !self.updates.open
@@ -190,6 +191,7 @@ impl MyImageApp {
             self.close_capture_launcher(ctx);
             match action {
                 Action::Capture => self.begin_capture(ctx),
+                Action::EditHotkey => self.open_capture_hotkey(ctx),
                 Action::Close => {}
                 Action::Editor | Action::Library | Action::Settings => {
                     let event = match action {
@@ -208,6 +210,7 @@ impl MyImageApp {
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Action {
     Capture,
+    EditHotkey,
     Editor,
     Library,
     Settings,
@@ -588,7 +591,12 @@ fn launcher_content(
         }
     }
 
-    for (label, y) in [("Display", 115.), ("Send to", 148.), ("Delay", 181.)] {
+    for (label, y) in [
+        ("Display", 115.),
+        ("Send to", 148.),
+        ("Delay", 181.),
+        ("Output", 214.),
+    ] {
         ui.painter().text(
             bounds.min + Vec2::new(16., y),
             egui::Align2::LEFT_CENTER,
@@ -683,11 +691,38 @@ fn launcher_content(
         settings.delay_seconds = DELAYS[i];
     }
 
+    let sizes = crate::capture_size::OutputSize::ALL;
+    let size_items = sizes.map(|size| {
+        (
+            if size == crate::capture_size::OutputSize::Original {
+                "100%"
+            } else {
+                size.label()
+            },
+            None,
+            "Resize the finished image before saving or copying",
+        )
+    });
+    ui.add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| {
+        if let Some(i) = segmented(
+            ui,
+            at(FIELD_X, 201., FIELD_W, 26.),
+            "output-size",
+            &size_items,
+            sizes
+                .iter()
+                .position(|s| *s == settings.capture_output_size),
+        ) {
+            changed |= settings.capture_output_size != sizes[i];
+            settings.capture_output_size = sizes[i];
+        }
+    });
+
     changed |= ui
         .add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| {
             switch(
                 ui,
-                at(16., 201., 134., 26.),
+                at(16., 234., 134., 26.),
                 &mut settings.include_pointer,
                 "Include pointer",
                 "Show the mouse pointer in the capture",
@@ -696,7 +731,7 @@ fn launcher_content(
         .inner;
     changed |= switch(
         ui,
-        at(166., 201., 156., 26.),
+        at(166., 234., 156., 26.),
         &mut settings.capture_on_release,
         "Capture on release",
         "Capture on release, without confirming",
@@ -705,7 +740,7 @@ fn launcher_content(
     ui.painter().line_segment(
         [
             bounds.min + Vec2::new(336., 106.),
-            bounds.min + Vec2::new(336., 224.),
+            bounds.min + Vec2::new(336., 257.),
         ],
         Stroke::new(1., p.border.gamma_multiply(0.7)),
     );
@@ -817,45 +852,85 @@ fn launcher_content(
         action = Some(Action::Capture);
     }
     // The shortcut reads as raised keycaps: visible at a glance, not a caption.
-    let keys: &[&str] = if cfg!(target_os = "macos") {
-        &["⌃", "⇧", "C"]
-    } else {
-        &["Ctrl", "Shift", "C"]
-    };
-    let font = egui::FontId::proportional(12.5);
+    let keys = settings.capture_shortcut.keycaps();
+    let font = egui::FontId::proportional(if keys.len() > 3 { 10.5 } else { 12.5 });
     let caps: Vec<_> = keys
         .iter()
         .map(|key| {
             ui.painter()
-                .layout_no_wrap((*key).into(), font.clone(), p.ink)
+                .layout_no_wrap(key.clone(), font.clone(), p.ink)
         })
         .collect();
-    let widths: Vec<f32> = caps
-        .iter()
-        .map(|cap| (cap.size().x + 12.).max(24.))
-        .collect();
-    let mut x =
-        capture_rect.center().x - (widths.iter().sum::<f32>() + 4. * (keys.len() - 1) as f32) * 0.5;
-    for (cap, width) in caps.into_iter().zip(widths) {
-        let key = Rect::from_min_size(egui::pos2(x, bounds.top() + 203.), Vec2::new(width, 21.));
-        ui.painter()
-            .rect_filled(key.translate(Vec2::new(0., 2.)), 5, p.navy);
-        appearance::gradient(
-            ui.painter(),
-            key,
-            5.,
-            p.base.lerp_to_gamma(p.accent_top, 0.25),
-            p.cream,
-        );
-        ui.painter().rect_stroke(
-            key,
-            5,
-            Stroke::new(1., p.accent_top.gamma_multiply(0.7)),
-            egui::StrokeKind::Inside,
-        );
-        ui.painter()
-            .galley(key.center() - cap.size() * 0.5, cap, p.ink);
-        x += width + 4.;
+    let mut rows: Vec<Vec<_>> = vec![Vec::new()];
+    let mut row_width = 0.;
+    for cap in caps {
+        let width = (cap.size().x + 10.).max(22.);
+        if row_width + width > 116. && !rows.last().unwrap().is_empty() {
+            rows.push(Vec::new());
+            row_width = 0.;
+        }
+        row_width += width + 4.;
+        rows.last_mut().unwrap().push((cap, width));
+    }
+    let hotkey_rect = Rect::from_center_size(
+        egui::pos2(capture_rect.center().x, bounds.top() + 226.),
+        Vec2::new(116., 54.),
+    );
+    let edit = ui.interact(
+        hotkey_rect,
+        ui.id().with("edit-capture-hotkey"),
+        egui::Sense::click(),
+    );
+    edit.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            true,
+            format!(
+                "Change capture hotkey: {}",
+                settings.capture_shortcut.label()
+            ),
+        )
+    });
+    hint(&edit, "Change capture hotkey");
+    if edit.clicked() {
+        action = Some(Action::EditHotkey);
+    }
+    let highlighted = edit.hovered() || edit.has_focus();
+    edit.on_hover_cursor(egui::CursorIcon::PointingHand);
+    for (row, caps) in rows.into_iter().enumerate() {
+        let total = caps.iter().map(|(_, width)| width).sum::<f32>() + 4. * (caps.len() - 1) as f32;
+        let mut x = capture_rect.center().x - total * 0.5;
+        for (cap, width) in caps {
+            let key = Rect::from_min_size(
+                egui::pos2(x, bounds.top() + 203. + row as f32 * 25.),
+                Vec2::new(width, 21.),
+            );
+            ui.painter()
+                .rect_filled(key.translate(Vec2::new(0., 2.)), 5, p.navy);
+            appearance::gradient(
+                ui.painter(),
+                key,
+                5.,
+                p.base.lerp_to_gamma(p.accent_top, 0.25),
+                p.cream,
+            );
+            ui.painter().rect_stroke(
+                key,
+                5,
+                Stroke::new(
+                    if highlighted { 1.5 } else { 1. },
+                    if highlighted {
+                        p.ginger
+                    } else {
+                        p.accent_top.gamma_multiply(0.7)
+                    },
+                ),
+                egui::StrokeKind::Inside,
+            );
+            ui.painter()
+                .galley(key.center() - cap.size() * 0.5, cap, p.ink);
+            x += width + 4.;
+        }
     }
     (changed, action)
 }
@@ -929,6 +1004,7 @@ mod tests {
             (egui::pos2(383., 30.), Action::Library),
             (egui::pos2(413., 30.), Action::Settings),
             (egui::pos2(443., 30.), Action::Close),
+            (egui::pos2(402., 213.), Action::EditHotkey),
         ] {
             let event = |pressed| egui::Event::PointerButton {
                 pos: at,
@@ -954,6 +1030,7 @@ mod tests {
             "Include pointer",
             "Capture on release",
             "5s",
+            "50%",
             "Capture",
         ] {
             let (output, _) = frame(vec![], true);
@@ -976,6 +1053,10 @@ mod tests {
         assert_eq!(settings.capture_destination, CaptureDestination::Clipboard);
         assert!(settings.include_pointer && settings.capture_on_release);
         assert_eq!(settings.delay_seconds, 5);
+        assert_eq!(
+            settings.capture_output_size,
+            crate::capture_size::OutputSize::Half
+        );
         assert!(
             !ctx.style().visuals.dark_mode,
             "Launcher styling must not change the editor theme"

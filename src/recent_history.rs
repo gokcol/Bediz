@@ -110,6 +110,7 @@ impl MyImageApp {
         if self.busy
             || !self.settings.recents_open
             || !matches!(self.view, View::Editor | View::Viewer)
+            || self.capture_hotkey_editor.is_some()
             || self.guide_open
             || self.about_open
             || self.updates.open

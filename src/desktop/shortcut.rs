@@ -9,8 +9,125 @@
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 
+/// A logical key, resolved against the current layout when it is registered.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CaptureShortcut {
+    pub control: bool,
+    pub alt: bool,
+    pub shift: bool,
+    pub command: bool,
+    pub key: String,
+}
+
+impl Default for CaptureShortcut {
+    fn default() -> Self {
+        Self {
+            control: true,
+            alt: false,
+            shift: true,
+            command: false,
+            key: "KeyC".into(),
+        }
+    }
+}
+
+impl CaptureShortcut {
+    pub fn keys() -> Vec<String> {
+        (b'A'..=b'Z')
+            .map(|c| format!("Key{}", char::from(c)))
+            .chain((0..=9).map(|n| format!("Digit{n}")))
+            .chain((1..=12).map(|n| format!("F{n}")))
+            .chain(["Period".into(), "Space".into()])
+            .collect()
+    }
+
+    pub fn key_label(key: &str) -> &str {
+        match key {
+            "Period" => ".",
+            _ => key
+                .strip_prefix("Key")
+                .or_else(|| key.strip_prefix("Digit"))
+                .unwrap_or(key),
+        }
+    }
+
+    pub fn keycaps(&self) -> Vec<String> {
+        let mac = cfg!(target_os = "macos");
+        let mut keys = Vec::new();
+        for (enabled, label) in [
+            (self.control, if mac { "⌃" } else { "Ctrl" }),
+            (self.alt, if mac { "⌥" } else { "Alt" }),
+            (self.shift, if mac { "⇧" } else { "Shift" }),
+            (self.command, if mac { "⌘" } else { "Win" }),
+        ] {
+            if enabled {
+                keys.push(label.into());
+            }
+        }
+        keys.push(Self::key_label(&self.key).into());
+        keys
+    }
+
+    pub fn label(&self) -> String {
+        self.keycaps().join(" + ")
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if !Self::keys().contains(&self.key) {
+            return Err("Choose a supported capture key.".into());
+        }
+        if !self.control && !self.alt && !self.command && !self.key.starts_with('F') {
+            return Err("Use Control, Alt/Option or Command/Windows with a letter or number, or choose a function key.".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn resolve(&self) -> Result<CaptureHotkey, String> {
+        self.validate()?;
+        let code: Code = self
+            .key
+            .parse()
+            .map_err(|_| "Unsupported capture key".to_owned())?;
+        #[cfg(target_os = "macos")]
+        let code = {
+            let character = self
+                .key
+                .strip_prefix("Key")
+                .map(|s| s.as_bytes()[0].to_ascii_lowercase())
+                .or_else(|| self.key.strip_prefix("Digit").map(|s| s.as_bytes()[0]))
+                .or(if self.key == "Period" {
+                    Some(b'.')
+                } else {
+                    None
+                });
+            match character {
+                Some(character) => macos::character_key(character)?,
+                None => code,
+            }
+        };
+        let mut modifiers = Modifiers::empty();
+        for (enabled, flag) in [
+            (self.control, Modifiers::CONTROL),
+            (self.alt, Modifiers::ALT),
+            (self.shift, Modifiers::SHIFT),
+            (self.command, Modifiers::SUPER),
+        ] {
+            if enabled {
+                modifiers |= flag;
+            }
+        }
+        Ok(CaptureHotkey {
+            label: self.label(),
+            alternative: false,
+            hotkey: HotKey::new(Some(modifiers), code),
+        })
+    }
+}
+
 pub(super) struct CaptureHotkey {
-    pub label: &'static str,
+    pub label: String,
+    pub alternative: bool,
     pub hotkey: HotKey,
 }
 
@@ -22,13 +139,32 @@ pub(super) struct CaptureHotkeys {
 /// Call on the main UI thread; Apple's keyboard-layout APIs are not thread safe.
 /// Resolve the two characters independently so an unavailable key does not
 /// prevent the other shortcuts from registering.
-pub(super) fn capture_hotkeys() -> CaptureHotkeys {
+pub(super) fn capture_hotkeys(primary: &CaptureShortcut) -> CaptureHotkeys {
     #[cfg(target_os = "macos")]
     let keys = (macos::character_key(b'.'), macos::character_key(b'c'));
     #[cfg(not(target_os = "macos"))]
     let keys = (Ok(Code::Period), Ok(Code::KeyC));
 
-    capture_hotkeys_for_keys(keys.0, keys.1, cfg!(target_os = "macos"))
+    let mut result = capture_hotkeys_for_keys(keys.0, keys.1, cfg!(target_os = "macos"));
+    if *primary != CaptureShortcut::default() {
+        result.hotkeys.retain(|key| key.alternative);
+        result
+            .errors
+            .retain(|error| !error.starts_with("Ctrl+Shift+C unavailable:"));
+        match primary.resolve() {
+            Ok(key) => {
+                if !result
+                    .hotkeys
+                    .iter()
+                    .any(|existing| existing.hotkey.id() == key.hotkey.id())
+                {
+                    result.hotkeys.insert(0, key);
+                }
+            }
+            Err(error) => result.errors.push(error),
+        }
+    }
+    result
 }
 
 fn capture_hotkeys_for_keys(
@@ -43,7 +179,8 @@ fn capture_hotkeys_for_keys(
     // CONTROL deliberately means Control on macOS, not Command.
     match letter_c {
         Ok(key) => result.hotkeys.push(CaptureHotkey {
-            label: "Ctrl+Shift+C",
+            label: "Ctrl+Shift+C".into(),
+            alternative: false,
             hotkey: HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), key),
         }),
         Err(error) => result
@@ -53,12 +190,14 @@ fn capture_hotkeys_for_keys(
     match period {
         Ok(key) => {
             result.hotkeys.push(CaptureHotkey {
-                label: "Ctrl+Shift+.",
+                label: "Ctrl+Shift+.".into(),
+                alternative: true,
                 hotkey: HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), key),
             });
             if include_command {
                 result.hotkeys.push(CaptureHotkey {
-                    label: "Cmd+Shift+.",
+                    label: "Cmd+Shift+.".into(),
+                    alternative: true,
                     hotkey: HotKey::new(Some(Modifiers::SUPER | Modifiers::SHIFT), key),
                 });
             }
@@ -306,6 +445,33 @@ mod tests {
                 .find(|entry| entry.0 == key)
                 .map(|(_, text)| text.encode_utf16().collect())
         })
+    }
+
+    #[test]
+    fn preferences_keep_default_and_reject_unmodified_typing_shortcuts() {
+        let settings: crate::storage::Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(settings.capture_shortcut, CaptureShortcut::default());
+        let mut shortcut = CaptureShortcut {
+            control: false,
+            shift: false,
+            ..Default::default()
+        };
+        assert!(shortcut.validate().is_err());
+        shortcut.shift = true;
+        assert!(shortcut.validate().is_err());
+        shortcut.key = "F8".into();
+        assert!(shortcut.validate().is_ok());
+        shortcut.key = "Bogus".into();
+        assert!(shortcut.validate().is_err());
+        shortcut.key = "KeyK".into();
+        shortcut.command = true;
+        let settings = crate::storage::Settings {
+            capture_shortcut: shortcut.clone(),
+            ..settings
+        };
+        let reopened: crate::storage::Settings =
+            serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(reopened.capture_shortcut, shortcut);
     }
 
     #[test]

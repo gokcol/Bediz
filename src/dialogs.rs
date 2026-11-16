@@ -38,6 +38,30 @@ impl<'a> Dialog<'a> {
             .backdrop_color(Color32::from_black_alpha(85))
             .show(ctx, |ui| self.contents(ui, false, content).0)
     }
+    /// Centered modal with the same accessible close control as our windows.
+    pub fn modal_closable<R>(
+        self,
+        ctx: &egui::Context,
+        id: Id,
+        open: &mut bool,
+        content: impl FnOnce(&mut egui::Ui) -> R,
+    ) -> egui::ModalResponse<R> {
+        let response = egui::Modal::new(id)
+            .frame(surface(ctx))
+            .backdrop_color(Color32::from_black_alpha(85))
+            .show(ctx, |ui| {
+                let (inner, close) = self.contents(ui, true, content);
+                if close {
+                    *open = false;
+                }
+                inner
+            });
+        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            *open = false;
+        }
+        response
+    }
+
     pub fn window<R>(
         self,
         ctx: &egui::Context,

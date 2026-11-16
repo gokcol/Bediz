@@ -1,14 +1,15 @@
 {
   "version": "3.0.1",
-  "build": 116,
+  "build": 117,
   "store_version": "3.0.1.0",
   "changes": [
-    "Capture starts at normal screen brightness, with dimming only outside the area you select."
+    "Choose 100%, 75%, 50% or 25% output size after capture. Original is the default; selection stays full resolution.",
+    "Click the hotkey in Capture Now to change your shortcut.",
+    "Quick Start & Hotkeys now has a close button."
   ],
   "macos": [
-    "Refine the first capture frame to avoid a solid background flashing into view.",
-    "Capture the menu bar and Dock, and start selecting as soon as the overlay appears.",
-    "Keep capture active when returning to SkyImage from another app."
+    "Remove the fixed 250 ms startup wait while keeping capture smooth and undimmed.",
+    "Capture the menu bar and Dock, with dimming only outside the area you select."
   ],
   "windows": [
     "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",

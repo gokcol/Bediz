@@ -10,6 +10,7 @@ use eframe::egui::{self, Color32, Rect, Stroke, Vec2};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
     Capture,
+    EditHotkey,
     Panel,
     RefreshDisplays,
     ChooseFolder,
@@ -207,6 +208,18 @@ pub fn delay_label(seconds: u32) -> String {
         n => format!("{n} seconds"),
     }
 }
+/// Output scaling never changes selection coordinates or the full-size preview.
+pub fn output_size_picker(ui: &mut egui::Ui, size: &mut crate::capture_size::OutputSize) -> bool {
+    let mut changed = false;
+    egui::ComboBox::from_id_salt("capture-output-size")
+        .selected_text(format!("Output: {}", size.label())).width(142.)
+        .popup_style(egui::style::StyleModifier::new({ let visuals = ui.visuals().clone(); move |style: &mut egui::Style| style.visuals = visuals.clone() }))
+        .show_ui(ui, |ui| {
+            for choice in crate::capture_size::OutputSize::ALL { changed |= ui.selectable_value(size, choice, choice.label()).changed(); }
+        }).response.on_hover_text("Resize the finished image before saving or copying. Percentages apply to width and height. Selection stays at full resolution.");
+    changed
+}
+
 pub fn menu_summary(settings: &Settings, _shape: CaptureShape, displays: &[DisplayInfo]) -> String {
     let display = selected_display_label(settings, displays);
     format!(
@@ -312,6 +325,7 @@ pub fn ui(
                                 destination.hint(),
                             ));
                             result.changed |= appearance::segmented(ui, "capture-destination", &mut settings.capture_destination, &destinations);
+                            result.changed |= output_size_picker(ui, &mut settings.capture_output_size);
                             ui.separator();
                             ui.horizontal(|ui| {
                                 ui.strong("Save to library");
@@ -345,7 +359,9 @@ pub fn ui(
                         if ui.add_enabled_ui(available.capture, |ui| appearance::capture_button(ui, "Capture Now", Vec2::new(222., 40.))).inner.clicked() {
                             result.action = Some(Action::Capture);
                         }
-                        ui.label(egui::RichText::new("Ctrl + Shift + C").strong().color(look.palette.ink));
+                        if ui.button(egui::RichText::new(settings.capture_shortcut.label()).strong().color(look.palette.ink)).on_hover_text("Change capture hotkey").clicked() {
+                            result.action = Some(Action::EditHotkey);
+                        }
                         ui.label(egui::RichText::new(if cfg!(target_os="macos") { "Also ⌃⇧. / ⌘⇧." } else { "Also Ctrl + Shift + ." }).size(12.).color(look.palette.muted));
                         ui.visuals_mut().widgets.noninteractive.bg_stroke.color = look.palette.border;
                         ui.separator();

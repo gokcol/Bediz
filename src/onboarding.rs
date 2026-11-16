@@ -5,13 +5,18 @@ use eframe::egui::{self, Color32, RichText};
 
 pub const VERSION: u8 = 2;
 
-pub fn show(ctx: &egui::Context, open: &mut bool, calico: &egui::TextureHandle) -> bool {
+pub fn show(
+    ctx: &egui::Context,
+    open: &mut bool,
+    calico: &egui::TextureHandle,
+    shortcut: &crate::desktop::shortcut::CaptureShortcut,
+) -> bool {
     if !*open {
         return false;
     }
     let mut dismissed = false;
     Dialog::new(&format!("Welcome to {}", crate::branding::NAME), "Your compact capture and annotation studio.", Icon::Capture, 510.)
-        .modal(ctx, egui::Id::new("quick_start"), |ui| {
+        .modal_closable(ctx, egui::Id::new("quick_start"), open, |ui| {
             ui.spacing_mut().item_spacing.y = 7.;
             ui.horizontal(|ui| {
                 let (badge, _) = ui.allocate_exact_size(egui::vec2(64., 68.), egui::Sense::hover());
@@ -29,7 +34,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, calico: &egui::TextureHandle) 
                 .id_salt("quick_start_body")
                 .max_height((ctx.content_rect().height() - 330.).clamp(110., 400.))
                 .show(ui, |ui| {
-                    step_card(ui, "01", Icon::Capture, "Catch a moment", "Capture a region, a window, or your whole screen.", "Ctrl + Shift + C or .  ·  On Mac, ⌘ + Shift + . also works", appearance::palette(ui.ctx()).cream, appearance::palette(ui.ctx()).accent);
+                    step_card(ui, "01", Icon::Capture, "Catch a moment", "Capture a region, a window, or your whole screen.", &format!("{}  ·  Change it by clicking the hotkey in Capture Now.", shortcut.label()), appearance::palette(ui.ctx()).cream, appearance::palette(ui.ctx()).accent);
                     step_card(ui, "02", Icon::Edit, "Make your mark", "Add arrows, text and stamps. Click an object to style it.", "Drag a selection to move pixels; use its handles to adjust the boundary.", Color32::from_rgb(229, 242, 239), Color32::from_rgb(30, 104, 94));
                     step_card(ui, "03", Icon::Save, "Keep it editable. Share it anywhere.", "Each image saves automatically as one editable .myimage project. Use Save As to create an image or PDF to share.", "Right-click a selection for actions, including Delete.", Color32::from_rgb(239, 234, 227), appearance::palette(ui.ctx()).ink);
                     ui.add_space(3.);
@@ -50,6 +55,7 @@ pub fn show(ctx: &egui::Context, open: &mut bool, calico: &egui::TextureHandle) 
             });
             dismissed |= ctx.input(|i| i.key_pressed(egui::Key::Escape));
         });
+    dismissed |= !*open;
     if dismissed {
         *open = false;
     }

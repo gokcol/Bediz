@@ -2,7 +2,7 @@
 
 #[cfg(target_os = "macos")]
 mod native_menu;
-mod shortcut;
+pub(crate) mod shortcut;
 #[cfg(target_os = "macos")]
 pub use native_menu::ApplicationMenu;
 #[cfg(target_os = "macos")]
@@ -176,13 +176,18 @@ pub struct DesktopIntegration {
     menu_enabled: bool,
     manager: Option<GlobalHotKeyManager>,
     hotkeys: Vec<Arc<RegisteredHotkey>>,
+    primary_shortcut: shortcut::CaptureShortcut,
     hotkey_resolution_errors: Vec<String>,
     hotkey_error: Option<String>,
     sink: Arc<EventSink>,
 }
 
 impl DesktopIntegration {
-    pub fn new(ctx: egui::Context, sender: Sender<DesktopEvent>) -> Result<Self, String> {
+    pub fn new(
+        ctx: egui::Context,
+        sender: Sender<DesktopEvent>,
+        primary_shortcut: shortcut::CaptureShortcut,
+    ) -> Result<Self, String> {
         if EVENT_TARGET
             .lock()
             .map_err(|_| "Desktop event routing is unavailable".to_owned())?
@@ -260,13 +265,78 @@ impl DesktopIntegration {
             menu_enabled: true,
             manager: None,
             hotkeys: Vec::new(),
+            primary_shortcut,
             hotkey_resolution_errors: Vec::new(),
             hotkey_error: None,
             sink,
         };
         // Conflicts and manager errors must not remove the working tray menu.
         let _ = integration.retry_hotkey();
+        integration.update_shortcut_label();
         Ok(integration)
+    }
+
+    fn update_shortcut_label(&self) {
+        let alternatives = if cfg!(target_os = "macos") {
+            "⌃⇧. / ⌘⇧."
+        } else {
+            "Ctrl+Shift+."
+        };
+        self.capture_item.set_text(format!(
+            "Capture now    {} / {alternatives}",
+            self.primary_shortcut.label()
+        ));
+        let _ = self._tray.set_tooltip(Some(format!(
+            "SkyImage — Capture: {} / {alternatives}",
+            self.primary_shortcut.label()
+        )));
+    }
+
+    /// Reserve the replacement before changing settings or releasing the old key.
+    pub fn change_capture_shortcut(
+        &mut self,
+        shortcut: &shortcut::CaptureShortcut,
+        persist: impl FnOnce() -> Result<(), String>,
+    ) -> Result<(), String> {
+        let replacement = shortcut.resolve()?;
+        if self.manager.is_none() {
+            self.manager = Some(GlobalHotKeyManager::new().map_err(|e| e.to_string())?);
+        }
+        let manager = self
+            .manager
+            .as_ref()
+            .ok_or("Shortcut manager unavailable")?;
+        let mut routed = self
+            .sink
+            .hotkeys
+            .lock()
+            .map_err(|_| "Shortcut event routing is unavailable")?;
+        let result = replace_primary_hotkey(
+            &mut self.hotkeys,
+            replacement,
+            |key, register| {
+                if register {
+                    manager.register(key)
+                } else {
+                    manager.unregister(key)
+                }
+                .map_err(|e| e.to_string())
+            },
+            persist,
+        );
+        *routed = self.hotkeys.clone();
+        result?;
+        self.primary_shortcut = shortcut.clone();
+        // Recompute any surviving alias errors without re-registering good keys.
+        self.hotkey_resolution_errors
+            .retain(|e| e.starts_with("Period capture shortcuts unavailable:"));
+        self.hotkey_error =
+            register_missing_hotkeys(&self.hotkeys, &self.hotkey_resolution_errors, |key| {
+                manager.register(key).map_err(|e| e.to_string())
+            })
+            .err();
+        self.update_shortcut_label();
+        Ok(())
     }
 
     pub fn update_capture_menu(&mut self, summary: String, enabled: bool) {
@@ -346,7 +416,7 @@ impl DesktopIntegration {
 
     fn register_hotkeys(&mut self) -> Result<(), String> {
         if self.hotkeys.is_empty() {
-            let resolved = shortcut::capture_hotkeys();
+            let resolved = shortcut::capture_hotkeys(&self.primary_shortcut);
             self.hotkey_resolution_errors = resolved.errors;
             let hotkeys: Vec<_> = resolved
                 .hotkeys
@@ -373,6 +443,75 @@ impl DesktopIntegration {
     }
 }
 
+/// Transaction boundary shared by OS registration and settings persistence.
+fn replace_primary_hotkey(
+    hotkeys: &mut Vec<Arc<RegisteredHotkey>>,
+    replacement: shortcut::CaptureHotkey,
+    mut change: impl FnMut(HotKey, bool) -> Result<(), String>,
+    persist: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let id = replacement.hotkey.id();
+    let existing = hotkeys
+        .iter()
+        .find(|h| h.shortcut.hotkey.id() == id)
+        .cloned();
+    let candidate = existing.unwrap_or_else(|| Arc::new(RegisteredHotkey::new(replacement)));
+    let newly_registered = !candidate.registered.load(Ordering::Acquire);
+    if newly_registered {
+        change(candidate.shortcut.hotkey, true).map_err(|e| {
+            format!("Shortcut unavailable: {e}. Your previous shortcut is unchanged.")
+        })?;
+        candidate.registered.store(true, Ordering::Release);
+    }
+    let obsolete: Vec<_> = hotkeys
+        .iter()
+        .filter(|h| !h.shortcut.alternative && h.shortcut.hotkey.id() != id)
+        .cloned()
+        .collect();
+    let mut released: Vec<Arc<RegisteredHotkey>> = Vec::new();
+    let result = (|| {
+        for old in &obsolete {
+            if old.registered.load(Ordering::Acquire) {
+                change(old.shortcut.hotkey, false)?;
+                old.registered.store(false, Ordering::Release);
+                old.pressed.store(false, Ordering::Release);
+                released.push(old.clone());
+            }
+        }
+        persist()
+    })();
+    if let Err(mut error) = result {
+        for old in released {
+            match change(old.shortcut.hotkey, true) {
+                Ok(()) => old.registered.store(true, Ordering::Release),
+                Err(e) => {
+                    error.push_str(&format!("; restoring {} failed: {e}", old.shortcut.label))
+                }
+            }
+        }
+        if newly_registered {
+            match change(candidate.shortcut.hotkey, false) {
+                Ok(()) => {
+                    candidate.registered.store(false, Ordering::Release);
+                }
+                Err(e) => {
+                    error.push_str(&format!("; releasing the new shortcut failed: {e}"));
+                    // Keep ownership so Drop can clean up the native registration.
+                    if !hotkeys.iter().any(|h| h.shortcut.hotkey.id() == id) {
+                        hotkeys.push(candidate);
+                    }
+                }
+            }
+        }
+        return Err(error);
+    }
+    hotkeys.retain(|h| h.shortcut.alternative || h.shortcut.hotkey.id() == id);
+    if !hotkeys.iter().any(|h| h.shortcut.hotkey.id() == id) {
+        hotkeys.insert(0, candidate);
+    }
+    Ok(())
+}
+
 fn register_missing_hotkeys(
     hotkeys: &[Arc<RegisteredHotkey>],
     resolution_errors: &[String],
@@ -397,7 +536,7 @@ fn register_missing_hotkeys(
     let working: Vec<_> = hotkeys
         .iter()
         .filter(|hotkey| hotkey.registered.load(Ordering::Acquire))
-        .map(|hotkey| hotkey.shortcut.label)
+        .map(|hotkey| hotkey.shortcut.label.as_str())
         .collect();
     let mut message = errors.join("; ");
     if !working.is_empty() {
@@ -486,11 +625,113 @@ mod tests {
         .into_iter()
         .map(|(label, modifier, key)| {
             Arc::new(RegisteredHotkey::new(shortcut::CaptureHotkey {
-                label,
+                label: label.into(),
+                alternative: key == Code::Period,
                 hotkey: HotKey::new(Some(modifier | Modifiers::SHIFT), key),
             }))
         })
         .collect()
+    }
+
+    fn replacement() -> shortcut::CaptureHotkey {
+        shortcut::CaptureHotkey {
+            label: "Ctrl+Shift+F8".into(),
+            alternative: false,
+            hotkey: HotKey::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::F8),
+        }
+    }
+
+    #[test]
+    fn conflicting_replacement_keeps_existing_shortcuts_and_preferences() {
+        let mut keys = three_shortcuts();
+        register_missing_hotkeys(&keys, &[], |_| Ok(())).unwrap();
+        let ids: Vec<_> = keys.iter().map(|h| h.shortcut.hotkey.id()).collect();
+        let error = replace_primary_hotkey(
+            &mut keys,
+            replacement(),
+            |_, register| {
+                assert!(register);
+                Err("owned by another app".into())
+            },
+            || panic!("conflict must not save preferences"),
+        )
+        .unwrap_err();
+        assert!(error.contains("previous shortcut is unchanged"));
+        assert_eq!(
+            keys.iter()
+                .map(|h| h.shortcut.hotkey.id())
+                .collect::<Vec<_>>(),
+            ids
+        );
+        assert!(keys.iter().all(|h| h.registered.load(Ordering::Acquire)));
+    }
+
+    #[test]
+    fn failed_preference_write_restores_old_registration_and_releases_new_one() {
+        let mut keys = three_shortcuts();
+        register_missing_hotkeys(&keys, &[], |_| Ok(())).unwrap();
+        let old = keys[0].shortcut.hotkey.id();
+        let new = replacement().hotkey.id();
+        let mut calls = Vec::new();
+        replace_primary_hotkey(
+            &mut keys,
+            replacement(),
+            |key, register| {
+                calls.push((key.id(), register));
+                Ok(())
+            },
+            || Err("disk full".into()),
+        )
+        .unwrap_err();
+        assert_eq!(
+            calls,
+            vec![(new, true), (old, false), (old, true), (new, false)]
+        );
+        assert!(keys.iter().all(|h| h.registered.load(Ordering::Acquire)));
+        assert_eq!(keys.len(), 3);
+    }
+
+    #[test]
+    fn replacement_preserves_aliases_and_reuses_an_already_registered_alias() {
+        let mut keys = three_shortcuts();
+        register_missing_hotkeys(&keys, &[], |_| Ok(())).unwrap();
+        let old = keys[0].shortcut.hotkey.id();
+        let new = replacement().hotkey.id();
+        let mut calls = Vec::new();
+        replace_primary_hotkey(
+            &mut keys,
+            replacement(),
+            |key, register| {
+                calls.push((key.id(), register));
+                Ok(())
+            },
+            || Ok(()),
+        )
+        .unwrap();
+        assert_eq!(calls, vec![(new, true), (old, false)]);
+        assert_eq!(keys.len(), 3);
+        let alias = shortcut::CaptureHotkey {
+            label: "Ctrl+Shift+.".into(),
+            alternative: false,
+            hotkey: keys[1].shortcut.hotkey,
+        };
+        calls.clear();
+        replace_primary_hotkey(
+            &mut keys,
+            alias,
+            |key, register| {
+                calls.push((key.id(), register));
+                Ok(())
+            },
+            || Ok(()),
+        )
+        .unwrap();
+        assert_eq!(calls, vec![(new, false)]);
+        assert_eq!(keys.len(), 2);
+        assert!(
+            keys.iter()
+                .all(|h| h.shortcut.alternative && h.registered.load(Ordering::Acquire))
+        );
     }
 
     #[test]
@@ -550,8 +791,10 @@ mod tests {
                 "{} could not be registered",
                 failed.shortcut.label
             )));
-            let working_labels: Vec<_> =
-                working.iter().map(|hotkey| hotkey.shortcut.label).collect();
+            let working_labels: Vec<_> = working
+                .iter()
+                .map(|hotkey| hotkey.shortcut.label.as_str())
+                .collect();
             assert!(error.contains(&format!("Still available: {}", working_labels.join(", "))));
             assert!(!failed.capture_on_event(HotKeyState::Pressed));
             assert!(!failed.capture_on_event(HotKeyState::Released));

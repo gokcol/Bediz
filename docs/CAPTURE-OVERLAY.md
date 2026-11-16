@@ -58,3 +58,15 @@ Idle capture now keeps the screenshot at its original brightness, including whil
 The capture viewport requests native transparency on macOS. eframe 0.33 configures transparency support for the shared wgpu painter from the root viewport, not from each child. Mac startup therefore enables transparent backbuffers at that root setting too. The app already clears to transparent, and its editor panels paint their normal opaque surfaces. Previously, the capture viewport and shared painter used opaque defaults, allowing a transparent clear frame to become a solid backing surface while the first Metal image was being presented. Hidden placement, native opacity protection and post-paint reveal are retained; the brief-blink outcome still requires native/user validation.
 
 Local checks passed: 686 app tests and 17 packaging tests, formatting and Clippy. New rendering regressions exercise all six capture modes before selection and during window hover, and verify that a drawn Region shades exactly its outside area and resets the dimming state when cleared.
+
+Build 116 is signed, notarized and installed. The user confirmed both the brief blink and startup darkening are gone, Region selection works, and the transition is almost identical to the Snagit benchmark. Mac CI passed: https://github.com/gokcol/MyImage/actions/runs/43980251450. Windows build/MSIX validation passed: https://github.com/gokcol/MyImage/actions/runs/43980267833. Source: 043387c581f73b6fc3c88e1b12f79ae25a5a4b53.
+
+## Follow-up — build 117
+
+ScreenCaptureKit now excludes SkyImage's own process explicitly from display captures, retaining desktop, menu bar and Dock content. This allows the fixed 250 ms compositor-settling wait to be removed on Mac. User-configured capture delays, transparent backbuffers, hidden placement and post-paint reveal remain unchanged. Windows retains its GDI settling delay.
+
+Output size (100%, 75%, 50%, 25%) scales the completed image once, before Library, editor and clipboard delivery. Existing settings default to 100%. Selection, magnifier, window capture and scrolling composition retain full-resolution input; text recognition is unaffected. Alpha-aware filtering preserves transparent edges, and clipboard retries reuse the already resized image.
+
+The Capture Now shortcut is clickable in both Home and the resident panel. A centered editor chooses modifiers and key, checks OS conflicts, saves the binding and preserves the period aliases. Registration/persistence failure rolls back the replacement. Quick Start and the shortcut editor have accessible X controls and Escape dismissal.
+
+Build 117 local validation: 695 app tests and 17 packaging tests passed; formatting and Clippy passed. Tests cover output scaling for both destinations and the saved Library image, original pixel preservation, transparent edges, preference migration, hotkey conflicts and rollback, retained aliases, modal input blocking and Escape cancellation.

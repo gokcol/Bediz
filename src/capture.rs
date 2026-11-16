@@ -533,9 +533,18 @@ mod macos {
                     .iter()
                     .find(|d| d.displayID() == display_id)
                     .ok_or("The selected display is no longer available.")?;
-                SCContentFilter::initWithDisplay_excludingWindows(
+                // Exclude our process explicitly, rather than waiting for the
+                // compositor to remove the just-hidden editor. This initializer
+                // retains the desktop, menu bar and Dock in the captured image.
+                let own_apps: Vec<_> = content
+                    .applications()
+                    .iter()
+                    .filter(|app| app.processID() == std::process::id() as i32)
+                    .collect();
+                SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
                     SCContentFilter::alloc(),
                     &display,
+                    &NSArray::from_retained_slice(&own_apps),
                     &NSArray::<SCWindow>::new(),
                 )
             };
