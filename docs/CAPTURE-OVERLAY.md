@@ -17,8 +17,18 @@ A PointerGone event used to cancel an unfinished region drag. It now clears hove
 - Windows build and MSIX validation passed, including test installation/removal: https://github.com/gokcol/MyImage/actions/runs/43968661101
 - Build 113 app and DMG accepted by Apple notarization. Installed at /Applications/SkyImage.app.
 - Native Region selection succeeded at the top edge (y=2) and bottom edge (y=1910) of the 2940×1912 display. Escape restored the normal editor.
-- User confirmation of transition smoothness and menu-bar/Dock capture is pending.
+- User confirmed menu-bar and Dock selection work on build 113. The flash remained, so its transition change was insufficient.
 
 The user confirmed Region is the affected mode. The intermittent interruption was not reproduced on demand; tests cover the concrete pointer-loss paths found in code. Further normal-use observation is needed to confirm whether all instances are resolved.
 
 Build 112 was a draft for the transition change alone. Build 113 includes that change and the subsequent selection fixes.
+
+## Follow-up — build 114
+
+User testing confirmed the system-bar fix but still showed a flash. eframe paints before applying viewport visibility commands: the capture-pending update can therefore paint an empty scene before Visible(false) takes effect. On macOS, capture now orders the native editor/launcher out immediately, before returning that empty scene. Automatic window ordering animations are disabled during capture.
+
+Capture windows remain at zero native opacity through placement and native show/unhide. The runtime restores opacity only after eframe has returned from painting and applying viewport commands. Both regular RedrawRequested events and explicit background wake-ups run this final step. Normal editor show/error/reopen paths also restore opacity after painting. The 160 ms dimming transition and working selection behavior remain in place.
+
+Build 114: 684 app tests and 17 packaging tests passed; formatting and Clippy passed. Source: 573756af64ee6e2d803b193402d5950734b309d6. Native CI: https://github.com/gokcol/MyImage/actions/runs/43972014577 (passed).
+
+The Developer ID-signed bundle is prepared, but notarization currently reports that the saved MyPDF Keychain profile is unavailable, including when the login Keychain is specified explicitly. The same profile notarized build 113 earlier in this session. Mac UI access also failed (cgWindowNotFound); the user was asked to unlock the Mac/login Keychain before retrying. Build 113 remains installed. Build 114 is not published and needs installed-app/visual confirmation.
