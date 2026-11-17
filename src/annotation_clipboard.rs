@@ -21,6 +21,7 @@ pub(super) enum ClipboardResult {
     Copied(u32, u32),
     Cut(u32, u32, Box<CutPlan>),
     Pasted(crate::stamps::StampSource, Rect, Box<Document>),
+    PastedText(String, Box<Document>),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -156,12 +157,15 @@ pub(super) fn prepare_insertion(
         .iter()
         .map(render::annotation_bounds)
         .fold(Rect::NOTHING, Rect::union);
-    let crop = destination.geometry.canvas_rect(original_size(destination));
-    let center = Pos2::new(
-        crop.x as f32 + crop.width as f32 * 0.5,
-        crop.y as f32 + crop.height as f32 * 0.5,
+    let [width, height] = destination.output_size();
+    let center = destination.geometry.inverse_point(
+        Point {
+            x: width as f32 * 0.5,
+            y: height as f32 * 0.5,
+        },
+        original_size(destination),
     );
-    let delta = center - bounds.center();
+    let delta = Pos2::new(center.x, center.y) - bounds.center();
     for a in &mut annotations {
         *a = offset_annotation(a, delta);
     }
@@ -298,7 +302,7 @@ impl EditorState {
             ctx.request_repaint();
         });
     }
-    fn paste_image(&mut self, ctx: &egui::Context, document: &Document) {
+    fn paste_clipboard(&mut self, ctx: &egui::Context, document: &Document, text: String) {
         if self.clipboard_job.is_some() {
             return;
         }
@@ -310,11 +314,25 @@ impl EditorState {
             copy_started: None,
         });
         self.copy_confirmation = None;
-        self.clipboard_status = Some("Pasting image…".into());
+        self.image_error = None;
+        self.clipboard_status = Some("Pasting…".into());
         std::thread::spawn(move || {
-            let result = crate::image_clipboard::read_image()
-                .and_then(|pixels| crate::image_clipboard::pasted_raster(pixels, &document))
-                .map(|(source, rect)| ClipboardResult::Pasted(source, rect, Box::new(document)));
+            let fallback_text = (text != crate::image_clipboard::IMAGE_PASTE).then_some(text);
+            let result =
+                crate::image_clipboard::read_canvas_content(fallback_text).and_then(|content| {
+                    match content {
+                        crate::image_clipboard::CanvasClipboard::Image(pixels) => {
+                            crate::image_clipboard::pasted_raster(pixels, &document).map(
+                                |(source, rect)| {
+                                    ClipboardResult::Pasted(source, rect, Box::new(document))
+                                },
+                            )
+                        }
+                        crate::image_clipboard::CanvasClipboard::Text(text) => {
+                            Ok(ClipboardResult::PastedText(text, Box::new(document)))
+                        }
+                    }
+                });
             let _ = tx.send(result);
             ctx.request_repaint();
         });
@@ -369,6 +387,19 @@ impl EditorState {
                 self.area_mask.clear();
                 self.pixel_mask = None;
                 Ok("Pasted image layer. Move, resize or change opacity; Save project keeps it editable.".into())
+            },
+            ClipboardResult::PastedText(text, before) => {
+                if !std::sync::Arc::ptr_eq(&before.image, &document.image) || before.edit_state() != document.edit_state() {
+                    return Err("The image changed while reading the clipboard. Paste again to place it in the current image.".into());
+                }
+                // Control+V on Mac may reach us through the native clipboard
+                // fallback instead of egui's text event.
+                if text.starts_with(PREFIX) {
+                    self.paste_annotations(&text, document, history);
+                    return self.image_error.clone().map_or_else(
+                        || Ok(self.clipboard_status.clone().unwrap_or_default()), Err);
+                }
+                self.paste_text(&text, document, history)
             }
         });
         match result {
@@ -518,6 +549,42 @@ impl EditorState {
         ));
     }
 
+    fn paste_text(
+        &mut self,
+        text: &str,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) -> Result<String, String> {
+        if text.trim().is_empty() {
+            return Err("The clipboard has no text to paste.".into());
+        }
+        if text.chars().count() > 16_384 {
+            return Err("Paste up to 16,384 characters in one text box. Split longer text into smaller parts.".into());
+        }
+        let mut annotation = self.new_annotation(AnnotationKind::Text, Point { x: 0., y: 0. });
+        // Pasting creates ordinary text with the user's Text tool appearance,
+        // independent of the currently selected image, shape or text path.
+        annotation.text_style.path = None;
+        self.remembered_appearance(AnnotationKind::Text)
+            .apply_to_annotation(&mut annotation);
+        annotation.text = text.replace("\r\n", "\n").replace('\r', "\n");
+        annotation.layer.name = "Pasted text".into();
+        crate::document::validate_annotations(std::slice::from_ref(&annotation))?;
+        render::validate_text_raster(&annotation)?;
+        let annotations = prepare_insertion(vec![annotation], document)?;
+        let (count, _) = self.insert_annotations(annotations, document, history);
+        if count == 0 {
+            return Err(self
+                .image_error
+                .clone()
+                .unwrap_or_else(|| "Cannot paste this text.".into()));
+        }
+        self.area = None;
+        self.area_mask.clear();
+        self.pixel_mask = None;
+        Ok("Pasted editable text box. Double-click to edit; drag to move.".into())
+    }
+
     pub(super) fn insert_annotations(
         &mut self,
         annotations: Vec<Annotation>,
@@ -529,7 +596,9 @@ impl EditorState {
         let first = document.annotations.len();
         let count = annotations.len();
         let protected = annotations.iter().any(|a| a.locked() || !a.visible());
-        let expand = annotations.iter().any(|a| a.kind == AnnotationKind::Stamp);
+        let expand = annotations
+            .iter()
+            .any(|a| matches!(a.kind, AnnotationKind::Stamp | AnnotationKind::Text));
         let mut candidate = document.clone();
         candidate.annotations.extend(annotations);
         let check = if expand {
@@ -602,7 +671,7 @@ impl EditorState {
                 egui::Event::Paste(text) if text.starts_with(PREFIX) => {
                     self.paste_annotations(&text, document, history)
                 }
-                egui::Event::Paste(_) => self.paste_image(ui.ctx(), document),
+                egui::Event::Paste(text) => self.paste_clipboard(ui.ctx(), document, text),
                 _ => unreachable!(),
             }
         }
@@ -668,7 +737,7 @@ impl EditorState {
         }
         if canvas_menu::item(ui, "Paste", canvas_menu::MenuIcon::Paste, true)
             .on_hover_text(
-                "Paste an image as a movable layer, or paste editable Bediz annotations (Command/Ctrl + V)",
+                "Paste text as an editable text box, an image as a movable layer, or editable Bediz annotations (Command/Ctrl + V)",
             )
             .clicked()
         {
@@ -722,6 +791,168 @@ mod tests {
             assert!(std::time::Instant::now() < deadline);
             std::thread::yield_now();
         }
+    }
+
+    fn deliver_text(e: &mut EditorState, d: &mut Document, h: &mut EditHistory, text: &str) {
+        let (tx, receiver) = std::sync::mpsc::channel();
+        e.clipboard_job = Some(ClipboardJob {
+            receiver,
+            copy_started: None,
+        });
+        tx.send(Ok(ClipboardResult::PastedText(
+            text.into(),
+            Box::new(d.clone()),
+        )))
+        .unwrap();
+        e.poll_clipboard(d, h);
+    }
+
+    #[test]
+    fn clipboard_text_becomes_an_independent_editable_project_object() {
+        let mut d = blank();
+        let before = d.edit_state();
+        let mut h = EditHistory::new(before.clone());
+        let mut e = EditorState {
+            color: [20, 70, 90, 255],
+            font_size: 24.,
+            ..Default::default()
+        };
+        e.text_style.italic = true;
+        e.text_style.path = Some(Default::default());
+        e.remember_appearance(AnnotationKind::Text);
+        e.color = [255, 0, 0, 0];
+        e.font_size = 100.;
+        e.area = Some(Rect::from_min_max(
+            egui::pos2(10., 10.),
+            egui::pos2(30., 40.),
+        ));
+        deliver_text(
+            &mut e,
+            &mut d,
+            &mut h,
+            "  Gökçöl — Bediz\r\nEditable text  ",
+        );
+        assert!(e.image_error.is_none(), "{:?}", e.image_error);
+        assert_eq!(d.annotations.len(), 1);
+        let a = &d.annotations[0];
+        assert_eq!(a.kind, AnnotationKind::Text);
+        assert_eq!(a.text, "  Gökçöl — Bediz\nEditable text  ");
+        assert_eq!(a.color, [20, 70, 90, 255]);
+        assert_eq!(a.font_size, 24.);
+        assert!(a.text_style.italic);
+        assert!(a.text_style.path.is_none());
+        assert_eq!(a.layer.name, "Pasted text");
+        assert!((render::annotation_bounds(a).center() - egui::pos2(400., 300.)).length() < 0.01);
+        assert_eq!(e.selected, Some(0));
+        assert!(e.area.is_none());
+        assert_eq!(d.geometry, before.geometry);
+        let pasted = d.edit_state();
+        let rendered = render::flatten(&d).unwrap();
+        assert_ne!(rendered, *d.image);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pasted-text.myimage");
+        document::save_project(&d, &path).unwrap();
+        let reopened = document::load_project(&path).unwrap();
+        assert_eq!(reopened.edit_state(), pasted);
+        assert_eq!(render::flatten(&reopened).unwrap(), rendered);
+        h.undo(&mut d);
+        assert_eq!(d.edit_state(), before);
+        assert!(!h.can_undo());
+        h.redo(&mut d);
+        assert_eq!(d.edit_state(), pasted);
+
+        // The new object uses the existing canvas text editor. A second paste
+        // while editing replaces selected text, rather than making another object.
+        let ctx = egui::Context::default();
+        crate::appearance::apply(&ctx);
+        let texture = ctx.load_texture(
+            "pasted text",
+            egui::ColorImage::new([1, 1], vec![Color32::WHITE]),
+            Default::default(),
+        );
+        e.open_text_editor(0, d.edit_state(), &d);
+        frame(&mut e, &mut d, &mut h, &ctx, &texture, vec![]);
+        frame(
+            &mut e,
+            &mut d,
+            &mut h,
+            &ctx,
+            &texture,
+            vec![egui::Event::Paste("Revised text".into())],
+        );
+        assert_eq!(d.annotations.len(), 1);
+        assert_eq!(d.annotations[0].text, "Revised text");
+        assert!(e.clipboard_job.is_none());
+        e.finish_text_editor(&mut d, &mut h, true);
+        h.undo(&mut d);
+        assert_eq!(d.edit_state(), pasted);
+        h.undo(&mut d);
+        assert_eq!(d.edit_state(), before);
+    }
+
+    #[test]
+    fn clipboard_text_respects_visible_canvas_and_grows_without_clipping() {
+        let mut d = blank();
+        crate::canvas::set_view_rect(
+            &mut d,
+            Rect::from_min_max(egui::pos2(100., 80.), egui::pos2(500., 300.)),
+        )
+        .unwrap();
+        let mut h = EditHistory::new(d.edit_state());
+        let mut e = EditorState::default();
+        deliver_text(&mut e, &mut d, &mut h, "Visible");
+        assert!(
+            (render::annotation_bounds(&d.annotations[0]).center() - egui::pos2(300., 190.))
+                .length()
+                < 0.01
+        );
+        let before = d.edit_state();
+        deliver_text(&mut e, &mut d, &mut h, &"Wide pasted text ".repeat(12));
+        assert!(e.image_error.is_none(), "{:?}", e.image_error);
+        assert!(d.output_size()[0] > 400);
+        let bounds = mapped_bounds(render::annotation_bounds(&d.annotations[1]), &d);
+        let [w, height] = d.output_size();
+        assert!(
+            Rect::from_min_size(Pos2::ZERO, egui::vec2(w as f32, height as f32))
+                .contains_rect(bounds)
+        );
+        h.undo(&mut d);
+        assert_eq!(d.edit_state(), before);
+    }
+
+    #[test]
+    fn invalid_and_stale_text_pastes_are_atomic_and_native_objects_stay_editable() {
+        let mut d = blank();
+        let before = d.edit_state();
+        let mut h = EditHistory::new(before.clone());
+        let mut e = EditorState::default();
+        for text in ["  \n".into(), "x".repeat(16_385), "W".repeat(10_000)] {
+            deliver_text(&mut e, &mut d, &mut h, &text);
+            assert!(e.image_error.is_some());
+            assert_eq!(d.edit_state(), before);
+            assert!(!h.can_undo());
+        }
+        let source = fixture();
+        let payload = encode(&source, &[0, 1, 2]).unwrap();
+        deliver_text(&mut e, &mut d, &mut h, &payload);
+        assert_eq!(d.annotations.len(), 3);
+        assert!(!d.annotations[0].text.starts_with(PREFIX));
+        assert!(e.image_error.is_none());
+        let (tx, receiver) = std::sync::mpsc::channel();
+        e.clipboard_job = Some(ClipboardJob {
+            receiver,
+            copy_started: None,
+        });
+        tx.send(Ok(ClipboardResult::PastedText(
+            "Stale".into(),
+            Box::new(d.clone()),
+        )))
+        .unwrap();
+        d.geometry.quarter_turns = 1;
+        let changed = d.edit_state();
+        e.poll_clipboard(&mut d, &mut h);
+        assert_eq!(d.edit_state(), changed);
+        assert!(e.image_error.as_deref().unwrap().contains("Paste again"));
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Native raster clipboard exchange, with full-resolution composition and alpha.
+//! Native canvas clipboard exchange, with full-resolution composition and alpha.
 use crate::{
     document::{Document, Point},
     stamps::StampSource,
@@ -33,6 +33,54 @@ pub fn read_image() -> Result<RgbaImage, String> {
     let image = clipboard
         .get_image()
         .map_err(|_| "The clipboard has no image. Copy an image or area first.".to_string())?;
+    clipboard_pixels(image)
+}
+
+#[derive(Debug)]
+pub enum CanvasClipboard {
+    Image(RgbaImage),
+    Text(String),
+}
+
+/// Prefer native pixels when a clipboard offers both an image and its source URL.
+/// `fallback_text` is the text already supplied by egui, or `None` for a native
+/// paste request with no text event (including Control+V on macOS).
+pub fn read_canvas_content(fallback_text: Option<String>) -> Result<CanvasClipboard, String> {
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("Cannot access the clipboard: {e}"))?;
+    canvas_content(clipboard.get_image(), fallback_text, || {
+        clipboard.get_text()
+    })
+}
+
+fn canvas_content(
+    image: Result<arboard::ImageData<'_>, arboard::Error>,
+    fallback_text: Option<String>,
+    native_text: impl FnOnce() -> Result<String, arboard::Error>,
+) -> Result<CanvasClipboard, String> {
+    match image {
+        Ok(image) => return clipboard_pixels(image).map(CanvasClipboard::Image),
+        Err(arboard::Error::ContentNotAvailable) => {}
+        // A malformed or temporarily inaccessible image must not silently turn
+        // into an unrelated text layer.
+        Err(error) => return Err(format!("Cannot read the clipboard image: {error}")),
+    }
+    let text = match fallback_text {
+        Some(text) => text,
+        None => native_text().map_err(|error| match error {
+            arboard::Error::ContentNotAvailable => {
+                "The clipboard has no image or text. Copy an image or text first.".to_string()
+            }
+            error => format!("Cannot read clipboard text: {error}"),
+        })?,
+    };
+    if text.trim().is_empty() {
+        return Err("The clipboard has no text to paste.".into());
+    }
+    Ok(CanvasClipboard::Text(text))
+}
+
+fn clipboard_pixels(image: arboard::ImageData<'_>) -> Result<RgbaImage, String> {
     let width = u32::try_from(image.width).map_err(|_| "Clipboard image is too wide.")?;
     let height = u32::try_from(image.height).map_err(|_| "Clipboard image is too tall.")?;
     crate::document::validate_dimensions(width, height)?;
@@ -396,5 +444,96 @@ mod tests {
         request_paste();
         complete_paste_input(&ctx, &mut input);
         assert_eq!(input.events.len(), 1);
+    }
+
+    #[test]
+    fn canvas_clipboard_prefers_pixels_over_image_url_text() {
+        let pixels = vec![5, 20, 100, 128, 40, 80, 120, 255];
+        let result = canvas_content(
+            Ok(arboard::ImageData {
+                width: 2,
+                height: 1,
+                bytes: pixels.clone().into(),
+            }),
+            Some("https://example.invalid/copied-image.png".into()),
+            || panic!("A native image must not read text"),
+        )
+        .unwrap();
+        let CanvasClipboard::Image(image) = result else {
+            panic!("Native pixels must win over accompanying URL text");
+        };
+        assert_eq!(image.dimensions(), (2, 1));
+        assert_eq!(image.into_raw(), pixels);
+    }
+
+    #[test]
+    fn canvas_clipboard_preserves_supplied_and_native_unicode_text() {
+        let text = "  Gökçöl — Bediz 🐈\nİkinci satır\t終わり  ";
+        let supplied = canvas_content(
+            Err(arboard::Error::ContentNotAvailable),
+            Some(text.into()),
+            || panic!("An existing egui text event must not be read again"),
+        )
+        .unwrap();
+        let native = canvas_content(Err(arboard::Error::ContentNotAvailable), None, || {
+            Ok(text.into())
+        })
+        .unwrap();
+        for result in [supplied, native] {
+            let CanvasClipboard::Text(actual) = result else {
+                panic!("A text-only clipboard must produce text");
+            };
+            assert_eq!(actual, text);
+        }
+        for text in ["", " \n\t "] {
+            assert!(
+                canvas_content(
+                    Err(arboard::Error::ContentNotAvailable),
+                    Some(text.into()),
+                    || panic!("An empty supplied event must not read a newer clipboard"),
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            canvas_content(Err(arboard::Error::ContentNotAvailable), None, || {
+                Err(arboard::Error::ContentNotAvailable)
+            })
+            .unwrap_err()
+            .contains("no image or text")
+        );
+    }
+
+    #[test]
+    fn canvas_clipboard_does_not_fallback_from_image_errors() {
+        for error in [
+            arboard::Error::ConversionFailure,
+            arboard::Error::ClipboardOccupied,
+        ] {
+            let expected = error.to_string();
+            assert!(
+                canvas_content(Err(error), Some("unrelated text".into()), || {
+                    panic!("A failed image read must not read text")
+                })
+                .unwrap_err()
+                .contains(&expected)
+            );
+        }
+        for (width, height, bytes, message) in [
+            (2, 2, vec![0; 4], "Invalid clipboard image pixels"),
+            (8_001, 8_000, vec![], "64 megapixels"),
+            (0, 1, vec![], "dimensions"),
+        ] {
+            let result = canvas_content(
+                Ok(arboard::ImageData {
+                    width,
+                    height,
+                    bytes: bytes.into(),
+                }),
+                Some("unrelated text".into()),
+                || panic!("An invalid image must not read text"),
+            );
+            assert!(result.unwrap_err().contains(message));
+        }
     }
 }

@@ -502,6 +502,11 @@ fn polygon_mesh(points: &[Pos2], color: Color32) -> egui::Mesh {
     mesh
 }
 
+/// Check the bounded text raster before committing newly pasted text.
+pub(crate) fn validate_text_raster(annotation: &Annotation) -> Result<(), String> {
+    text_raster(annotation).map(|_| ())
+}
+
 /// The selectable extent in original image pixels, including stroke and arrowhead.
 pub fn annotation_bounds(annotation: &Annotation) -> Rect {
     match annotation.kind {

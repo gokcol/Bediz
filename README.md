@@ -12,7 +12,13 @@ Bediz automatically creates and saves **`.myimage` projects**, keeping each orig
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
 
-## Bediz 3.1 · build 125
+## Bediz 3.1 · build 126 — release preparation
+
+Paste text onto an open canvas with **Command+V / Ctrl+V** to create an editable text box. It uses the remembered Text tool appearance, preserves line breaks, supports undo, and remains editable in saved projects. Double-click to edit or drag to move. Pasted images remain independent, movable and resizable layers; image pixels take priority when a clipboard also includes URL text. Focused text fields keep normal paste behavior.
+
+See [build 126 validation and release status](docs/RELEASE-126.md).
+
+## Retained from Bediz 3.1 · build 125
 
 After a bucket fill, choosing another quick color, transparency or opacity now applies to the **next fill**. Completed areas keep their colors. To change an existing fill, select it with **Select** or **Layers**; the inspector says **Selected fill**, and recoloring and **Update fill region** remain available. Undo/redo and editable projects retain each fill independently.
 
@@ -372,6 +378,7 @@ A fully selected group counts as one object, preserving its internal layout. Alt
 - **Select all annotations** remains a separate image-menu command (also **All annotations** in object selection controls). Text fields keep their normal Select All behavior.
 - Draw a rectangle or lasso with **Select**, then use **Copy** or **Command+C / Ctrl+C**. Lasso and Magic Wand copies retain transparency outside the selection, including holes and disconnected color regions. Paste into any app that accepts images.
 - **Command+V / Ctrl+V** on a Bediz canvas inserts clipboard pixels at their original size as a separate, centered image layer. The canvas expands with transparent space if needed. Drag an image layer beyond any canvas edge to expand it further when released. Move it, resize it, change opacity, hide it, or delete it without changing the original. Save as `.myimage` to retain the layer. In an empty Editor, **Paste image** creates a new document.
+- Pasting plain text on an open canvas creates a centered, editable text box using the remembered Text tool appearance. Line breaks are preserved; double-click to edit and drag to move. It stays editable in `.myimage` projects and can be undone in one step. Pasting while editing a text field inserts text into that field. If the clipboard contains both image pixels and accompanying text, the image takes priority.
 - Paste keeps the editor enabled while reading the clipboard. If the image changes during that read, it asks you to paste again instead of applying stale placement.
 - Raster clipboard layers are bounded to 64 megapixels and 16 MiB of lossless PNG per layer, with a 32 MiB encoded artwork budget per project. Large pasted layers can be copied as pixels; editable annotation clipboard payloads retain their separate 4 MiB limit.
 

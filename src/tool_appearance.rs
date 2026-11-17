@@ -433,14 +433,17 @@ impl EditorState {
         }
     }
 
-    pub(super) fn restore_appearance(&mut self, kind: AnnotationKind) {
+    pub(super) fn remembered_appearance(&self, kind: AnnotationKind) -> Appearance {
         self.tool_preferences
             .appearances
             .iter()
             .find(|e| e.kind == kind)
             .map(|e| e.appearance.clone())
             .unwrap_or_else(|| Appearance::for_kind(kind))
-            .apply(self);
+    }
+
+    pub(super) fn restore_appearance(&mut self, kind: AnnotationKind) {
+        self.remembered_appearance(kind).apply(self);
     }
 
     pub(super) fn remember_shape_choice(&mut self) {
