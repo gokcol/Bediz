@@ -99,7 +99,7 @@ impl MyImageApp {
             }
             Ok(output) => {
                 if let Ok(path) = &output.path {
-                    self.library.refresh();
+                    self.library.file_saved(path);
                     self.remember_recent(path.clone());
                 }
                 if output.destination == CaptureDestination::Editor {
@@ -176,7 +176,7 @@ impl MyImageApp {
         self.error = None;
         self.status = "Copying capture…".into();
         if self.desktop.is_some() {
-            self.hide(ctx);
+            self.hide_during_capture(ctx);
         }
         let tx = self.work_tx.clone();
         let ctx = ctx.clone();
@@ -214,6 +214,149 @@ mod tests {
         app.history.commit(before, doc);
         assert!(app.has_unsaved_edits());
         app
+    }
+
+    fn recent_textures(app: &mut MyImageApp, ctx: &egui::Context) -> Vec<egui::TextureId> {
+        fn collect(shape: &egui::Shape, textures: &mut Vec<egui::TextureId>) {
+            match shape {
+                egui::Shape::Vec(shapes) => {
+                    for shape in shapes {
+                        collect(shape, textures);
+                    }
+                }
+                egui::Shape::Mesh(mesh) if mesh.texture_id != egui::TextureId::Managed(0) => {
+                    textures.push(mesh.texture_id);
+                }
+                _ => {}
+            }
+        }
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(900., 150.))),
+                ..Default::default()
+            },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    app.library.recents_ui(
+                        ui,
+                        &app.settings.output_dir,
+                        &app.settings.recent_files,
+                        app.project_path.as_deref(),
+                        false,
+                    );
+                });
+            },
+        );
+        let mut textures = Vec::new();
+        for shape in output.shapes {
+            collect(&shape.shape, &mut textures);
+        }
+        textures
+    }
+
+    #[test]
+    fn capture_keeps_existing_recents_visible_while_only_the_new_preview_loads() {
+        for destination in CaptureDestination::ALL {
+            let ctx = egui::Context::default();
+            let mut app =
+                MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+            let dir = tempfile::tempdir().unwrap();
+            app.settings.output_dir = dir.path().to_owned();
+            let old_paths: Vec<_> = ["first.myimage", "second.myimage"]
+                .into_iter()
+                .map(|name| dir.path().join(name))
+                .collect();
+            for path in &old_paths {
+                document::save_project(
+                    &Document {
+                        image: Arc::new(pixels()),
+                        annotations: vec![],
+                        geometry: Default::default(),
+                    },
+                    path,
+                )
+                .unwrap();
+            }
+            app.settings.recent_files = old_paths.clone();
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            let old_textures = loop {
+                let textures = recent_textures(&mut app, &ctx);
+                if textures.len() == old_paths.len() {
+                    break textures;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "Initial previews did not load"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            };
+
+            // Exercise the capture-only hidden branch without creating a native
+            // tray/hotkey integration. This also covers returning after Cancel.
+            let hidden = ctx.run(Default::default(), |ctx| app.restore_window(ctx, true));
+            assert!(app.hidden.load(Ordering::Relaxed));
+            assert!(
+                hidden.viewport_output[&egui::ViewportId::ROOT]
+                    .commands
+                    .iter()
+                    .any(|command| matches!(command, ViewportCommand::Visible(false)))
+            );
+            assert_eq!(recent_textures(&mut app, &ctx), old_textures);
+            app.restore_window(&ctx, false);
+            assert!(!app.hidden.load(Ordering::Relaxed));
+            assert_eq!(recent_textures(&mut app, &ctx), old_textures);
+
+            // Clipboard retry uses the same temporary concealment, without
+            // restoring old geometry or unmaximizing the user's window.
+            let retry_hide = ctx.run(Default::default(), |ctx| app.hide_during_capture(ctx));
+            assert!(app.hidden.load(Ordering::Relaxed));
+            assert!(
+                !retry_hide.viewport_output[&egui::ViewportId::ROOT]
+                    .commands
+                    .iter()
+                    .any(|command| matches!(
+                        command,
+                        ViewportCommand::InnerSize(_)
+                            | ViewportCommand::OuterPosition(_)
+                            | ViewportCommand::Maximized(_)
+                    ))
+            );
+            assert_eq!(recent_textures(&mut app, &ctx), old_textures);
+
+            let output = CaptureOutput::prepare(
+                pixels(),
+                dir.path(),
+                Local::now(),
+                destination,
+                crate::capture_size::OutputSize::Original,
+                |_| Ok(()),
+            );
+            let path = output.path.clone().unwrap();
+            app.work_tx
+                .send(WorkEvent::CaptureFinished(Ok(output)))
+                .unwrap();
+            app.handle_events(&ctx);
+            assert_eq!(app.settings.recent_files[0], path);
+            assert_eq!(&app.settings.recent_files[1..], old_paths);
+
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                let textures = recent_textures(&mut app, &ctx);
+                // Check every loading frame, not just the final ready state:
+                // old thumbnails must never disappear or acquire new textures.
+                assert!(old_textures.iter().all(|id| textures.contains(id)));
+                if textures.len() == old_textures.len() + 1 {
+                    assert_eq!(&textures[1..], old_textures);
+                    assert!(!old_textures.contains(&textures[0]));
+                    break;
+                }
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "New capture preview did not load"
+                );
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
     }
 
     #[test]

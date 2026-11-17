@@ -12,11 +12,13 @@ Bediz automatically creates and saves **`.myimage` projects**, keeping each orig
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
 
-## Bediz 3.1 · build 126 — release preparation
+## Bediz 3.1 · build 127 — release preparation
+
+Capturing keeps existing Recents thumbnails visible while only the new capture loads. Temporary capture hiding and clipboard retries preserve the cached previews. Intentional backgrounding still releases caches, and thumbnail storage remains bounded.
 
 Paste text onto an open canvas with **Command+V / Ctrl+V** to create an editable text box. It uses the remembered Text tool appearance, preserves line breaks, supports undo, and remains editable in saved projects. Double-click to edit or drag to move. Pasted images remain independent, movable and resizable layers; image pixels take priority when a clipboard also includes URL text. Focused text fields keep normal paste behavior.
 
-See [build 126 validation and release status](docs/RELEASE-126.md).
+See [build 127 validation and release status](docs/RELEASE-127.md).
 
 ## Retained from Bediz 3.1 · build 125
 

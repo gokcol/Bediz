@@ -8,7 +8,9 @@ permissions:
   contents: read
 jobs:
   macos:
-    runs-on: macos-latest
+    # Avoid the arm64 hosted-runner queue; Apple Silicon release checks also
+    # run locally on the signing Mac before distribution.
+    runs-on: macos-15-intel
     timeout-minutes: 30
     env:
       MACOSX_DEPLOYMENT_TARGET: "14.0"

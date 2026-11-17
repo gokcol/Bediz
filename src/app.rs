@@ -483,6 +483,16 @@ impl MyImageApp {
         ctx.send_viewport_cmd(ViewportCommand::Visible(false));
     }
 
+    fn hide_during_capture(&mut self, ctx: &egui::Context) {
+        // Capture only conceals the editor temporarily. Keep its bounded
+        // caches so existing Recents do not reload when the editor returns.
+        // Explicit backgrounding still uses hide() to release caches.
+        self.calico.stop();
+        self.remember_window(ctx);
+        self.hidden.store(true, Ordering::Relaxed);
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+    }
+
     fn show(&mut self, ctx: &egui::Context) {
         // Also restores opacity after capture cancellation, capture errors, or
         // returning from the background following a completed capture.
@@ -764,7 +774,7 @@ impl MyImageApp {
         self.restore_frames_left = 4;
         self.apply_window_restoration(ctx);
         if hide {
-            self.hide(ctx);
+            self.hide_during_capture(ctx);
         } else {
             self.show(ctx);
         }
