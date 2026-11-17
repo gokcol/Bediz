@@ -1,6 +1,9 @@
-Bediz (previously SkyImage and MyImage) 3.1.0 — build 125
-Microsoft Store package: 3.1.3.0
+Bediz (previously SkyImage and MyImage) 3.1.0 — build 127
+Microsoft Store package: 3.1.4.0
 
+- Existing Recents previews stay visible after capture; only the new capture loads.
+- Paste text onto an open canvas to create an editable text box, retaining line breaks and your Text style.
+- Paste images as movable, resizable canvas layers. Text fields keep normal paste behavior.
 - Quick Fill keeps completed fills in their original color when you choose another color or transparency. New colors apply to the next fill; use Select or Layers to edit an existing fill.
 - SkyImage is now Bediz. Existing MyImage and SkyImage projects, settings and updates carry forward.
 - Window scrolling captures independently scrolling panes in their original columns. Scroll each pane down in turn, then choose Done to combine them.

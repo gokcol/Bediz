@@ -47,7 +47,7 @@ These public values are configured as GitHub Actions variables. The product's
 reserved display name is configured separately in `MSIX_DISPLAY_NAME`; it must
 match Partner Center exactly, including punctuation.
 
-Current source app version is **3.1.0**, build **124**; the independent MSIX version is **3.1.2.0**.
+Current source app version is **3.1.0**, build **127**; the independent MSIX version is **3.1.4.0**.
 Windows display branding is Bediz; the registered package identity remains MyImage. See [rename compatibility](../../../docs/SKYIMAGE-STORE.md).
 Set the GitHub Actions variable `MSIX_DISPLAY_NAME` to `Bediz` before packaging
 the Store release; an older variable value overrides the script's new default.
