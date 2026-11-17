@@ -1,20 +1,13 @@
 Bediz (previously SkyImage and MyImage) 3.1.0 — build 127
 Microsoft Store package: 3.1.4.0
 
-- Existing Recents previews stay visible after capture; only the new capture loads.
-- Paste text onto an open canvas to create an editable text box, retaining line breaks and your Text style.
-- Paste images as movable, resizable canvas layers. Text fields keep normal paste behavior.
-- Quick Fill keeps completed fills in their original color when you choose another color or transparency. New colors apply to the next fill; use Select or Layers to edit an existing fill.
-- SkyImage is now Bediz. Existing MyImage and SkyImage projects, settings and updates carry forward.
-- Window scrolling captures independently scrolling panes in their original columns. Scroll each pane down in turn, then choose Done to combine them.
-- Window scrolling preserves fixed headers, footers and sidebars, with a pane count in the preview.
-- Compact capture toolbar with icons, tooltips and a clear output percentage.
-- Keep Region or Window as your selection mode. After selecting, choose Capture for a still image or the scroll icon to collect a longer image, then Done.
-- Pause, restart or cancel scrolling capture. Escape cancels selection even when a capture menu is open.
-- Scrolling capture ignores localized cursor changes so repeated sections are not duplicated.
-- Output size still defaults to 100%; choose 75%, 50% or 25% for a smaller finished image.
-- Click the shortcut in Capture Now to customize your capture hotkey.
-- Quick Start & Hotkeys has a visible close button as well as Escape.
-- Store-installed copies continue to check Microsoft Store for updates.
+- Recents previews stay visible after capture; only the new capture loads.
+- Paste text onto an open canvas as an editable text box, keeping line breaks and your Text style. Paste images as movable, resizable layers. Text fields retain normal paste behavior.
+- Completed Quick Fills keep their colors when you choose the next color or transparency. Select an existing fill to recolor it.
+- Window scrolling captures independently scrolling panes in their original columns and preserves fixed headers, footers and sidebars.
+- After selecting a Region or Window, choose Capture for a still image or the scroll icon for a longer image, then Done. Pause, restart or cancel; Escape cancels selection.
+- Compact capture controls, editable hotkeys and a close button in Quick Start & Hotkeys.
+- Output defaults to 100%; choose 75%, 50% or 25% for a smaller finished image.
+- Existing MyImage and SkyImage projects, settings and Store updates carry forward under Bediz.
 
 Support: orhan.gokcol@hotmail.com

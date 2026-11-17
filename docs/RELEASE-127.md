@@ -24,4 +24,14 @@ Published as the latest GitHub release: [`v3.1.0-build127`](https://github.com/g
 
 Local evidence is under `dist/release-v3.1.0-build127/`. The native UI check verified installation and project reopening; the automated regression verifies thumbnail continuity through capture completion.
 
-The Microsoft Store package metadata remains 3.1.3.0. This request updates GitHub and the installed Mac app; it does not submit a new Store package. Existing application identities, project format and storage paths are retained.
+## Microsoft Store update
+
+Store package **3.1.4.0** is prepared from metadata commit `49cd0739ecfb78fac3223d0ba892ac6c4b6078c5`, retaining app **3.1.0 build 127**. It contains the same application logic as the immutable GitHub tag; the bundled Store version and packaging metadata advance together. The published GitHub binaries and installed Mac app remain unchanged.
+
+The Store listing and certification notes include canvas paste and the Recents fix and were saved and verified after reloading. The public English product name is **Bediz**. Partner Center's separate dashboard name was changed from MyImage (OG) to **Bediz**, and the page title and heading were verified. Existing application identities, project format and storage paths are retained.
+
+Submission **8**, `1152921505702431515`, is **in certification / pre-processing**, verified on 17 November 2026, with automatic publication after Microsoft approval. Partner Center validated package 3.1.4.0 and replaced the superseded 3.1.3.0 package. Build 125 / package 3.1.3.0, submission 7, was confirmed published in Partner Center on 17 November 2026. Local Store preparation and validation evidence is under `dist/msix-v3.1.4-build127/`.
+
+- [Store package validation](https://github.com/gokcol/MyImage/actions/runs/44148114126), [disposable MSIX installation/removal](https://github.com/gokcol/MyImage/actions/runs/44148048653), and [native checks](https://github.com/gokcol/MyImage/actions/runs/44148048472) passed for the Store metadata commit. Native checks passed 726 application and 19 packaging tests, with 27 ignored; formatting and strict Clippy passed. Four focused release-metadata tests also passed locally.
+- Independently verified package SHA-256: `1dadb6285d83e66a09dc47251c961b8b3db355a06319e5856f9c956045d3f837`. The x64 executable embeds app 3.1.0 build 127 and Store version 3.1.4.0. Manifest identity, all Bediz display names, standard virtualization, disabled startup, checksum sidecar and package block hashes passed verification. `runFullTrust` remains the only restricted capability.
+- This unsigned MSIX is a Partner Center upload artifact. Microsoft certification, signing and publication are pending; interactive Windows capture/clipboard/device validation and a Windows App Certification Kit run were not performed here.

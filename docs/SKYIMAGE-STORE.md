@@ -1,8 +1,12 @@
 # Store branding history
 
-The current app name is **Bediz**, introduced in build 124 / Store package 3.1.2.0, which is published. Build 125 / Store package 3.1.3.0 fixes completed-fill colors and is in certification as submission 7, with automatic publishing after approval. See [Bediz release and migration details](BEDIZ.md). The records below describe earlier SkyImage releases.
+The current app name is **Bediz**, introduced in build 124 / Store package 3.1.2.0. Build 125 / Store package **3.1.3.0**, submission **7**, was confirmed published in Partner Center on 17 November 2026. [Build 127 is published on GitHub](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build127); its Store package **3.1.4.0** is **in certification** as submission **8**, `1152921505702431515`, with automatic publication after Microsoft approval. See [Bediz release and migration details](BEDIZ.md).
 
-# SkyImage Windows Store update
+The public English Store listing already used **Bediz**, but Partner Center retained **MyImage (OG)** as its separate dashboard name. On 17 November 2026, **Manage app names → Bediz → Set as dashboard name** updated the dashboard page title and heading to Bediz. The package identity and previous name reservations remain unchanged.
+
+## Historical SkyImage Windows Store update
+
+The records below describe earlier SkyImage releases and retain the certification status observed at the time. They do not describe the current Bediz listing or Store submission.
 
 SkyImage is the Windows display name from version 3.0.1 (build 109), Store package 3.0.1.0. The Store description and About identify MyImage as the previous name. macOS also uses SkyImage from build 110.
 

@@ -4,7 +4,7 @@ A native Rust screen-capture application for **macOS 14 or later and Windows**, 
 
 [Download Bediz v3.1 · build 127 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build127). Existing Recents thumbnails stay visible after capture, and pasted text becomes an editable canvas text box. Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture/device testing remains pending.
 
-[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). The last recorded Store submission is package **3.1.3.0** for **Bediz 3.1.0 build 125**: submission **7**, submitted for certification on 17 November 2026 with automatic publication after Microsoft approval. Build 127 is a separate GitHub release. The same Store product carries forward existing installations, projects and settings. See [build 125 validation and submission record](docs/RELEASE-125.md).
+[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). **Bediz 3.1.0 build 127**, Store package **3.1.4.0**, is **in certification** as submission **8**, submitted on 17 November 2026 with automatic publication after Microsoft approval. Build 125 / package 3.1.3.0 is currently published. The same Store product carries forward existing installations, projects and settings. See [build 127 validation and submission record](docs/RELEASE-127.md).
 
 Bediz opens in **Home**, with **Editor**, **Library**, and **Create** beside it in the compact top toolbar. **View only** remains available from the bottom **App** menu. The native editor has a drawing toolbar, a large canvas, and an annotation inspector. Add editable text, arrows, 17 shape types, stamps, numbered steps, callouts, highlights, and freehand pen strokes; select, move, resize, recolor, reorder, or delete them. Add adjustable blur and pixelate regions to obscure selected areas, or use Fill to recolor or clear connected backgrounds. Crop, resize, and rotate the image without changing its original pixels. Undo and redo cover both image edits and annotations during the current session.
 
@@ -162,7 +162,7 @@ pipeline modeled on MyPDF, with identity validation, installation checks and
 calico assets. Microsoft signs Store packages after certification; an unsigned
 submission artifact is not a signed end-user installer. See the
 [Store preparation guide](packaging/windows/msix/README.md) and
-[privacy policy](PRIVACY.md). Bediz build 125 uses MSIX version 3.1.3.0, preserving upgrade ordering
+[privacy policy](PRIVACY.md). Bediz build 127 uses MSIX version 3.1.4.0, preserving upgrade ordering
 from earlier MyImage and SkyImage Store packages.
 
 ## Run
