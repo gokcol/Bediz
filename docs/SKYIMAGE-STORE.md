@@ -2,7 +2,9 @@
 
 SkyImage is the Windows display name from version 3.0.1 (build 109), Store package 3.0.1.0. The Store description and About identify MyImage as the previous name. macOS also uses SkyImage from build 110.
 
-SkyImage was reserved for the existing Partner Center product on 2026-11-15. Keep the MyImage (OG) reservation. Package 3.0.1.0 is live under the SkyImage name. The 3.1.0.0 update is in certification as of 17 November 2026.
+SkyImage was reserved for the existing Partner Center product on 2026-11-15. Keep the MyImage (OG) reservation. Package 3.1.0.0 / build 120 is live under the SkyImage name. SkyImage 3.1.0 build 123, Store package 3.1.1.0, is in certification as of 17 November 2026 and will publish automatically after Microsoft approval.
+
+**Bediz** was reserved for this same product on 17 November 2026 as an additional name. The displayed Store name remains **SkyImage**.
 
 Compatibility identities intentionally remain unchanged:
 
