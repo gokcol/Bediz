@@ -1,6 +1,6 @@
 {
   "version": "3.0.1",
-  "build": 118,
+  "build": 119,
   "store_version": "3.0.1.0",
   "changes": [
     "Compact capture toolbar with icons, tooltips and a clear output percentage.",

@@ -12,7 +12,7 @@ MyImage automatically creates and saves **`.myimage` projects**, keeping each or
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
 
-## SkyImage 3.0.1 · build 118
+## SkyImage 3.0.1 · build 119
 
 Capture controls are compact, with icons, tooltips and a clear output percentage. After selecting a region, choose the **Scrolling capture** icon, scroll down slowly, and choose **Done**. A live preview grows as sections are collected; Pause, Restart and Cancel stay close to the selection. Escape cancels capture, including when a capture menu is open. The default output size remains **100%**.
 

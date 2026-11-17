@@ -75,7 +75,7 @@ Build 117 is signed, notarized, installed and published with Mac DMG/ZIP and Win
 
 Native checks confirmed both new X controls, opening the hotkey editor from the resident keycaps, successful registration and persistence of a temporary shortcut, and restoration of the original shortcut. A real 2940 × 1912 full-screen capture at 50% was delivered to Editor and Library as 1470 × 956. Region, 100% output and Control+Shift+C were restored after testing. Preview remains undimmed and excludes the editor. The menu bar and Dock are configured to auto-hide on this Mac. First-activation speed has not been quantitatively measured. On 17 November 2026, the user described background hotkey activation as “smoother i think. see no difference”. This supports preserving the current transition, but does not establish a noticeable startup-speed improvement.
 
-## Follow-up — build 118
+## Follow-up — builds 118–119
 
 The selection toolbar now uses compact mode/destination menus, an output percentage, and named icon actions with tooltips. Its measured width is used to place it next to the selected region. Region and Window selections offer a scrolling action that preserves the rectangle and the user's preferred capture mode.
 
@@ -88,3 +88,5 @@ Scrolling is no longer offered as a capture mode. The saved active mode remains 
 Local validation of the initial candidate: 701 app tests and 17 packaging tests passed, as did formatting and Clippy. Regressions cover popup cancellation, compact layout in every mode, Retina/negative-origin geometry, automatic region sampling and restart, canceled work, controller-only reopen, and hidden-editor/input-transparent HUD lifecycle. Native Mac and Windows CI validation are pending.
 
 The local Dock had retained an entry pointing to the missing /Applications/MyImage.app. That single entry was repaired to /Applications/SkyImage.app after backing up the Dock preferences. The installed build 117 was observed opening normally; no app crash report explained the earlier launch delay.
+
+Build 118 was installed as a local candidate. The revised selection/scrolling flow is build 119 so the installer can perform a forward upgrade. The revised code passed 703 app tests and 17 packaging tests, formatting and Clippy before the metadata-only build-number increment.
