@@ -26,7 +26,7 @@ pub fn run(background: bool) -> eframe::Result {
             // eframe configures backbuffer alpha support once from the root,
             // including for child viewports. Capture windows need a clear
             // backing surface while their first Metal frame is being presented.
-            // The editor still paints its ordinary opaque background.
+            // The native editor window is made opaque separately below.
             .with_transparent(cfg!(target_os = "macos"))
             .with_icon(
                 eframe::icon_data::from_png_bytes(include_bytes!(
@@ -36,6 +36,11 @@ pub fn run(background: bool) -> eframe::Result {
             )
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([980.0, 640.0]),
+        // Keep alpha support in the shared WGPU painter, but create the root
+        // NSWindow with an opaque background so its title bar cannot show the
+        // desktop through it. This one-shot hook does not affect capture windows.
+        #[cfg(target_os = "macos")]
+        window_builder: Some(Box::new(|viewport| viewport.with_transparent(false))),
         ..Default::default()
     };
     let inner = eframe::create_native(

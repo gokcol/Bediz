@@ -99,9 +99,28 @@ fn same_tree(left: &Path, right: &Path) -> TaskResult<bool> {
     }
     Ok(true)
 }
-fn check_upgrade(incoming: u64, installed: u64) -> TaskResult<()> {
+fn version_components(version: &str) -> TaskResult<[u64; 3]> {
+    let parts = version
+        .split('.')
+        .map(|part| {
+            if part.is_empty() || !part.bytes().all(|c| c.is_ascii_digit()) {
+                return Err("Invalid app version".into());
+            }
+            part.parse::<u64>().map_err(Into::into)
+        })
+        .collect::<TaskResult<Vec<_>>>()?;
+    parts.try_into().map_err(|_| "Invalid app version".into())
+}
+fn check_upgrade(
+    incoming_version: &str,
+    incoming_build: u64,
+    installed_version: &str,
+    installed_build: u64,
+) -> TaskResult<()> {
+    let incoming = (version_components(incoming_version)?, incoming_build);
+    let installed = (version_components(installed_version)?, installed_build);
     if incoming <= installed {
-        return Err("The incoming build must be newer than the installed build. Rollback is a separate, deliberate operation.".into());
+        return Err("The incoming version/build must be newer than the installed version/build. Rollback is a separate, deliberate operation.".into());
     }
     Ok(())
 }
@@ -172,10 +191,16 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
             "Check notarized distribution",
         )?;
     }
+    let version = value(&source, "CFBundleShortVersionString")?;
     let build: u64 = value(&source, "CFBundleVersion")?.parse()?;
     if installed.exists() {
         verify(installed)?;
-        check_upgrade(build, value(installed, "CFBundleVersion")?.parse()?)?;
+        check_upgrade(
+            &version,
+            build,
+            &value(installed, "CFBundleShortVersionString")?,
+            value(installed, "CFBundleVersion")?.parse()?,
+        )?;
         if requirement(&source)? != requirement(installed)? && !migration {
             return Err("Signing identity changed. Inspect the new signer before allowing a one-time --allow-signing-migration; macOS may require a fresh Screen Recording grant.".into());
         }
@@ -230,7 +255,7 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
     stopped()?;
     publish_install(&mut stage, &staged, installed, destination, verify)?;
     println!(
-        "Installed SkyImage build {build}. Captures, projects, settings and permission records were not modified."
+        "Installed SkyImage {version} build {build}. Captures, projects, settings and permission records were not modified."
     );
     if migration {
         println!(
@@ -344,10 +369,17 @@ mod tests {
         );
     }
     #[test]
-    fn update_rejects_same_build_and_downgrades() {
-        assert!(check_upgrade(40, 39).is_ok());
-        assert!(check_upgrade(40, 40).is_err());
-        assert!(check_upgrade(39, 40).is_err());
+    fn update_compares_version_then_build_and_rejects_downgrades() {
+        assert!(check_upgrade("3.0.1", 120, "3.0.1", 119).is_ok());
+        assert!(check_upgrade("3.1.0", 120, "3.0.1", 120).is_ok());
+        assert!(check_upgrade("3.10.0", 1, "3.9.0", 999).is_ok());
+        assert!(check_upgrade("3.1.0", 120, "3.1.0", 120).is_err());
+        assert!(check_upgrade("3.1.0", 119, "3.1.0", 120).is_err());
+        assert!(check_upgrade("3.0.1", 999, "3.1.0", 120).is_err());
+        for invalid in ["", "3.1", "3.1.0.0", "3.1.+0", "3.1.0-beta", "3..0"] {
+            assert!(check_upgrade(invalid, 121, "3.1.0", 120).is_err());
+            assert!(check_upgrade("3.1.0", 121, invalid, 120).is_err());
+        }
     }
     #[test]
     fn rollback_comparison_detects_missing_extra_and_changed_files() {
