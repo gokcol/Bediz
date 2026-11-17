@@ -222,8 +222,13 @@ fn similar_frame(a: &RgbaImage, b: &RgbaImage) -> bool {
     if a.dimensions() != b.dimensions() {
         return false;
     }
-    // Allow a blinking caret or pointer while rejecting a moving viewport.
-    let mut changed = 0;
+    // A pointer highlight can cover more than a few sample points. Treat up to
+    // two small, localized changes (its old/new positions) as an idle frame.
+    // Otherwise a repeated paragraph can falsely match one whole section below
+    // itself when only the pointer moved. Scrolling changes are spread across
+    // the viewport; don't advance `last` for ignored changes so tiny scrolls
+    // accumulate until they provide enough evidence.
+    let mut changed = Vec::new();
     for row in 0..64 {
         for col in 0..64 {
             let x = col * (a.width() - 1) / 63;
@@ -233,11 +238,23 @@ fn similar_frame(a: &RgbaImage, b: &RgbaImage) -> bool {
                 .zip(&b.get_pixel(x, y).0[..3])
                 .any(|(x, y)| x.abs_diff(*y) > 8)
             {
-                changed += 1;
+                changed.push((col, row));
+                if changed.len() > 128 {
+                    return false;
+                }
             }
         }
     }
-    changed < 8
+    if changed.len() < 8 {
+        return true;
+    }
+    for _ in 0..2 {
+        let Some(&(x, y)) = changed.first() else {
+            return true;
+        };
+        changed.retain(|&(cx, cy)| x.abs_diff(cx) > 6 || y.abs_diff(cy) > 6);
+    }
+    changed.is_empty()
 }
 fn moving_regions(a: &RgbaImage, b: &RgbaImage) -> Vec<crate::selection::PixelRect> {
     let (w, h) = a.dimensions();
@@ -357,6 +374,56 @@ fn edge_difference(previous: &RgbaImage, next: &RgbaImage, overlap: u32) -> f64 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cursor_highlight_changes_do_not_duplicate_repeated_sections() {
+        // Local HTML fixture captured on Retina: repeated text with distinct
+        // section numbers. Removing its pointer glow used to append 360 pixels.
+        let first = image::load_from_memory(include_bytes!(
+            "../tests/fixtures/scroll-repeated-sections.png"
+        ))
+        .unwrap()
+        .into_rgba8();
+        let mut idle = first.clone();
+        let background = *idle.get_pixel(635, 438);
+        for y in 438..555 {
+            for x in 635..825 {
+                idle.put_pixel(x, y, background);
+            }
+        }
+        let mut stitch = Stitcher::region(first.clone());
+        assert!(
+            !stitch.observe_window(idle.clone()).unwrap(),
+            "a cursor change is not scrolling"
+        );
+        assert!(!stitch.observe_window(idle.clone()).unwrap());
+        let mut moved_pointer = idle.clone();
+        for y in 830..890 {
+            for x in 1400..1460 {
+                moved_pointer.put_pixel(x, y, image::Rgba([255; 4]));
+            }
+        }
+        assert!(!stitch.observe_window(moved_pointer).unwrap());
+        assert_eq!(stitch.sections, 1);
+        assert_eq!(stitch.image, first);
+
+        // A subsequent real scroll still collects new content, even though the
+        // accepted previous frame contains the old cursor highlight.
+        let mut page = RgbaImage::from_fn(first.width(), first.height() + 120, |x, y| {
+            image::Rgba([(x % 251) as u8, (y % 251) as u8, ((x + y) % 251) as u8, 255])
+        });
+        image::imageops::replace(&mut page, &idle, 0, 0);
+        let next =
+            image::imageops::crop_imm(&page, 0, 120, first.width(), first.height()).to_image();
+        assert!(stitch.observe_window(next).unwrap());
+        assert_eq!(stitch.sections, 2);
+        assert_eq!(stitch.image.height(), first.height() + 120);
+        assert_eq!(
+            image::imageops::crop_imm(&stitch.image, 0, first.height(), first.width(), 120)
+                .to_image(),
+            image::imageops::crop_imm(&page, 0, first.height(), first.width(), 120).to_image()
+        );
+    }
+
     #[test]
     #[ignore = "requires CUA screenshots of the synthetic PDF"]
     fn review_pdf_viewer_frames() {
