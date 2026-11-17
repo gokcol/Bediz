@@ -431,6 +431,12 @@ enum SelectionAction {
     Window(u32, Option<[f32; 4]>),
     Regions(Vec<selection::PixelRect>),
     Region(selection::PixelRect),
+    Scroll(selection::PixelRect),
+}
+
+pub(super) struct WindowScrollArea {
+    pub crop: Option<[f32; 4]>,
+    pub bounds: Rect,
 }
 
 pub(super) struct ScrollSession {
@@ -443,6 +449,9 @@ pub(super) struct ScrollSession {
     pub texture: Option<egui::TextureHandle>,
     pub window_id: Option<u32>,
     window_crop: Option<selection::PixelRect>,
+    bounds: Rect,
+    return_hidden: bool,
+    reset_requested: bool,
     pub paused: bool,
     pub finish_requested: bool,
     pub single_frame_warning: bool,
@@ -530,6 +539,7 @@ impl MyImageApp {
                     })
                 }
                 SelectionAction::Region(rect) => self.accept_selection(ctx, screen, rect),
+                SelectionAction::Scroll(rect) => self.start_scroll_session(ctx, screen, rect),
             }
         } else {
             self.selection = Some(session);
@@ -543,7 +553,7 @@ impl MyImageApp {
     ) -> Option<SelectionAction> {
         let menu_was_open = egui::Popup::is_any_open(ctx);
         if ctx.input(|i| i.viewport().close_requested())
-            || (!menu_was_open && ctx.input(|i| i.key_pressed(egui::Key::Escape)))
+            || ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
             return Some(SelectionAction::Cancel);
         }
@@ -619,6 +629,7 @@ impl MyImageApp {
         let mut destination_changed = false;
         let mut accepted = None;
         let mut cancel = false;
+        let mut scroll = false;
         let mut accepted_regions = Vec::new();
         let mut window = None;
         // Place the controller before the canvas so its hit region takes priority.
@@ -631,14 +642,8 @@ impl MyImageApp {
             area.fixed_pos(controls_position(
                 ctx.content_rect(),
                 rect,
-                Vec2::new(
-                    if mode == CaptureMode::MultiRegion {
-                        1090.
-                    } else {
-                        930.
-                    },
-                    62.,
-                ),
+                ctx.data(|data| data.get_temp::<Vec2>(egui::Id::new("capture-toolbar-size")))
+                    .unwrap_or(Vec2::new(470., 46.)),
             ))
         } else {
             area.anchor(egui::Align2::CENTER_BOTTOM, Vec2::new(0., -24.))
@@ -650,8 +655,8 @@ impl MyImageApp {
                     egui::Frame::new()
                         .fill(look.palette.paper)
                         .stroke(egui::Stroke::new(1., look.palette.border))
-                        .corner_radius(14)
-                        .inner_margin(12)
+                        .corner_radius(10)
+                        .inner_margin(8)
                         .shadow(egui::Shadow {
                             offset: [0, 6],
                             blur: 18,
@@ -660,83 +665,64 @@ impl MyImageApp {
                         })
                         .show(ui, |ui| {
                             crate::capture_panel::apply_look(ui, &look);
-                            ui.spacing_mut().item_spacing.x = 10.;
+                            ui.spacing_mut().item_spacing.x = 5.;
+                            ui.spacing_mut().interact_size.y = 30.;
                             ui.set_max_width((ctx.content_rect().width() - 48.).max(240.));
                             ui.horizontal_wrapped(|ui| {
-                                ui.label(
-                                    egui::RichText::new("Capture Now")
-                                        .strong()
-                                        .color(look.palette.ink),
-                                );
-                                egui::ComboBox::from_id_salt("capture_mode_live")
-                                    .selected_text(mode.label())
-                                    .width(110.)
-                                    .popup_style(egui::style::StyleModifier::new({
-                                        let visuals = ui.visuals().clone();
-                                        move |style: &mut egui::Style| {
-                                            style.visuals = visuals.clone()
+                                let mode_menu = ui.menu_button("     ▾", |ui| {
+                                    for choice in CaptureMode::ALL {
+                                        if ui.selectable_value(&mut mode, choice, choice.label()).clicked() {
+                                            ui.close();
                                         }
-                                    }))
-                                    .show_ui(ui, |ui| {
-                                        for choice in [
-                                            CaptureMode::Region,
-                                            CaptureMode::MultiRegion,
-                                            CaptureMode::Window,
-                                            CaptureMode::FullScreen,
-                                            CaptureMode::Scrolling,
-                                            CaptureMode::Text,
-                                        ] {
-                                            ui.selectable_value(&mut mode, choice, choice.label());
+                                    }
+                                }).response;
+                                mode_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Capture mode: {}", mode.label())));
+                                crate::capture_panel::mode_icon(ui.painter(), mode,
+                                    Rect::from_center_size(mode_menu.rect.left_center() + Vec2::new(16., 0.), Vec2::splat(18.)), look.palette.ink);
+                                mode_menu.on_hover_text(format!("{} · Change capture mode (Space: Region / Window)", mode.label()));
+                                if mode != CaptureMode::Text {
+                                    let previous = self.settings.capture_destination;
+                                    let destination_menu = ui.menu_button("     ▾", |ui| {
+                                        for choice in capture::CaptureDestination::ALL {
+                                            if ui.selectable_value(&mut self.settings.capture_destination, choice, choice.label()).on_hover_text(choice.hint()).clicked() { ui.close(); }
                                         }
-                                    })
-                                    .response
-                                    .on_hover_text(
-                                        "Choose a capture type. Space switches Region / Window.",
-                                    );
-                                if mode == CaptureMode::Text {
-                                    ui.label(
-                                        egui::RichText::new("Text → clipboard")
-                                            .color(look.palette.ink),
-                                    );
-                                } else {
-                                    destination_changed |= crate::capture_panel::destination_picker(
-                                        ui,
-                                        &mut self.settings.capture_destination,
-                                    );
-                                    destination_changed |= crate::capture_panel::output_size_picker(
-                                        ui,
-                                        &mut self.settings.capture_output_size,
-                                    );
+                                    }).response;
+                                    let destination = self.settings.capture_destination;
+                                    destination_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Destination: {}", destination.label())));
+                                    appearance::icon(ui.painter(), destination_menu.rect.left_center() + Vec2::new(16., 0.),
+                                        if destination == capture::CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }, look.palette.ink, 18.);
+                                    destination_menu.on_hover_text(format!("To {} · {}", destination.label(), destination.hint()));
+                                    destination_changed |= previous != destination;
+                                    egui::ComboBox::from_id_salt("capture-output-size")
+                                        .width(62.).selected_text(format!("{}%", self.settings.capture_output_size.percent()))
+                                        .show_ui(ui, |ui| {
+                                            for size in crate::capture_size::OutputSize::ALL {
+                                                destination_changed |= ui.selectable_value(&mut self.settings.capture_output_size, size, size.label()).changed();
+                                            }
+                                        }).response.on_hover_text("Output size after capture or copy. Selection stays at full resolution.");
                                 }
-                                crate::appearance::checkbox(
-                                    ui,
-                                    &mut selection.magnifier,
-                                    egui::RichText::new("Magnifier").color(look.palette.ink),
-                                );
-                                if ui.button("Reset").clicked() {
+                                if capture_icon(ui, "Magnifier", appearance::Icon::Search, selection.magnifier).clicked() {
+                                    selection.magnifier = !selection.magnifier;
+                                }
+                                if matches!(mode, CaptureMode::Region | CaptureMode::Window) {
+                                    let response = ui.add_enabled_ui(selection.drag.bounds().is_some(), |ui| {
+                                        let response = ui.add_sized([30., 30.], egui::Button::new(""));
+                                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Scrolling capture"));
+                                        crate::capture_panel::mode_icon(ui.painter(), CaptureMode::Scrolling,
+                                            Rect::from_center_size(response.rect.center(), Vec2::splat(18.)), ui.style().interact(&response).fg_stroke.color);
+                                        response.on_hover_text("Scrolling capture · Scroll this region, then choose Done")
+                                    }).inner;
+                                    if response.clicked() { scroll = true; }
+                                }
+                                if capture_icon(ui, "Reset selection", appearance::Icon::Refresh, false).clicked() {
                                     selection.drag = RegionDrag::default();
                                     selection.multi = MultiRegions::default();
                                     selection.window_id = None;
                                 }
-                                if ui.button("Cancel").clicked() {
-                                    cancel = true;
-                                }
+                                if capture_icon(ui, "Cancel capture · Esc", appearance::Icon::Close, false).clicked() { cancel = true; }
                                 if mode == CaptureMode::MultiRegion {
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{}/32",
-                                            selection.multi.rects.len()
-                                        ))
-                                        .color(look.palette.ink),
-                                    );
-                                    if ui
-                                        .add_enabled(
-                                            selection.multi.selected.is_some(),
-                                            egui::Button::new("Remove"),
-                                        )
-                                        .on_hover_text("Remove selected region · Delete")
-                                        .clicked()
-                                    {
+                                    ui.label(format!("{}/32", selection.multi.rects.len()));
+                                    if ui.add_enabled_ui(selection.multi.selected.is_some(), |ui| capture_icon(ui, "Remove region · Delete", appearance::Icon::Trash, false)).inner.clicked() {
                                         selection.multi.remove_selected(&mut selection.drag);
                                     }
                                 }
@@ -774,6 +760,7 @@ impl MyImageApp {
             })
             .response
             .rect;
+        ctx.data_mut(|data| data.insert_temp(egui::Id::new("capture-toolbar-size"), bar.size()));
         if mode != old_mode {
             selection.drag = RegionDrag::default();
             selection.multi = MultiRegions::default();
@@ -783,7 +770,8 @@ impl MyImageApp {
             self.settings.capture_mode = mode;
         }
         let menu_interaction = menu_was_open || egui::Popup::is_any_open(ctx);
-        let mut confirm = accepted.take().is_some()
+        let mut confirm = scroll
+            || accepted.take().is_some()
             || (!menu_interaction && ctx.input(|i| i.key_pressed(egui::Key::Enter)));
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE)
@@ -1097,7 +1085,13 @@ impl MyImageApp {
                     Color32::WHITE,
                 );
                 if confirm && !placing_overlay && !selection.drag.active {
-                    if mode == CaptureMode::FullScreen {
+                    if scroll {
+                        accepted = chosen.and_then(|rect| selection::selection_to_pixels(
+                            [rect.left() - bounds.left(), rect.top() - bounds.top()],
+                            [rect.right() - bounds.left(), rect.bottom() - bounds.top()],
+                            [bounds.width(), bounds.height()],
+                            [selection.image.width(), selection.image.height()]));
+                    } else if mode == CaptureMode::FullScreen {
                         accepted = Some(selection::PixelRect { x: 0, y: 0,
                             width: selection.image.width(), height: selection.image.height() });
                     } else if mode == CaptureMode::MultiRegion {
@@ -1147,7 +1141,11 @@ impl MyImageApp {
         } else if !accepted_regions.is_empty() {
             Some(SelectionAction::Regions(accepted_regions))
         } else {
-            accepted.map(SelectionAction::Region)
+            accepted.map(if scroll {
+                SelectionAction::Scroll
+            } else {
+                SelectionAction::Region
+            })
         }
     }
 
@@ -1161,7 +1159,23 @@ impl MyImageApp {
         self.pending_capture = Some(selection.return_hidden);
         self.generation += 1;
         let generation = self.generation;
-        let scrolling = self.settings.capture_mode == CaptureMode::Scrolling;
+        let scrolling = selection.mode == CaptureMode::Scrolling;
+        let window = selection.windows.iter().find(|w| w.id == id);
+        let bounds = window
+            .map(|w| {
+                let [l, t, r, b] = crop.unwrap_or([0., 0., 1., 1.]);
+                Rect::from_min_max(
+                    Pos2::new(
+                        w.x as f32 + l * w.width as f32,
+                        w.y as f32 + t * w.height as f32,
+                    ),
+                    Pos2::new(
+                        w.x as f32 + r * w.width as f32,
+                        w.y as f32 + b * w.height as f32,
+                    ),
+                )
+            })
+            .unwrap_or(Rect::NOTHING);
         // A moving pointer is not document content and can spoil an overlap.
         let pointer = self.settings.include_pointer && !scrolling;
         let demo = self.demo;
@@ -1206,6 +1220,7 @@ impl MyImageApp {
                 selection.display,
                 id,
                 crop,
+                bounds,
                 Local::now(),
                 result,
             ));
@@ -1226,13 +1241,35 @@ impl MyImageApp {
         }
         match selection::crop_selection(&selection.image, rect, CaptureShape::Rectangle, 0) {
             Ok(image) => {
-                self.scroll_session=Some(ScrollSession {capture_size: selection.image.dimensions(), display:selection.display,rect,captured_at:selection.captured_at,
-                    stitcher:Some(Stitcher::new(image)),message:"Scroll the target down, leaving at least a third overlapping. Then capture the next section.".into(),texture:None,placement_frames:0,demo_offset:0,window_id:None,window_crop:None,paused:false,finish_requested:false,single_frame_warning:false,next_capture:std::time::Instant::now()});
+                let bounds = display_selection_bounds(
+                    &selection.display,
+                    selection.image.dimensions(),
+                    rect,
+                );
+                self.scroll_session = Some(ScrollSession {
+                    capture_size: selection.image.dimensions(),
+                    display: selection.display,
+                    rect,
+                    captured_at: selection.captured_at,
+                    stitcher: Some(Stitcher::region(image)),
+                    message: "Scroll down slowly. Choose Done when you have enough.".into(),
+                    texture: None,
+                    placement_frames: 0,
+                    demo_offset: 0,
+                    window_id: None,
+                    window_crop: None,
+                    bounds,
+                    return_hidden: selection.return_hidden,
+                    reset_requested: false,
+                    paused: false,
+                    finish_requested: false,
+                    single_frame_warning: false,
+                    next_capture: std::time::Instant::now() + Duration::from_millis(300),
+                });
                 self.restore_frames_left = 0;
-                ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
-                ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
-                ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(Vec2::ZERO));
-                self.show(ctx);
+                self.hidden.store(true, Ordering::Relaxed);
+                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                crate::runtime::wake_root(ctx);
             }
             Err(error) => {
                 self.error = Some(error);
@@ -1246,12 +1283,12 @@ impl MyImageApp {
         ctx: &egui::Context,
         display: DisplayInfo,
         id: u32,
-        crop: Option<[f32; 4]>,
+        area: WindowScrollArea,
         image: image::RgbaImage,
         at: DateTime<Local>,
     ) {
         let size = image.dimensions();
-        let window_crop = crop.and_then(|[left, top, right, bottom]| {
+        let window_crop = area.crop.and_then(|[left, top, right, bottom]| {
             selection::selection_to_pixels([left, top], [right, bottom], [1., 1.], [size.0, size.1])
         });
         let rect = window_crop.unwrap_or(selection::PixelRect {
@@ -1290,16 +1327,18 @@ impl MyImageApp {
             demo_offset: 0,
             window_id: Some(id),
             window_crop,
+            bounds: area.bounds,
+            return_hidden: true,
+            reset_requested: false,
             paused: false,
             finish_requested: false,
             single_frame_warning: false,
             next_capture: std::time::Instant::now() + Duration::from_millis(100),
         });
         self.restore_frames_left = 0;
-        ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
-        ctx.send_viewport_cmd(ViewportCommand::Resizable(false));
-        ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(Vec2::ZERO));
-        self.show(ctx);
+        self.hidden.store(true, Ordering::Relaxed);
+        ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+        crate::runtime::wake_root(ctx);
     }
 
     pub(super) fn capture_scroll_section(&mut self, ctx: &egui::Context) {
@@ -1318,6 +1357,7 @@ impl MyImageApp {
         let window_id = session.window_id;
         let window_crop = session.window_crop;
         let final_sample = session.finish_requested;
+        let reset = std::mem::take(&mut session.reset_requested);
         let demo = self.demo;
         session.demo_offset += 1;
         let demo_offset = session.demo_offset.div_ceil(2) * rect.height / 3;
@@ -1330,9 +1370,6 @@ impl MyImageApp {
         let tx = self.work_tx.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            if window_id.is_none() {
-                std::thread::sleep(Duration::from_millis(250));
-            }
             let capture = || {
                 if demo {
                     Ok(image::RgbaImage::from_fn(
@@ -1346,35 +1383,40 @@ impl MyImageApp {
                     capture::capture_display(display.id, false)
                 }
             };
+            let mut reset = reset;
             let mut observe = || {
                 capture().and_then(|image| {
-                    if window_id.is_some() {
-                        if image.dimensions() != capture_size {
-                            return Err(
-                                "The window changed size. Finish this capture and start another."
-                                    .into(),
-                            );
-                        }
-                        return match window_crop {
-                            Some(rect) => {
-                                selection::crop_selection(&image, rect, CaptureShape::Rectangle, 0)
-                            }
-                            None => Ok(image),
-                        }
-                        .and_then(|image| stitcher.observe_window(image));
-                    }
                     if image.dimensions() != capture_size {
                         return Err(
-                            "The display changed size. Finish this capture and start another."
+                            "The capture area changed size. Choose Done and start another capture."
                                 .into(),
                         );
                     }
-                    selection::crop_selection(&image, rect, CaptureShape::Rectangle, 0)
-                        .and_then(|image| stitcher.append(image))
+                    let area = if window_id.is_some() {
+                        window_crop
+                    } else {
+                        Some(rect)
+                    };
+                    let image = match area {
+                        Some(rect) => {
+                            selection::crop_selection(&image, rect, CaptureShape::Rectangle, 0)?
+                        }
+                        None => image,
+                    };
+                    if std::mem::take(&mut reset) {
+                        stitcher = if area.is_some() {
+                            Stitcher::region(image)
+                        } else {
+                            Stitcher::window(image)
+                        };
+                        Ok(true)
+                    } else {
+                        stitcher.observe_window(image)
+                    }
                 })
             };
             let mut result = observe();
-            if final_sample && window_id.is_some() && result.is_ok() {
+            if final_sample && result.is_ok() {
                 std::thread::sleep(Duration::from_millis(250));
                 result = observe().map(|added| added || result.unwrap_or(false));
             }
@@ -1384,7 +1426,7 @@ impl MyImageApp {
                 result,
                 final_sample,
             ));
-            ctx.request_repaint();
+            crate::runtime::wake_root(&ctx);
         });
     }
     pub(super) fn finish_scroll_capture(&mut self, ctx: &egui::Context) {
@@ -1404,9 +1446,29 @@ impl MyImageApp {
         let Some(session) = self.scroll_session.take() else {
             return;
         };
+        session.close(ctx);
         self.generation += 1;
         if let Some(stitcher) = session.stitcher {
             self.save_captured_image(ctx, stitcher.image, session.captured_at);
+        }
+    }
+
+    pub(super) fn cancel_capture(&mut self, ctx: &egui::Context) {
+        if let Some(session) = self.scroll_session.take() {
+            session.close(ctx);
+            self.generation += 1;
+            self.busy = false;
+            self.restore_window(ctx, session.return_hidden);
+            self.status = "Scrolling capture canceled".into();
+        } else if self.selection.is_some() {
+            self.cancel_selection(ctx);
+        } else if let Some(return_hidden) = self.pending_capture.take() {
+            self.generation += 1;
+            if let Some(cancel) = self.capture_cancel.take() {
+                cancel.store(true, Ordering::Release);
+            }
+            self.restore_window(ctx, return_hidden);
+            self.status = "Capture canceled".into();
         }
     }
 
@@ -1414,117 +1476,352 @@ impl MyImageApp {
         let Some(session) = &mut self.scroll_session else {
             return;
         };
-        if session.placement_frames < 4 {
-            let unit = Self::desktop_units_per_point(ctx);
-            ctx.send_viewport_cmd(ViewportCommand::InnerSize(Vec2::new(560., 320.)));
-            ctx.send_viewport_cmd(ViewportCommand::OuterPosition(Pos2::new(
-                session.display.x as f32 / unit + 24.,
-                session.display.y as f32 / unit + 48.,
-            )));
-            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::AlwaysOnTop));
-            session.placement_frames += 1;
-            ctx.request_repaint();
-        }
-        let mut next = false;
+        let divisor = ctx.zoom_factor()
+            * if cfg!(target_os = "windows") {
+                session.display.scale_factor
+            } else {
+                1.
+            };
+        let (origin, size) = overlay_geometry(&session.display, divisor);
+        let screen = Rect::from_min_size(origin, size);
+        let selected =
+            Rect::from_min_max(session.bounds.min / divisor, session.bounds.max / divisor)
+                .intersect(screen);
+        let control_size = Vec2::new(460_f32.min(screen.width() - 16.), 76.);
+        let controls = Rect::from_min_size(
+            controls_position(screen, selected, control_size),
+            control_size,
+        );
+        let preview_size = Vec2::new(148., 224.);
+        let preview = scroll_preview_rect(screen, selected, controls, preview_size);
+        let placing = session.placement_frames < 4;
+        let look = self.settings.capture_theme.look();
         let mut finish = false;
         let mut cancel = false;
-        egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(appearance::palette(ctx).paper).inner_margin(18))
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Capture Now").size(21.).strong());
-                    ui.weak("Scrolling");
-                    if let Some(stitcher) = &session.stitcher {
-                        ui.weak(format!(
-                            "{} section{} · {} × {}",
-                            stitcher.sections,
-                            if stitcher.sections == 1 { "" } else { "s" },
-                            stitcher.image.width(),
-                            stitcher.image.height()
-                        ));
-                    }
-                });
-                ui.add_space(8.);
-                ui.horizontal_top(|ui| {
-                    if let Some(stitcher) = &session.stitcher
-                        && session.texture.is_none() {
-                        let thumbnail = image::imageops::thumbnail(&stitcher.image, 200, 240);
-                        session.texture = Some(load_texture(ctx, "scroll-preview", &thumbnail));
-                    }
-                    if let Some(texture) = &session.texture {
-                        ui.add(egui::Image::new(texture).fit_to_exact_size(Vec2::new(100., 120.)).maintain_aspect_ratio(true));
-                    }
-                    ui.vertical(|ui| {
-                        ui.set_width(380.);
-                        ui.label(&session.message);
-                        ui.add_space(8.);
-                        if session.single_frame_warning {
-                            // The recovery message above replaces the normal instructions.
-                        } else if session.window_id.is_some() {
-                            ui.strong("1. Scroll the selected window");
-                            ui.small("Use small steps, keeping at least half the previous content visible. For PDFs, choose continuous scrolling in the PDF viewer.");
-                            ui.strong("2. Finish when you have enough");
-                            ui.small(if session.window_crop.is_some() { "Only your selected area is included." } else { "The scrolling content is collected automatically." });
+        // Four thin, click-through windows outline the selected area without
+        // intercepting wheel events or covering the scrolling document.
+        for (index, edge) in scroll_edges(selected).into_iter().enumerate() {
+            show_scroll_viewport(ctx, index + 2, edge, placing, true, |child| {
+                egui::CentralPanel::default()
+                    .frame(egui::Frame::new().fill(Color32::from_rgb(85, 232, 212)))
+                    .show(child, |_| {});
+            });
+        }
+        show_scroll_viewport(ctx, 0, controls, placing, false, |child| {
+            cancel |=
+                child.input(|i| i.key_pressed(egui::Key::Escape) || i.viewport().close_requested());
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(look.palette.paper)
+                        .stroke(Stroke::new(1., look.palette.border))
+                        .inner_margin(8),
+                )
+                .show(child, |ui| {
+                    crate::capture_panel::apply_look(ui, &look);
+                    ui.spacing_mut().item_spacing.x = 8.;
+                    ui.horizontal(|ui| {
+                        finish = ui
+                            .add_enabled(
+                                !session.finish_requested,
+                                appearance::primary(
+                                    child,
+                                    if session.single_frame_warning {
+                                        "Keep visible area"
+                                    } else {
+                                        "Done"
+                                    },
+                                )
+                                .min_size(Vec2::new(80., 30.)),
+                            )
+                            .on_hover_text(self.settings.capture_destination.finish_label())
+                            .clicked();
+                        ui.label(if session.finish_requested {
+                            "Finishing…"
+                        } else if session.paused {
+                            "Paused"
                         } else {
-                            ui.small("Scroll down, then capture the next section.");
+                            "Scroll slowly ↓"
+                        });
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            cancel |= capture_icon(
+                                ui,
+                                "Cancel capture · Esc",
+                                appearance::Icon::Close,
+                                false,
+                            )
+                            .clicked();
+                            if ui
+                                .add_enabled_ui(!session.finish_requested, |ui| {
+                                    capture_icon(
+                                        ui,
+                                        "Restart from the current visible area",
+                                        appearance::Icon::Refresh,
+                                        false,
+                                    )
+                                })
+                                .inner
+                                .clicked()
+                            {
+                                session.reset_requested = true;
+                                session.paused = false;
+                                session.single_frame_warning = false;
+                                session.message = "Starting again from the current area…".into();
+                                session.next_capture = std::time::Instant::now();
+                            }
+                            let label = if session.paused {
+                                "Resume collecting"
+                            } else {
+                                "Pause collecting"
+                            };
+                            if ui
+                                .add_enabled_ui(!session.finish_requested, |ui| {
+                                    capture_icon(
+                                        ui,
+                                        label,
+                                        if session.paused {
+                                            appearance::Icon::Play
+                                        } else {
+                                            appearance::Icon::Pause
+                                        },
+                                        session.paused,
+                                    )
+                                })
+                                .inner
+                                .clicked()
+                            {
+                                session.paused = !session.paused;
+                                session.single_frame_warning = false;
+                                session.message = if session.paused {
+                                    "Paused. Done keeps the accepted sections."
+                                } else {
+                                    "Scroll down slowly. Sections are collected automatically."
+                                }
+                                .into();
+                            }
+                        });
+                    });
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&session.message)
+                                .small()
+                                .color(look.palette.ink),
+                        )
+                        .truncate(),
+                    )
+                    .on_hover_text(&session.message);
+                });
+        });
+        if let Some(stitcher) = &session.stitcher
+            && session.texture.is_none()
+        {
+            let thumbnail = image::imageops::thumbnail(&stitcher.image, 264, 352);
+            session.texture = Some(load_texture(ctx, "scroll-preview", &thumbnail));
+        }
+        show_scroll_viewport(ctx, 1, preview, placing, true, |child| {
+            egui::CentralPanel::default()
+                .frame(
+                    egui::Frame::new()
+                        .fill(look.palette.paper)
+                        .stroke(Stroke::new(1., look.palette.border))
+                        .inner_margin(8),
+                )
+                .show(child, |ui| {
+                    crate::capture_panel::apply_look(ui, &look);
+                    ui.vertical_centered(|ui| {
+                        ui.small("Preview");
+                        let (rect, _) =
+                            ui.allocate_exact_size(Vec2::new(132., 176.), egui::Sense::hover());
+                        if let Some(texture) = &session.texture {
+                            let size = texture.size_vec2();
+                            let scale = (rect.width() / size.x).min(rect.height() / size.y);
+                            ui.painter().image(
+                                texture.id(),
+                                Rect::from_center_size(rect.center(), size * scale),
+                                Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
+                                Color32::WHITE,
+                            );
+                        }
+                        if let Some(stitcher) = &session.stitcher {
+                            ui.small(format!(
+                                "{} × {} · {} parts",
+                                stitcher.image.width(),
+                                stitcher.image.height(),
+                                stitcher.sections
+                            ));
+                        } else {
+                            ui.small("Collecting…");
                         }
                     });
                 });
-                ui.add_space(10.);
-                ui.horizontal(|ui| {
-                    if session.window_id.is_some() {
-                        if ui.add_enabled(!session.finish_requested, egui::Button::new(if session.paused { "Resume" } else { "Pause" })).clicked() {
-                            session.paused = !session.paused;
-                            if !session.paused {
-                                session.single_frame_warning = false;
-                                session.message = "Scroll down in the selected window. Sections are collected automatically.".into();
-                            }
-                        }
-                    } else {
-                        next=ui.add_enabled(!self.busy,appearance::primary(ui.ctx(), "Capture next section")).clicked();
-                    }
-                    finish = ui
-                        .add_enabled(!session.finish_requested, appearance::primary(ui.ctx(), if session.single_frame_warning { "Keep visible area" } else { self.settings.capture_destination.finish_label() }))
-                        .clicked();
-                    cancel = ui
-                        .add(egui::Button::new("Cancel"))
-                        .clicked();
-                });
-            });
+        });
+        if placing {
+            session.placement_frames += 1;
+            ctx.request_repaint();
+        }
+        if !placing
+            && !self.demo
+            && let Err(error) = crate::capture_window::exclude_scroll_controls()
+        {
+            session.paused = true;
+            session.message = error;
+        }
         if cancel {
-            self.scroll_session = None;
-            self.generation += 1;
-            self.busy = false;
-            self.restore_window(ctx, false);
-            self.status = "Scrolling capture canceled".into();
+            self.cancel_capture(ctx);
             return;
         }
         if finish {
-            if session.paused && !self.busy {
+            if session.paused && !self.busy && !session.reset_requested {
                 self.finish_scroll_capture(ctx);
-                return;
-            }
-            if session.window_id.is_some() || self.busy {
+            } else {
                 session.finish_requested = true;
                 session.paused = true;
                 session.message = "Finishing the current section…".into();
                 if !self.busy {
                     self.capture_scroll_section(ctx);
                 }
-            } else {
-                self.finish_scroll_capture(ctx);
             }
             return;
         }
-        if session.window_id.is_some() && !session.paused && !session.finish_requested {
-            if !self.busy && std::time::Instant::now() >= session.next_capture {
-                next = true;
-            }
+        if !placing && !session.paused && !session.finish_requested {
+            let next = !self.busy && std::time::Instant::now() >= session.next_capture;
             ctx.request_repaint_after(Duration::from_millis(100));
+            if next {
+                self.capture_scroll_section(ctx);
+            }
         }
-        if next {
-            self.capture_scroll_section(ctx);
+    }
+}
+
+fn capture_icon(
+    ui: &mut egui::Ui,
+    label: &str,
+    icon: appearance::Icon,
+    selected: bool,
+) -> egui::Response {
+    let response = ui.add_sized([30., 30.], egui::Button::new("").selected(selected));
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), selected, label)
+    });
+    appearance::icon(
+        ui.painter(),
+        response.rect.center(),
+        icon,
+        ui.style().interact(&response).fg_stroke.color,
+        18.,
+    );
+    response.on_hover_text(label)
+}
+
+fn scroll_id(index: usize) -> egui::ViewportId {
+    egui::ViewportId::from_hash_of(("scroll-capture", index))
+}
+impl ScrollSession {
+    pub fn close(&self, ctx: &egui::Context) {
+        for index in 0..6 {
+            ctx.send_viewport_cmd_to(scroll_id(index), ViewportCommand::Visible(false));
+            ctx.send_viewport_cmd_to(scroll_id(index), ViewportCommand::Close);
         }
+        ctx.request_repaint();
+    }
+    pub fn focus(&self, ctx: &egui::Context) {
+        ctx.send_viewport_cmd_to(scroll_id(0), ViewportCommand::Focus);
+    }
+}
+
+fn show_scroll_viewport(
+    ctx: &egui::Context,
+    index: usize,
+    rect: Rect,
+    placing: bool,
+    passthrough: bool,
+    mut content: impl FnMut(&egui::Context),
+) {
+    let title = format!("{} Scroll — {}", crate::branding::NAME, index);
+    let builder = egui::ViewportBuilder::default()
+        .with_title(title)
+        .with_position(rect.min)
+        .with_inner_size(rect.size())
+        .with_min_inner_size(Vec2::ZERO)
+        .with_decorations(false)
+        .with_resizable(false)
+        .with_taskbar(false)
+        .with_has_shadow(false)
+        .with_transparent(cfg!(target_os = "macos"))
+        .with_mouse_passthrough(passthrough)
+        .with_window_level(WindowLevel::AlwaysOnTop)
+        .with_active(false)
+        .with_visible(!placing);
+    ctx.show_viewport_immediate(scroll_id(index), builder, |child, _| {
+        if placing {
+            child.send_viewport_cmd(ViewportCommand::OuterPosition(rect.min));
+            child.send_viewport_cmd(ViewportCommand::InnerSize(rect.size()));
+        }
+        content(child);
+    });
+}
+
+fn display_selection_bounds(
+    display: &DisplayInfo,
+    size: (u32, u32),
+    rect: selection::PixelRect,
+) -> Rect {
+    let scale = Vec2::new(
+        display.width as f32 / size.0 as f32,
+        display.height as f32 / size.1 as f32,
+    );
+    Rect::from_min_size(
+        Pos2::new(display.x as f32, display.y as f32)
+            + Vec2::new(rect.x as f32, rect.y as f32) * scale,
+        Vec2::new(rect.width as f32, rect.height as f32) * scale,
+    )
+}
+
+fn scroll_edges(rect: Rect) -> [Rect; 4] {
+    let width = 2.;
+    [
+        Rect::from_min_size(
+            rect.min - Vec2::splat(width),
+            Vec2::new(rect.width() + 2. * width, width),
+        ),
+        Rect::from_min_size(
+            rect.left_bottom() + Vec2::new(-width, 0.),
+            Vec2::new(rect.width() + 2. * width, width),
+        ),
+        Rect::from_min_size(
+            rect.min - Vec2::new(width, 0.),
+            Vec2::new(width, rect.height()),
+        ),
+        Rect::from_min_size(rect.right_top(), Vec2::new(width, rect.height())),
+    ]
+}
+
+fn scroll_preview_rect(screen: Rect, selected: Rect, controls: Rect, size: Vec2) -> Rect {
+    let below = Pos2::new(selected.right() - size.x, selected.bottom() + 12.);
+    let candidates = [
+        Pos2::new(selected.right() + 12., selected.bottom() - size.y),
+        Pos2::new(selected.left() - size.x - 12., selected.bottom() - size.y),
+        below,
+        Pos2::new(selected.right() - size.x, selected.top() - size.y - 12.),
+    ];
+    for point in candidates {
+        let rect = Rect::from_min_size(point, size);
+        if screen.shrink(8.).contains_rect(rect) && !rect.intersects(controls.expand(8.)) {
+            return rect;
+        }
+    }
+    // Full-display selections leave no outside space. These capture-excluded,
+    // click-through controls remain usable without entering the result.
+    let x = (screen.right() - size.x - 8.).max(screen.left() + 8.);
+    let bottom = screen.bottom() - size.y - 8.;
+    let candidate = Rect::from_min_size(Pos2::new(x, bottom), size);
+    if candidate.intersects(controls.expand(8.)) {
+        Rect::from_min_size(
+            Pos2::new(x, (controls.top() - size.y - 8.).max(screen.top() + 8.)),
+            size,
+        )
+    } else {
+        candidate
     }
 }
 
@@ -1575,6 +1872,254 @@ fn window_selection(area: Rect, window: Rect) -> Option<[f32; 4]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scrolling_hud_keeps_editor_hidden_and_passes_document_input_through() {
+        use std::{cell::RefCell, rc::Rc};
+        let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+        let screen = test_screens(&ctx, CaptureMode::Region).screens.remove(0);
+        app.start_scroll_session(
+            &ctx,
+            screen,
+            selection::PixelRect {
+                x: 80,
+                y: 80,
+                width: 400,
+                height: 320,
+            },
+        );
+        app.scroll_session.as_mut().unwrap().paused = true;
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        let rendered = Rc::new(RefCell::new(Vec::new()));
+        let recorded = rendered.clone();
+        egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+            recorded
+                .borrow_mut()
+                .push((viewport.ids.this, viewport.builder.clone()));
+            let size = viewport.builder.inner_size.unwrap();
+            let _ = ctx.run(
+                egui::RawInput {
+                    viewport_id: viewport.ids.this,
+                    viewports: [(viewport.ids.this, egui::ViewportInfo::default())]
+                        .into_iter()
+                        .collect(),
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+                    ..Default::default()
+                },
+                |ctx| (viewport.viewport_ui_cb)(ctx),
+            );
+        });
+        for frame in 0..6 {
+            rendered.borrow_mut().clear();
+            let output = ctx.run(egui::RawInput::default(), |ctx| app.scroll_session_ui(ctx));
+            assert!(app.hidden.load(Ordering::Relaxed));
+            assert!(
+                output.viewport_output[&egui::ViewportId::ROOT]
+                    .commands
+                    .is_empty()
+            );
+            let windows = rendered.borrow();
+            assert_eq!(windows.len(), 6);
+            for (id, builder) in windows.iter() {
+                assert_eq!(builder.active, Some(false));
+                assert_eq!(builder.visible, Some(frame >= 4));
+                assert_eq!(builder.mouse_passthrough, Some(*id != scroll_id(0)));
+            }
+        }
+        app.cancel_capture(&ctx);
+        ctx.set_embed_viewports(true);
+    }
+
+    #[test]
+    fn escape_cancels_capture_even_with_an_open_popup() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        let mut session = test_screens(&ctx, CaptureMode::Region);
+        let screen = &mut session.screens[0];
+        egui::Popup::open_id(&ctx, egui::Id::new("mode-menu"));
+        assert!(egui::Popup::is_any_open(&ctx));
+        assert_eq!(
+            overlay_frame(&mut app, &ctx, screen, vec![key(egui::Key::Escape)]),
+            Some(SelectionAction::Cancel)
+        );
+    }
+
+    #[test]
+    fn capture_toolbar_stays_compact_in_each_mode() {
+        for mode in CaptureMode::ALL {
+            let ctx = egui::Context::default();
+            let mut app =
+                MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+            let mut screens = test_screens(&ctx, mode).screens;
+            let screen = &mut screens[0];
+            overlay_frame(&mut app, &ctx, screen, vec![]);
+            let size = ctx
+                .data(|data| data.get_temp::<Vec2>(egui::Id::new("capture-toolbar-size")))
+                .unwrap();
+            assert!(size.x < 620. && size.y < 60., "{mode:?}: {size:?}");
+        }
+    }
+
+    #[test]
+    fn scroll_geometry_handles_retina_and_negative_display_origins() {
+        let ctx = egui::Context::default();
+        let screen = test_screens(&ctx, CaptureMode::Region).screens.remove(1);
+        let rect = selection::PixelRect {
+            x: 200,
+            y: 100,
+            width: 600,
+            height: 400,
+        };
+        let bounds = display_selection_bounds(&screen.display, screen.image.dimensions(), rect);
+        assert_eq!(
+            bounds,
+            Rect::from_min_size(Pos2::new(-700., -550.), Vec2::new(300., 200.))
+        );
+        for edge in scroll_edges(bounds) {
+            assert_eq!(edge.intersect(bounds).area(), 0.);
+        }
+        let desktop = Rect::from_min_size(Pos2::new(-800., -600.), Vec2::new(800., 600.));
+        let controls = Rect::from_min_size(
+            controls_position(desktop, bounds, Vec2::new(460., 76.)),
+            Vec2::new(460., 76.),
+        );
+        let preview = scroll_preview_rect(desktop, bounds, controls, Vec2::new(148., 224.));
+        assert!(desktop.contains_rect(controls));
+        assert!(desktop.contains_rect(preview));
+        assert!(!preview.intersects(controls));
+    }
+
+    fn wait_for_scroll_sample(app: &mut MyImageApp, ctx: &egui::Context) {
+        let until = std::time::Instant::now() + Duration::from_secs(5);
+        while app.busy && std::time::Instant::now() < until {
+            std::thread::sleep(Duration::from_millis(5));
+            let _ = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
+        }
+        assert!(!app.busy, "scroll sample timed out");
+    }
+
+    #[test]
+    fn region_scroll_collects_automatically_resets_and_rejects_canceled_work() {
+        let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+        let mut screen = test_screens(&ctx, CaptureMode::Region).screens.remove(0);
+        screen.image = image::RgbaImage::from_fn(800, 600, demo_scroll_pixel);
+        let rect = selection::PixelRect {
+            x: 100,
+            y: 100,
+            width: 320,
+            height: 300,
+        };
+        app.start_scroll_session(&ctx, screen, rect);
+        assert!(app.hidden.load(Ordering::Relaxed));
+        assert_eq!(app.settings.capture_mode, CaptureMode::Region);
+        app.capture_scroll_section(&ctx);
+        wait_for_scroll_sample(&mut app, &ctx);
+        let session = app.scroll_session.as_ref().unwrap();
+        let stitcher = session.stitcher.as_ref().unwrap();
+        assert_eq!(stitcher.image.dimensions(), (320, 400));
+        assert_eq!(stitcher.sections, 2);
+        assert!(!session.paused);
+
+        app.scroll_session.as_mut().unwrap().reset_requested = true;
+        app.capture_scroll_section(&ctx);
+        wait_for_scroll_sample(&mut app, &ctx);
+        let stitcher = app
+            .scroll_session
+            .as_ref()
+            .unwrap()
+            .stitcher
+            .as_ref()
+            .unwrap();
+        assert_eq!(stitcher.image.dimensions(), (320, 300));
+        assert_eq!(stitcher.sections, 1);
+        assert_eq!(*stitcher.image.get_pixel(0, 0), demo_scroll_pixel(100, 200));
+
+        let generation = app.generation;
+        let stale = app
+            .scroll_session
+            .as_mut()
+            .unwrap()
+            .stitcher
+            .take()
+            .unwrap();
+        app.busy = true;
+        app.desktop_tx.send(DesktopEvent::CancelCapture).unwrap();
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            for index in 0..6 {
+                ctx.show_viewport_deferred(
+                    scroll_id(index),
+                    egui::ViewportBuilder::default(),
+                    |_, _| {},
+                );
+            }
+            app.handle_events(ctx);
+        });
+        assert!(app.scroll_session.is_none());
+        assert!(!app.busy);
+        for index in 0..6 {
+            assert!(
+                output.viewport_output[&scroll_id(index)]
+                    .commands
+                    .contains(&ViewportCommand::Close)
+            );
+        }
+        app.work_tx
+            .send(WorkEvent::ScrollSection(
+                generation,
+                Box::new(stale),
+                Ok(true),
+                true,
+            ))
+            .unwrap();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
+        assert!(app.scroll_session.is_none());
+        assert!(app.document.is_none());
+    }
+
+    #[test]
+    fn reopening_during_scrolling_only_focuses_its_controller() {
+        let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+        let screen = test_screens(&ctx, CaptureMode::Region).screens.remove(0);
+        app.start_scroll_session(
+            &ctx,
+            screen,
+            selection::PixelRect {
+                x: 0,
+                y: 0,
+                width: 320,
+                height: 300,
+            },
+        );
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        app.desktop_tx.send(DesktopEvent::Reopen).unwrap();
+        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            for index in 0..6 {
+                ctx.show_viewport_deferred(
+                    scroll_id(index),
+                    egui::ViewportBuilder::default(),
+                    |_, _| {},
+                );
+            }
+            app.handle_events(ctx);
+        });
+        assert!(app.hidden.load(Ordering::Relaxed));
+        assert!(
+            !output.viewport_output[&egui::ViewportId::ROOT]
+                .commands
+                .contains(&ViewportCommand::Visible(true))
+        );
+        assert!(
+            output.viewport_output[&scroll_id(0)]
+                .commands
+                .contains(&ViewportCommand::Focus)
+        );
+    }
 
     #[test]
     fn dedicated_capture_keeps_editor_hidden_and_accepts_first_drag_during_fade() {
@@ -2235,7 +2780,10 @@ mod tests {
             &ctx,
             app.displays[0].clone(),
             42,
-            Some([0., 0., 1., 1.]),
+            WindowScrollArea {
+                crop: Some([0., 0., 1., 1.]),
+                bounds: Rect::from_min_size(Pos2::new(20., 30.), Vec2::new(300., 400.)),
+            },
             image::RgbaImage::new(300, 400),
             Local::now(),
         );
@@ -2337,7 +2885,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert!(labels.contains(&"Text → clipboard"));
+        assert!(!labels.contains(&"Capture"));
         assert!(labels.contains(&"Copy text"));
         let start = egui::pos2(100., 100.);
         let end = egui::pos2(300., 220.);

@@ -388,31 +388,6 @@ pub fn ui(
     result
 }
 
-pub fn destination_picker(ui: &mut egui::Ui, destination: &mut CaptureDestination) -> bool {
-    let before = *destination;
-    let popup_visuals = ui.visuals().clone();
-    egui::ComboBox::from_id_salt("capture-destination")
-        .popup_style(egui::style::StyleModifier::new(move |style| {
-            style.visuals = popup_visuals.clone()
-        }))
-        .selected_text(format!("To: {}", destination.label()))
-        .width(118.)
-        .show_ui(ui, |ui| {
-            for choice in CaptureDestination::ALL {
-                if ui
-                    .selectable_value(destination, choice, choice.label())
-                    .on_hover_text(choice.hint())
-                    .clicked()
-                {
-                    ui.close();
-                }
-            }
-        })
-        .response
-        .on_hover_text(destination.hint());
-    *destination != before
-}
-
 pub(super) fn mode_icon(painter: &egui::Painter, mode: CaptureMode, rect: Rect, color: Color32) {
     let color = crate::icon_style::color(
         painter.ctx(),

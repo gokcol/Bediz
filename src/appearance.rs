@@ -502,6 +502,8 @@ pub enum Icon {
     Back,
     Forward,
     Refresh,
+    Pause,
+    Play,
     List,
     Up,
     Down,
@@ -1043,6 +1045,28 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
                 s,
             );
             p.line_segment([at(0., 0.12), at(0., 0.44)], s);
+        }
+        Icon::Pause => {
+            for dx in [-0.18, 0.18] {
+                p.line_segment(
+                    [
+                        center + Vec2::new(dx, -0.35) * size,
+                        center + Vec2::new(dx, 0.35) * size,
+                    ],
+                    Stroke::new(3., color),
+                );
+            }
+        }
+        Icon::Play => {
+            p.add(egui::Shape::convex_polygon(
+                vec![
+                    center + Vec2::new(-0.25, -0.38) * size,
+                    center + Vec2::new(0.38, 0.) * size,
+                    center + Vec2::new(-0.25, 0.38) * size,
+                ],
+                color,
+                Stroke::NONE,
+            ));
         }
         Icon::Refresh => {
             let points = (0..24)

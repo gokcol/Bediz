@@ -36,6 +36,7 @@ const CHECK_UPDATES_ID: &str = "myimage.check-updates";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DesktopEvent {
     Capture,
+    CancelCapture,
     CapturePanel,
     Show,
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -52,6 +53,7 @@ struct EventSink {
     ctx: egui::Context,
     sender: Sender<DesktopEvent>,
     hotkeys: Mutex<Vec<Arc<RegisteredHotkey>>>,
+    capture_escape: AtomicBool,
 }
 
 struct RegisteredHotkey {
@@ -137,6 +139,13 @@ fn install_callbacks() {
 
         GlobalHotKeyEvent::set_event_handler(Some(|event: GlobalHotKeyEvent| {
             with_event_sink(|sink| {
+                if event.id == capture_escape().id() && sink.capture_escape.load(Ordering::Acquire)
+                {
+                    if event.state == HotKeyState::Pressed {
+                        sink.send(DesktopEvent::CancelCapture);
+                    }
+                    return;
+                }
                 let hotkey = sink.hotkeys.lock().ok().and_then(|hotkeys| {
                     hotkeys
                         .iter()
@@ -151,6 +160,10 @@ fn install_callbacks() {
             });
         }));
     });
+}
+
+fn capture_escape() -> HotKey {
+    HotKey::new(None, global_hotkey::hotkey::Code::Escape)
 }
 
 fn capture_on_release(pressed: &AtomicBool, state: HotKeyState) -> bool {
@@ -180,6 +193,7 @@ pub struct DesktopIntegration {
     hotkey_resolution_errors: Vec<String>,
     hotkey_error: Option<String>,
     sink: Arc<EventSink>,
+    capture_active: bool,
 }
 
 impl DesktopIntegration {
@@ -251,6 +265,7 @@ impl DesktopIntegration {
             ctx,
             sender,
             hotkeys: Mutex::new(Vec::new()),
+            capture_escape: AtomicBool::new(false),
         });
         *EVENT_TARGET
             .lock()
@@ -269,11 +284,32 @@ impl DesktopIntegration {
             hotkey_resolution_errors: Vec::new(),
             hotkey_error: None,
             sink,
+            capture_active: false,
         };
         // Conflicts and manager errors must not remove the working tray menu.
         let _ = integration.retry_hotkey();
         integration.update_shortcut_label();
         Ok(integration)
+    }
+
+    /// Temporarily own Escape while capturing, including while another app has
+    /// focus for manual scrolling. Normal Escape is untouched outside capture.
+    pub fn set_capture_active(&mut self, active: bool) {
+        if self.capture_active == active {
+            return;
+        }
+        self.capture_active = active;
+        let Some(manager) = &self.manager else {
+            return;
+        };
+        if active {
+            match manager.register(capture_escape()) {
+                Ok(()) => self.sink.capture_escape.store(true, Ordering::Release),
+                Err(error) => log::warn!("Could not register capture Escape: {error}"),
+            }
+        } else if self.sink.capture_escape.swap(false, Ordering::AcqRel) {
+            let _ = manager.unregister(capture_escape());
+        }
     }
 
     fn update_shortcut_label(&self) {
@@ -547,6 +583,7 @@ fn register_missing_hotkeys(
 
 impl Drop for DesktopIntegration {
     fn drop(&mut self) {
+        self.set_capture_active(false);
         for hotkey in &self.hotkeys {
             if hotkey.registered.swap(false, Ordering::AcqRel)
                 && let Some(manager) = self.manager.as_ref()

@@ -57,6 +57,7 @@ enum WorkEvent {
         DisplayInfo,
         u32,
         Option<[f32; 4]>,
+        Rect,
         DateTime<Local>,
         Result<image::RgbaImage, String>,
     ),
@@ -1064,6 +1065,7 @@ impl MyImageApp {
         while let Ok(event) = self.desktop_rx.try_recv() {
             match event {
                 DesktopEvent::Capture => self.begin_capture(ctx),
+                DesktopEvent::CancelCapture => self.cancel_capture(ctx),
                 DesktopEvent::CapturePanel => self.toggle_capture_launcher(ctx),
                 DesktopEvent::About | DesktopEvent::WhatsNew | DesktopEvent::CheckUpdates => {
                     self.open_information_from_menu(ctx, event);
@@ -1084,10 +1086,8 @@ impl MyImageApp {
                 | DesktopEvent::CaptureSettings
                 | DesktopEvent::Library => {
                     self.close_capture_launcher(ctx);
-                    if self.scroll_session.is_some() {
-                        if !self.busy {
-                            self.show(ctx);
-                        }
+                    if let Some(session) = &self.scroll_session {
+                        session.focus(ctx);
                         continue;
                     }
                     if self.selection.is_some() {
@@ -1268,7 +1268,7 @@ impl MyImageApp {
                         }
                     }
                 }
-                WorkEvent::WindowCaptured(generation, display, id, crop, at, result) => {
+                WorkEvent::WindowCaptured(generation, display, id, crop, bounds, at, result) => {
                     if generation != self.generation || self.pending_capture.take().is_none() {
                         continue;
                     }
@@ -1277,7 +1277,14 @@ impl MyImageApp {
                         Ok(image)
                             if self.settings.capture_mode == capture::CaptureMode::Scrolling =>
                         {
-                            self.start_window_scroll(ctx, display, id, crop, image, at)
+                            self.start_window_scroll(
+                                ctx,
+                                display,
+                                id,
+                                capture_session::WindowScrollArea { crop, bounds },
+                                image,
+                                at,
+                            )
                         }
                         Ok(image) => self.save_captured_image(ctx, image, at),
                         Err(error) => {
@@ -1293,26 +1300,26 @@ impl MyImageApp {
                     }
                     self.busy = false;
                     let mut finish = false;
-                    let mut show = false;
                     let mut collect_final = false;
                     let failed = result.is_err();
                     if let Some(session) = &mut self.scroll_session {
-                        let auto = session.window_id.is_some();
                         match result {
                             Ok(true) => {
                                 session.message =
-                                    "Section added. Keep scrolling down, or choose Finish.".into();
+                                    "Section added. Keep scrolling down, or choose Done.".into();
                                 session.texture = None;
                                 session.single_frame_warning = false;
                             }
                             Ok(false) => {
                                 if !session.paused {
-                                    session.message=if auto {"Watching the selected window. Scroll down steadily; sections are collected automatically."} else {"No new content. Scroll down before capturing the next section."}.into();
+                                    session.message =
+                                        "Scroll down slowly. Sections are collected automatically."
+                                            .into();
                                 }
                             }
                             Err(error) => {
                                 session.message = error;
-                                session.paused = auto;
+                                session.paused = true;
                             }
                         }
                         session.stitcher = Some(*stitcher);
@@ -1324,16 +1331,13 @@ impl MyImageApp {
                                 " Resume to retry, or Finish to keep the accepted sections.",
                             );
                         }
-                        finish = session.finish_requested && (final_sample || !auto);
+                        finish = session.finish_requested && final_sample;
                         collect_final = session.finish_requested && !finish;
-                        show = !auto;
                     }
                     if finish {
                         self.finish_scroll_capture(ctx);
                     } else if collect_final {
                         self.capture_scroll_section(ctx);
-                    } else if show {
-                        self.show(ctx);
                     }
                 }
                 WorkEvent::ProjectLibraryReady(result) => {
@@ -1545,9 +1549,7 @@ impl MyImageApp {
         self.close_capture_launcher(ctx);
         if let Some(session) = &mut self.scroll_session {
             session.message = "Finish or cancel the scrolling capture before quitting.".into();
-            if !self.busy {
-                self.show(ctx);
-            }
+            session.focus(ctx);
             return;
         }
         self.save_as_panel.open = false;
@@ -2282,6 +2284,13 @@ impl eframe::App for MyImageApp {
             }
         }
         self.handle_events(ctx);
+        if let Some(desktop) = &mut self.desktop {
+            desktop.set_capture_active(
+                self.pending_capture.is_some()
+                    || self.selection.is_some()
+                    || self.scroll_session.is_some(),
+            );
+        }
         self.poll_update_service(ctx, frame);
         #[cfg(target_os = "macos")]
         if let Some(menu) = &self.application_menu {
@@ -2345,12 +2354,13 @@ impl eframe::App for MyImageApp {
                 return;
             }
         }
-        if self.hidden.load(Ordering::Relaxed) {
-            return;
-        }
         if self.scroll_session.is_some() {
             self.scroll_session_ui(ctx);
-            crate::pointer_style::paint(ctx, self.settings.pointer_style);
+            if self.scroll_session.is_some() {
+                return;
+            }
+        }
+        if self.hidden.load(Ordering::Relaxed) {
             return;
         }
         self.prepare_updates(ctx);

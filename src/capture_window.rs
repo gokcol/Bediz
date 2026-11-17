@@ -141,3 +141,56 @@ pub fn primary_button_down() -> Option<bool> {
         })
     }
 }
+
+/// Keep our scrolling HUD out of screen samples. ScreenCaptureKit already
+/// excludes this application; Windows needs per-window capture affinity.
+pub fn exclude_scroll_controls() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::{
+            Win32::{
+                Foundation::{HWND, LPARAM},
+                UI::WindowsAndMessaging::{
+                    EnumWindows, GetWindowTextW, GetWindowThreadProcessId,
+                    SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+                },
+            },
+            core::BOOL,
+        };
+        unsafe extern "system" fn visit(window: HWND, data: LPARAM) -> BOOL {
+            // SAFETY: EnumWindows invokes this callback synchronously; `data`
+            // points to the live local error slot below. Only our own windows
+            // are changed, and GetWindowTextW bounds its write to the slice.
+            unsafe {
+                let mut pid = 0;
+                GetWindowThreadProcessId(window, Some(&mut pid));
+                if pid == std::process::id() {
+                    let mut name = [0u16; 256];
+                    let count = GetWindowTextW(window, &mut name).max(0) as usize;
+                    if String::from_utf16_lossy(&name[..count])
+                        .starts_with(&format!("{} Scroll — ", crate::branding::NAME))
+                        && let Err(error) = SetWindowDisplayAffinity(window, WDA_EXCLUDEFROMCAPTURE)
+                    {
+                        *(data.0 as *mut Option<String>) = Some(format!(
+                            "Could not hide capture controls from the image: {error}"
+                        ));
+                    }
+                }
+            }
+            BOOL(1)
+        }
+        let mut error: Option<String> = None;
+        // SAFETY: Callback and user data stay valid for this synchronous call.
+        unsafe {
+            EnumWindows(
+                Some(visit),
+                LPARAM((&mut error as *mut Option<String>) as isize),
+            )
+        }
+        .map_err(|e| e.to_string())?;
+        if let Some(error) = error {
+            return Err(error);
+        }
+    }
+    Ok(())
+}

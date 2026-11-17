@@ -1,18 +1,19 @@
 {
   "version": "3.0.1",
-  "build": 117,
+  "build": 118,
   "store_version": "3.0.1.0",
   "changes": [
-    "Choose 100%, 75%, 50% or 25% output size after capture. Original is the default; selection stays full resolution.",
-    "Click the hotkey in Capture Now to change your shortcut.",
-    "Quick Start & Hotkeys now has a close button."
+    "Compact capture toolbar with icons, tooltips and a clear output percentage.",
+    "Select a region, choose Scrolling capture, scroll down, then choose Done. A live preview grows as sections are collected.",
+    "Pause, restart or cancel scrolling capture. Escape cancels selection even when a capture menu is open.",
+    "Output size still defaults to 100%; choose 75%, 50% or 25% for a smaller finished image."
   ],
   "macos": [
-    "Remove the fixed 250 ms startup wait while keeping capture smooth and undimmed.",
-    "Capture the menu bar and Dock, with dimming only outside the area you select."
+    "Retain the smooth, undimmed capture startup and full menu-bar/Dock selection.",
+    "Scrolling controls stay outside the captured image while the editor remains hidden."
   ],
   "windows": [
-    "MyImage is now SkyImage on Windows. Existing projects, settings and the Microsoft Store update path are unchanged.",
-    "Store-installed copies check Microsoft Store for updates available to this installation. Open the Store to update."
+    "The compact capture controls and automatic region scrolling are shared with Mac.",
+    "Store-installed copies continue to check Microsoft Store for updates."
   ]
 }
