@@ -19,4 +19,12 @@ The Windows installer removes legacy MyImage and SkyImage shortcuts during upgra
 
 ## Release status
 
-Build 124 validation and packaging are in progress. The Store listing will change to Bediz after Microsoft certifies and publishes the update. The preceding SkyImage release remains available until then.
+[Bediz v3.1 build 124](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build124) is published for Mac and Windows from source `8ce50a39118233b10b1ba356ae30f31cafe8300b`.
+
+- [Native checks](https://github.com/gokcol/MyImage/actions/runs/44085724096): 717 app and 19 packaging tests passed, 27 ignored; formatting and Clippy passed.
+- [Windows installer](https://github.com/gokcol/MyImage/actions/runs/44085970161), [Store package](https://github.com/gokcol/MyImage/actions/runs/44085974683) and [disposable MSIX install/removal](https://github.com/gokcol/MyImage/actions/runs/44085724274) passed. Package display names are Bediz; startup remains disabled and the only restricted capability is `runFullTrust`.
+- Apple app notarization `4e9bf9bf-2cc2-4c2f-a8a5-3d643f72dcf1` and DMG notarization `676b867c-5a54-4a4b-b3ee-be0de20da898` were accepted. Signatures, stapled tickets, Gatekeeper, ZIP contents and read-only DMG contents were verified.
+- Installed `/Applications/Bediz.app`, replacing verified SkyImage build 123 with a verified rollback archive. Native menu, window title, About and What's New show Bediz build 124. The existing saved project reopened; projects, preferences and permission records were not modified by installation.
+- All ten published assets match their verified local SHA-256 digests. The release includes `release-validation.json`.
+
+The Store listing will change to Bediz after Microsoft certifies and publishes the update. The preceding SkyImage build 123 is published while this update is prepared. Interactive Windows capture/device validation remains pending.

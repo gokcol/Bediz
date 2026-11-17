@@ -1,26 +1,26 @@
-# MyImage / SkyImage privacy policy
+# Bediz privacy policy
 
-Effective date: 15 November 2026
+Effective date: 17 November 2026
 
-MyImage is a desktop screen-capture and image editor by Orhan Gökçöl.
-From version 3.0.1, its Windows display name is SkyImage (previously MyImage).
-The Mac app also uses SkyImage from build 110.
-References to MyImage in this policy include SkyImage. This policy applies to
-version 3.0.x, its GitHub distribution and its Microsoft Store edition.
-The name change does not change data processing or storage locations.
+Bediz is a desktop screen-capture and image editor by Orhan Gökçöl, previously
+named SkyImage and MyImage. Bediz is the Mac and Windows display name from
+version 3.1.0 build 124. This policy applies to version 3.x, its GitHub
+distribution and its Microsoft Store edition, including copies using either
+previous name. The name change does not change data processing or storage
+locations.
 
 ## On-device processing
 
-MyImage processes screen captures, images, editable projects, SVG stamps and
+Bediz processes screen captures, images, editable projects, SVG stamps and
 signature artwork on your computer. Screen content can contain personal or
 confidential information. You choose what to capture, open, copy, save or export.
-The app does not upload that content to the developer or a MyImage server.
+The app does not upload that content to the developer or a Bediz server.
 Extract text uses the operating system’s on-device text recognition on your
 selected region, or the whole visible image when no region is selected.
 Recognized text is held in memory for review and is
 placed on the clipboard only when you choose Copy text. Capture Now’s Text mode
 copies recognized text directly after your screen-region capture action, without
-saving an image or project. MyImage does not upload the selected pixels or
+saving an image or project. Bediz does not upload the selected pixels or
 recognized text.
 
 It does not require an account and contains no advertising, analytics or
@@ -30,11 +30,11 @@ Capture requires the permissions provided by your operating system. Clipboard
 actions place the image or selected content on the system clipboard, where other
 applications and any clipboard-sync service you enable may access it.
 The SVG stamp designer copies a prompt for you to use with an AI service of your
-choice; MyImage does not send that prompt or your images to an AI service itself.
+choice; Bediz does not send that prompt or your images to an AI service itself.
 
 ## Local files and recovery
 
-MyImage stores preferences, recent paths, favorites, custom stamps, signature
+Bediz stores preferences, recent paths, favorites, custom stamps, signature
 artwork and presets locally. Autosave stores separate recovery copies of
 unfinished work, including image content and editable annotations. Recovery
 copies can therefore contain sensitive information. You may recover or discard
@@ -69,13 +69,13 @@ You can enable or disable them in What's new & updates. Check times, the last
 viewed release and dismissed update notices are stored locally.
 
 Update buttons open a GitHub Mac download in your browser or the Microsoft Store
-listing. MyImage does not automatically download or install an update itself.
+listing. Bediz does not automatically download or install an update itself.
 
 ## External links
 
 Opening source, release, attribution or privacy links uses your web browser.
 GitHub or the destination site then processes the request under its own privacy
-policy. MyImage does not attach image contents to those links. Store download,
+policy. Bediz does not attach image contents to those links. Store download,
 update and diagnostic processing is governed by Microsoft's policies.
 
 ## Contact and changes
