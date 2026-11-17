@@ -92,3 +92,13 @@ The local Dock had retained an entry pointing to the missing /Applications/MyIma
 Build 118 was installed as a local candidate. The revised selection/scrolling flow is build 119 so the installer can perform a forward upgrade. The revised code passed 703 app tests and 17 packaging tests, formatting and Clippy before the metadata-only build-number increment.
 
 Build 119 native validation found a repeated 360-pixel section after a cursor highlight disappeared. The exact captured fixture reproduces it: 15 changed grid samples exceeded the old 8-point idle threshold, and repeated text falsely aligned one section lower. Build 120 recognizes up to two small localized changes as idle, without advancing the accepted frame. The regression covers removed/moved highlights, unchanged accepted pixels, and a subsequent real scroll. The numbered local HTML and capture fixture are in tests/fixtures.
+
+## Build 120 validation — 17 November 2026
+
+Build 120 passed 704 app tests and 17 packaging tests, formatting and Clippy. Exact source: `2c0cfd77fe8adf1c3fab9ee2c6a2e71e7573bf4a`. Native checks passed in [43993493140](https://github.com/gokcol/MyImage/actions/runs/43993493140), Windows installer lifecycle checks in [43993510434](https://github.com/gokcol/MyImage/actions/runs/43993510434), and MSIX validation in [43993506509](https://github.com/gokcol/MyImage/actions/runs/43993506509). Interactive Windows capture testing remains pending; no new Store submission was made.
+
+The installed Mac binary matches the release bundle. The app and DMG are Developer ID signed, notarized and stapled; Gatekeeper accepted the app. Apple accepted app submission `0e22b514-0bb6-42ea-9225-029d30fbda97` and DMG submission `bbf4dda3-20c8-46b4-9f75-a3637d0d6da3`.
+
+Native Firefox validation selected a 1698 × 1080 region from the numbered local page, chose the secondary scroll action, and scrolled down in three small steps. The preview grew from one to four parts. Done saved a 1698 × 1914 image: sections 01–05 and the beginning of 06 appear once, in order, without controls or repeated sections. The saved result's PNG SHA-256 is `3b4735134f7457b3b95d1c0a84c6e68b935759aedf03bf04b3c58f007ea369b6`. Region and 100% output remained selected. Opening the compact mode menu and pressing Escape canceled the entire capture; the menu contains Region, Multi-region, Window, Full screen and Text. The prior Firefox tab was restored after testing.
+
+Release downloads: [SkyImage 3.0.1 build 120](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build120). Mac Apple Silicon DMG/ZIP and unsigned Windows x64 Setup/portable ZIP have verified SHA-256 files; the Windows manifest identifies the same application and packaging source commit.
