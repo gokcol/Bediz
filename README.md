@@ -2,9 +2,9 @@
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download Bediz v3.1 · build 124 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build124). Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture validation remains pending.
+[Download Bediz v3.1 · build 125 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build125). Completed fills now keep their colors when choosing the next fill color. Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture/device testing remains pending.
 
-[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). **Bediz 3.1.0 build 124**, Store package **3.1.2.0**, is **in certification** with automatic publishing after approval. It renames the existing SkyImage product. The public Store listing changes to Bediz when Microsoft approves and publishes the update; SkyImage build 123 remains live meanwhile. Existing installations, projects and settings carry forward; the Store product and package identities remain unchanged.
+[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). Store package **3.1.3.0** for **Bediz 3.1.0 build 125** is **submitted and in certification** as submission **7**, with automatic publication after Microsoft approval. Bediz build 124, package 3.1.2.0, is published in the Store. The same Store product carries forward existing installations, projects and settings. See [build 125 validation and release status](docs/RELEASE-125.md).
 
 Bediz opens in **Home**, with **Editor**, **Library**, and **Create** beside it in the compact top toolbar. **View only** remains available from the bottom **App** menu. The native editor has a drawing toolbar, a large canvas, and an annotation inspector. Add editable text, arrows, 17 shape types, stamps, numbered steps, callouts, highlights, and freehand pen strokes; select, move, resize, recolor, reorder, or delete them. Add adjustable blur and pixelate regions to obscure selected areas, or use Fill to recolor or clear connected backgrounds. Crop, resize, and rotate the image without changing its original pixels. Undo and redo cover both image edits and annotations during the current session.
 
@@ -12,7 +12,13 @@ Bediz automatically creates and saves **`.myimage` projects**, keeping each orig
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
 
-## Bediz 3.1 · build 124
+## Bediz 3.1 · build 125
+
+After a bucket fill, choosing another quick color, transparency or opacity now applies to the **next fill**. Completed areas keep their colors. To change an existing fill, select it with **Select** or **Layers**; the inspector says **Selected fill**, and recoloring and **Update fill region** remain available. Undo/redo and editable projects retain each fill independently.
+
+See [build 125 validation and release status](docs/RELEASE-125.md).
+
+## Retained from Bediz 3.1 · build 124
 
 SkyImage is now **Bediz** on Mac and Windows. The app, native menus, About, installers and Store listing share the new name; About retains both previous names. The Mac installer migrates a verified MyImage.app or SkyImage.app to Bediz.app, with rollback protection. Windows upgrades replace the old shortcuts with Bediz shortcuts. Projects, settings, permissions and update channels keep their existing identities. Download filenames and the GitHub repository path retain MyImage so older update clients continue to work.
 
@@ -148,7 +154,7 @@ pipeline modeled on MyPDF, with identity validation, installation checks and
 calico assets. Microsoft signs Store packages after certification; an unsigned
 submission artifact is not a signed end-user installer. See the
 [Store preparation guide](packaging/windows/msix/README.md) and
-[privacy policy](PRIVACY.md). Bediz build 124 uses MSIX version 3.1.2.0, preserving upgrade ordering
+[privacy policy](PRIVACY.md). Bediz build 125 uses MSIX version 3.1.3.0, preserving upgrade ordering
 from earlier MyImage and SkyImage Store packages.
 
 ## Run
