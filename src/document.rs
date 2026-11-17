@@ -676,12 +676,12 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
         .read_exact(&mut header)
         .map_err(|error| format!("Cannot read project header: {error}"))?;
     if &header[..8] != MAGIC {
-        return Err("This file is not a MyImage project.".into());
+        return Err("This file is not a Bediz project.".into());
     }
     let version = u32::from_le_bytes(header[8..12].try_into().unwrap());
     if !(1..=VERSION).contains(&version) {
         return Err(format!(
-            "Project version {version} is not supported by this version of MyImage."
+            "Project version {version} is not supported by this version of Bediz."
         ));
     }
     let json_bytes = u32::from_le_bytes(header[12..16].try_into().unwrap()) as usize;
@@ -720,7 +720,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
                 || a.arrow.elbow
         })
     {
-        return Err("Text paths require MyImage project version 23.".into());
+        return Err("Text paths require Bediz project version 23.".into());
     }
     if version < 22
         && metadata
@@ -728,9 +728,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|a| !a.callout_style.is_default() || crate::studio::advanced(&a.studio))
     {
-        return Err(
-            "Callout shapes and advanced lenses require MyImage project version 22.".into(),
-        );
+        return Err("Callout shapes and advanced lenses require Bediz project version 22.".into());
     }
     if version < 21
         && metadata.annotations.iter().any(|a| {
@@ -740,32 +738,32 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             ) || (a.kind.is_shape() && a.arrow.pattern != crate::arrow_style::Pattern::Solid)
         })
     {
-        return Err("Expanded stroke styles require MyImage project version 21.".into());
+        return Err("Expanded stroke styles require Bediz project version 21.".into());
     }
     if version < 20
         && (metadata.geometry.effects.edges != Default::default()
             || metadata.geometry.effects.styles != Default::default())
     {
-        return Err("Expanded image styling requires MyImage project version 20.".into());
+        return Err("Expanded image styling requires Bediz project version 20.".into());
     }
     if version < 19 && !metadata.geometry.effects.is_default() {
-        return Err("Image styling requires MyImage project version 19.".into());
+        return Err("Image styling requires Bediz project version 19.".into());
     }
     if version < 18 && metadata.annotations.iter().any(|a| a.arrow.curve.is_some()) {
-        return Err("Curved arrows require MyImage project version 18.".into());
+        return Err("Curved arrows require Bediz project version 18.".into());
     }
     if version < 17 && metadata.geometry.viewport.is_some() {
-        return Err("Reversible canvas windows require MyImage project version 17.".into());
+        return Err("Reversible canvas windows require Bediz project version 17.".into());
     }
     if version < 16 && metadata.annotations.iter().any(|a| !a.arrow.is_default()) {
-        return Err("Arrow styles require MyImage project version 16.".into());
+        return Err("Arrow styles require Bediz project version 16.".into());
     }
     if version < 15
         && (metadata.geometry.canvas.is_some()
             || metadata.geometry.flip_horizontal
             || metadata.geometry.flip_vertical)
     {
-        return Err("Expanded canvases and image flips require MyImage project version 15.".into());
+        return Err("Expanded canvases and image flips require Bediz project version 15.".into());
     }
     if version < 3
         && metadata
@@ -773,7 +771,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|annotation| annotation.kind.is_effect())
     {
-        return Err("Blur and pixelation objects require MyImage project version 3.".into());
+        return Err("Blur and pixelation objects require Bediz project version 3.".into());
     }
     if version < 4
         && metadata.annotations.iter().any(|annotation| {
@@ -784,7 +782,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
         })
     {
         return Err(
-            "Step markers, callouts, and highlighters require MyImage project version 4.".into(),
+            "Step markers, callouts, and highlighters require Bediz project version 4.".into(),
         );
     }
     if version < 5
@@ -793,10 +791,10 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|annotation| annotation.kind == AnnotationKind::Freehand)
     {
-        return Err("Freehand strokes require MyImage project version 5.".into());
+        return Err("Freehand strokes require Bediz project version 5.".into());
     }
     if version < 6 && metadata.annotations.iter().any(|a| a.group_id.is_some()) {
-        return Err("Annotation groups require MyImage project version 6.".into());
+        return Err("Annotation groups require Bediz project version 6.".into());
     }
     if version < 7
         && metadata
@@ -804,7 +802,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|a| !a.layer.is_default() || !a.group_layer.is_default())
     {
-        return Err("Layer settings require MyImage project version 7.".into());
+        return Err("Layer settings require Bediz project version 7.".into());
     }
     if version < 14
         && (metadata.geometry.has_cutouts()
@@ -814,7 +812,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
                 .any(|a| a.kind.is_studio() || a.pixel_mask.is_some() || !a.studio.is_default()))
     {
         return Err(
-            "Editor effects, magic-wand masks and cut outs require MyImage project version 14."
+            "Editor effects, magic-wand masks and cut outs require Bediz project version 14."
                 .into(),
         );
     }
@@ -824,7 +822,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|a| matches!(a.stamp, Some(crate::stamps::StampSource::Raster { .. })))
     {
-        return Err("Pasted image layers require MyImage project version 13.".into());
+        return Err("Pasted image layers require Bediz project version 13.".into());
     }
     if version < 12
         && metadata
@@ -832,7 +830,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|a| matches!(a.stamp, Some(crate::stamps::StampSource::Svg { .. })))
     {
-        return Err("SVG stamps require MyImage project version 12.".into());
+        return Err("SVG stamps require Bediz project version 12.".into());
     }
     if version < 11
         && metadata
@@ -840,7 +838,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|a| a.fill_region.is_some() || a.kind == AnnotationKind::Fill)
     {
-        return Err("Fill regions require MyImage project version 11.".into());
+        return Err("Fill regions require Bediz project version 11.".into());
     }
     if version < 10
         && metadata
@@ -848,7 +846,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|a| a.kind == AnnotationKind::Stamp || !a.text_style.is_default())
     {
-        return Err("Stamps and formatted text require MyImage project version 10.".into());
+        return Err("Stamps and formatted text require Bediz project version 10.".into());
     }
     if version < 9
         && metadata.annotations.iter().any(|a| {
@@ -858,7 +856,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
                 || !a.area_mask.is_empty()
         })
     {
-        return Err("Area edits and 3D shapes require MyImage project version 9.".into());
+        return Err("Area edits and 3D shapes require Bediz project version 9.".into());
     }
     if version < 8
         && metadata
@@ -866,7 +864,7 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
             .iter()
             .any(|a| a.kind.is_polygon_shape())
     {
-        return Err("Additional shapes require MyImage project version 8.".into());
+        return Err("Additional shapes require Bediz project version 8.".into());
     }
     validate_parts(metadata.width, metadata.height, &metadata.annotations)?;
     metadata

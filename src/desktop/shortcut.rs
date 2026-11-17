@@ -4,7 +4,7 @@
 //! not necessarily the key labeled '.' on the active layout. Resolve the
 //! unmodified characters first, then register Control + Shift + C and the
 //! Control/Command + Shift + period shortcuts with their respective keys.
-//! Restart SkyImage after changing keyboard layouts. Windows continues to use
+//! Restart Bediz after changing keyboard layouts. Windows continues to use
 //! global-hotkey's `Code::Period` / `Code::KeyC` mappings to `VK_OEM_PERIOD` / `VK_C`.
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
@@ -363,7 +363,7 @@ mod macos {
         // SAFETY: Called on the UI main thread. No app keyboard state is changed.
         let source = InputSource(
             NonNull::new(unsafe { TISCopyCurrentKeyboardLayoutInputSource() }).ok_or(
-                "macOS did not provide the current keyboard layout. Restart SkyImage after selecting a keyboard layout",
+                "macOS did not provide the current keyboard layout. Restart Bediz after selecting a keyboard layout",
             )?,
         );
         // SAFETY: This property is documented as borrowed CFData. Retaining the
@@ -374,7 +374,7 @@ mod macos {
         if data.is_null() {
             return Err(
                 "The current keyboard input source has no Unicode layout data. \
-                 Select a keyboard layout and restart SkyImage; no substitute key was selected"
+                 Select a keyboard layout and restart Bediz; no substitute key was selected"
                     .to_owned(),
             );
         }
@@ -423,7 +423,7 @@ mod macos {
         })?;
         log::info!(
             "Capture shortcut character '{}' maps to macOS virtual key \
-             0x{virtual_key:02x} ({code:?}); restart SkyImage after changing layouts",
+             0x{virtual_key:02x} ({code:?}); restart Bediz after changing layouts",
             char::from(character)
         );
         Ok(code)

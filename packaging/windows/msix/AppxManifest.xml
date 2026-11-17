@@ -10,7 +10,7 @@
   <!-- The packaging script replaces these values; this template is not a Store identity. -->
   <Identity Name="MyImage.Placeholder" Publisher="CN=Placeholder" Version="1.1.0.0" ProcessorArchitecture="x64" />
   <Properties>
-    <DisplayName>MyImage</DisplayName>
+    <DisplayName>Bediz</DisplayName>
     <PublisherDisplayName>Placeholder</PublisherDisplayName>
     <Description>Capture and annotate images locally.</Description>
     <Logo>Assets\StoreLogo.png</Logo>
@@ -23,12 +23,12 @@
   </Dependencies>
   <Applications>
     <Application Id="MyImage" Executable="MyImage.exe" uap10:RuntimeBehavior="packagedClassicApp" uap10:TrustLevel="mediumIL">
-      <uap:VisualElements DisplayName="MyImage" Description="Capture and annotate images locally."
+      <uap:VisualElements DisplayName="Bediz" Description="Capture and annotate images locally."
         Square150x150Logo="Assets\Square150x150Logo.png" Square44x44Logo="Assets\Square44x44Logo.png"
         BackgroundColor="transparent" />
       <Extensions>
         <desktop:Extension Category="windows.startupTask" Executable="MyImage.exe" EntryPoint="Windows.FullTrustApplication">
-          <desktop:StartupTask TaskId="MyImageStartup" Enabled="false" DisplayName="MyImage" />
+          <desktop:StartupTask TaskId="MyImageStartup" Enabled="false" DisplayName="Bediz" />
         </desktop:Extension>
       </Extensions>
     </Application>

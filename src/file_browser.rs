@@ -345,7 +345,7 @@ impl MyImageApp {
                     egui::ScrollArea::vertical().max_height(260.).show(ui, |ui| {
                         for note in notes { ui.label(note.as_str()); ui.add_space(6.); }
                     });
-                    ui.weak("Continue to edit and save the imported content as a MyImage project.");
+                    ui.weak("Continue to edit and save the imported content as a Bediz project.");
                     if dialogs::primary(ui, "Continue", DialogIcon::Check).clicked() { close = true; }
                 }
                 FileDialog::Storage => {
@@ -395,7 +395,7 @@ impl MyImageApp {
                 }
                 FileDialog::Trash { paths, skip_confirmation } => {
 
-                    ui.label("You can restore them from your system Trash or Recycle Bin. The selected projects, their embedded images and edits, and any linked legacy captures in MyImage storage will be moved.");
+                    ui.label("You can restore them from your system Trash or Recycle Bin. The selected projects, their embedded images and edits, and any linked legacy captures in Bediz storage will be moved.");
                     egui::ScrollArea::vertical().max_height(180.).show(ui,|ui| {for p in paths.iter() {ui.label(p.file_name().unwrap_or_default().to_string_lossy());}});
                     ui.add_space(8.);
                     crate::appearance::checkbox(ui, skip_confirmation, "Don’t ask again");

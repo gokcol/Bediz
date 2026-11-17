@@ -54,7 +54,7 @@ try {
             $ico.Write([uint32]$png.Length); $ico.Write([uint32]22); $ico.Write($png)
         } finally { $ico.Dispose() }
         @"
-SkyImage $version (build $build) - Windows x64 (previously MyImage)
+Bediz $version (build $build) - Windows x64 (previously SkyImage / MyImage)
 
 This GitHub download is unsigned, like the MyPDF GitHub installer.
 Windows may show an unknown publisher or SmartScreen warning. Do not disable
@@ -65,9 +65,9 @@ Windows 10 version 2004 or later / Windows 11 is required.
 The installer installs for the current user without administrator rights.
 It adds a Start menu shortcut and an uninstaller. The desktop shortcut and
 Open with integration are optional; default file associations are preserved.
-Start at login remains off until enabled in SkyImage Settings.
+Start at login remains off until enabled in Bediz Settings.
 
-Save your work and quit SkyImage from its tray menu before updating/removing it.
+Save your work and quit Bediz from its tray menu before updating/removing it.
 Uninstall removes installed application files, not projects, captured images,
 settings, stamps or recovery data. The portable ZIP can instead be extracted
 to a folder and run with MyImage.exe; remove that folder to remove that copy.

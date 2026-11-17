@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>SkyImage</string>
+    <string>Bediz</string>
     <key>CFBundleDisplayName</key>
-    <string>SkyImage</string>
+    <string>Bediz</string>
     <key>CFBundleIdentifier</key>
     <string>com.myimage.app</string>
     <key>CFBundleExecutable</key>
@@ -19,7 +19,7 @@
     <key>CFBundleShortVersionString</key>
     <string>3.1.0</string>
     <key>CFBundleVersion</key>
-    <string>123</string>
+    <string>124</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

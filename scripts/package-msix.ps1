@@ -6,7 +6,7 @@ param(
     [string]$IdentityName,
     [string]$Publisher,
     [string]$PublisherDisplayName,
-    [string]$DisplayName = 'SkyImage',
+    [string]$DisplayName = 'Bediz',
     [string]$PackageVersion,
     [string]$OutputDirectory = 'dist/msix',
     [switch]$SkipBuild
@@ -23,7 +23,7 @@ try {
         $IdentityName = 'MyImage.PackagingTest'
         $Publisher = 'CN=MyImage Packaging Test'
         $PublisherDisplayName = 'MyImage packaging tests'
-        $DisplayName = 'MyImage Packaging Test'
+        $DisplayName = 'Bediz Packaging Test'
     } else {
         if (-not $IdentityName -or -not $Publisher -or -not $PublisherDisplayName) {
             throw 'Store packaging requires IdentityName, Publisher and PublisherDisplayName from Partner Center. Use -TestIdentity only for validation.'
@@ -134,7 +134,8 @@ try {
         $roundTripVisual = $roundTrip.GetElementsByTagName('VisualElements', 'http://schemas.microsoft.com/appx/manifest/uap/windows10')[0]
         if ($roundTrip.Package.Properties.DisplayName -cne $DisplayName -or
             $roundTrip.Package.Properties.PublisherDisplayName -cne $PublisherDisplayName -or
-            $roundTripVisual.GetAttribute('DisplayName') -cne $DisplayName) {
+            $roundTripVisual.GetAttribute('DisplayName') -cne $DisplayName -or
+            $roundTripStartup.GetAttribute('DisplayName') -cne $DisplayName) {
             throw 'Packaged display names do not match the requested Store names.'
         }
         if (Test-Path (Join-Path $unpacked 'AppxSignature.p7x')) { throw 'The Store submission artifact should be unsigned.' }

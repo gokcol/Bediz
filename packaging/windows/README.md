@@ -1,5 +1,9 @@
 # Windows GitHub installers
 
+The app is displayed as **Bediz**, previously SkyImage and MyImage. Download
+filenames, `MyImage.exe`, the installation directory and installer AppId retain
+their existing names so upgrades and saved data continue to work.
+
 The **Windows installer and portable ZIP** workflow builds the app from the
 specified existing release tag, then attaches `MyImage-<version>-build<N>-Setup.exe`,
 the portable ZIP, SHA-256 checksums and a source/signing manifest. Leave the tag
@@ -16,7 +20,9 @@ is shipped. Production Authenticode signing can be added when a provider is conf
 
 Setup uses Inno Setup 6, installs for the current user into
 `%LOCALAPPDATA%\Programs\MyImage`, and does not require administrator privileges.
-It creates a Start menu shortcut and an Add/Remove Programs entry. Desktop and
+It creates a Bediz Start menu shortcut and Add/Remove Programs entry. Upgrades
+remove the installer-owned MyImage and SkyImage shortcuts from the Start menu
+and desktop. Desktop and
 Open with integration are optional; default image associations are not changed.
 Startup remains off by default. Uninstall removes a login entry only when its
 command points exactly to this installation. Projects, original images, settings,
@@ -33,7 +39,8 @@ Local Windows build:
 ```
 
 Requires Rust from `rust-toolchain.toml`, Visual Studio C++ tools, and Inno Setup 6.
-CI validates install, repeat installation, binary identity, shortcuts, Open with
+CI validates install, repeat installation, binary identity, migration of both
+previous shortcut names, the optional Bediz desktop shortcut, Open with
 quoting/cleanup, login startup and uninstall with project preservation on a
 disposable Windows runner. This does not replace interactive capture, clipboard,
 touch/pen, display scaling or tray tests.

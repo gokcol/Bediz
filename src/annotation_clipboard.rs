@@ -98,10 +98,10 @@ fn decode(text: &str) -> Result<Vec<Annotation>, String> {
         return Err("Clipboard annotation data exceeds the 4 MiB limit.".into());
     }
     let json = text.strip_prefix(PREFIX).ok_or(
-        "The clipboard does not contain MyImage annotations. Copy a selection in Edit first.",
+        "The clipboard does not contain Bediz annotations. Copy a selection in Edit first.",
     )?;
     let payload: Payload = serde_json::from_str(json)
-        .map_err(|_| "The clipboard contains invalid MyImage annotation data.")?;
+        .map_err(|_| "The clipboard contains invalid Bediz annotation data.")?;
     if payload.version != VERSION {
         return Err(format!(
             "Clipboard annotation version {} is not supported.",
@@ -645,7 +645,7 @@ impl EditorState {
                 true,
             )
             .on_hover_text(
-                "Copy selected objects and groups with their styles for another MyImage document",
+                "Copy selected objects and groups with their styles for another Bediz document",
             )
             .clicked()
         {
@@ -668,7 +668,7 @@ impl EditorState {
         }
         if canvas_menu::item(ui, "Paste", canvas_menu::MenuIcon::Paste, true)
             .on_hover_text(
-                "Paste an image as a movable layer, or paste editable MyImage annotations (Command/Ctrl + V)",
+                "Paste an image as a movable layer, or paste editable Bediz annotations (Command/Ctrl + V)",
             )
             .clicked()
         {

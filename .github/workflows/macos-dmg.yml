@@ -41,8 +41,11 @@ jobs:
           ditto -x -k input/MyImage-macos-aarch64.zip input
           python3 - <<'PY'
           import os, plistlib, re
-          with open('input/SkyImage.app/Contents/Info.plist', 'rb') as file:
+          with open('input/Bediz.app/Contents/Info.plist', 'rb') as file:
               info = plistlib.load(file)
+          assert info['CFBundleIdentifier'] == 'com.myimage.app', 'Unexpected application identity'
+          assert info['CFBundleExecutable'] == 'MyImage', 'Unexpected executable'
+          assert info['CFBundleName'] == info['CFBundleDisplayName'] == 'Bediz', 'Unexpected display name'
           match = re.fullmatch(r'v(\d+\.\d+(?:\.\d+)?)(?:-build(\d+))?', os.environ['RELEASE_TAG'])
           version = match[1] + ('.0' if match[1].count('.') == 1 else '')
           assert info['CFBundleShortVersionString'] == version, 'Release/app version mismatch'
@@ -72,7 +75,7 @@ jobs:
         env:
           MYIMAGE_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
           MYIMAGE_NOTARY_PROFILE: MyImageCI
-        run: sh scripts/package-dmg.sh input/SkyImage.app dist/dmg
+        run: sh scripts/package-dmg.sh input/Bediz.app dist/dmg
       - uses: actions/upload-artifact@v4
         with:
           name: MyImage-notarized-DMG

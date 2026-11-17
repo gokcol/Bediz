@@ -47,6 +47,14 @@ try {
     if (-not $installed -or $installed.Version -ne $info.version) { throw 'Installed package/version not found.' }
     $manifest = Get-AppxPackageManifest -Package $installed.PackageFullName
     if ($manifest.Package.Applications.Application.Id -ne 'MyImage') { throw 'Missing desktop application registration.' }
+    $visual = $manifest.SelectSingleNode("//*[local-name()='VisualElements']")
+    $startup = $manifest.SelectSingleNode("//*[local-name()='StartupTask']")
+    if ($manifest.Package.Properties.DisplayName -cne $info.displayName -or
+        -not $visual -or $visual.GetAttribute('DisplayName') -cne $info.displayName -or
+        -not $startup -or $startup.GetAttribute('DisplayName') -cne $info.displayName) {
+        throw 'Installed package display names differ from the requested branding.'
+    }
+    if ($startup.GetAttribute('Enabled') -cne 'false') { throw 'Installed package unexpectedly enabled login startup.' }
     if (-not (Test-Path (Join-Path $installed.InstallLocation 'MyImage.exe'))) { throw 'Packaged executable missing.' }
     Write-Host "PASS package installation: $($installed.PackageFullName)"
     Remove-AppxPackage -Package $installed.PackageFullName

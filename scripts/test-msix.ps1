@@ -28,11 +28,11 @@ foreach ($version in @('1.2.0.0', '1.11.1.0')) {
 $scratch = Join-Path ([System.IO.Path]::GetTempPath()) ('myimage-msix-qa-' + [guid]::NewGuid().ToString('N'))
 try {
     & $packager -SkipBuild -IdentityName 'MyImage.XmlEscapingQA' -Publisher 'CN=MyImage QA, O=QA & Co' `
-        -PublisherDisplayName 'QA Gökçöl & Co' -DisplayName 'MyImage (QA) <Test>' -OutputDirectory $scratch
+        -PublisherDisplayName 'QA Gökçöl & Co' -DisplayName 'Bediz (QA) <Test>' -OutputDirectory $scratch
     $package = Get-ChildItem $scratch -Filter '*.msix' | Select-Object -First 1
     if (-not $package) { throw 'XML escaping validation did not produce a package.' }
     $info = Get-Content ($package.FullName + '.json') -Raw | ConvertFrom-Json
-    if ($info.displayName -cne 'MyImage (QA) <Test>' -or $info.publisherDisplayName -cne 'QA Gökçöl & Co') { throw 'Display-name escaping did not round-trip.' }
+    if ($info.displayName -cne 'Bediz (QA) <Test>' -or $info.publisherDisplayName -cne 'QA Gökçöl & Co') { throw 'Display-name escaping did not round-trip.' }
     $expectedVersion = (Get-Content (Join-Path $PSScriptRoot '../packaging/windows/msix/version.txt') -Raw).Trim()
     $expectedAppVersion = (Select-String -Path (Join-Path $PSScriptRoot '../Cargo.toml') -Pattern '^version = "([0-9]+\.[0-9]+\.[0-9]+)"').Matches[0].Groups[1].Value
     if ($info.version -cne $expectedVersion -or $info.appVersion -cne $expectedAppVersion) { throw 'Public app version or Store package version does not match its source.' }

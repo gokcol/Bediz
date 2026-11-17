@@ -1,9 +1,9 @@
-# Persistent signing for local MyImage builds
+# Persistent signing for local Bediz builds
 
 macOS associates privacy grants with a signed application's designated requirement.
 An ad-hoc signature identifies one exact build. A rebuild, icon update, or bundle
 metadata change can therefore invalidate a previous Screen Recording grant.
-MyImage's default packaging now requires a persistent certificate identity and
+Bediz's default packaging now requires a persistent certificate identity and
 never silently falls back to ad-hoc signing.
 
 ## Existing Apple signing certificate
@@ -43,8 +43,9 @@ certificate's fingerprint; do not run setup again to create another identity.
 
 ## Installation and the one-time transition
 
-Quit MyImage normally, preserving any unsaved document. Install the complete signed
-bundle at `/Applications/SkyImage.app`. Launch that exact copy. Transitioning from
+Quit Bediz (or the installed SkyImage/MyImage version) normally, preserving any
+unsaved document. Install the complete signed bundle at `/Applications/Bediz.app`.
+Launch that exact copy. Transitioning from
 the old ad-hoc identity to the persistent identity requires one fresh Screen &
 System Audio Recording grant, followed by Quit & Reopen if macOS requests it.
 Subsequent builds signed by the same certificate satisfy the same designated
@@ -89,7 +90,7 @@ checks Gatekeeper acceptance, and recreates the ZIP containing the ticket.
 It does not read or print the password behind the Keychain profile. Never
 commit credentials or export a private signing key into the repository.
 
-The installer requires the official MyImage distributor's Developer ID,
+The installer requires the existing distributor's Developer ID,
 a newer build and Gatekeeper acceptance. The first upgrade from a local
 certificate needs the deliberate `--allow-signing-migration` option. This
 can cause macOS to require a fresh Screen Recording grant; do not reset
@@ -103,7 +104,7 @@ After notarizing the app, create a DMG without rebuilding or modifying it:
 
 ```sh
 MYIMAGE_SIGNING_IDENTITY=<SHA-1-fingerprint> MYIMAGE_NOTARY_PROFILE=MyPDF \
-  sh scripts/package-dmg.sh target/bundle/SkyImage.app dist/installers
+  sh scripts/package-dmg.sh target/bundle/Bediz.app dist/installers
 ```
 
 This creates `MyImage-<version>-build<N>-macos-<arch>.dmg`, its SHA-256 checksum
@@ -127,6 +128,18 @@ and attach the DMG/checksum with `gh release upload`. The workflow fails clearly
 if its signing configuration is missing. Temporary hosted signing material is
 removed even if packaging fails; no unsigned DMG is published as a fallback.
 
-## SkyImage rename (build 110)
+## Bediz rename (build 124)
 
-The bundle is now SkyImage.app. The installer accepts one existing MyImage.app or SkyImage.app, verifies its signature and build, saves a verified rollback ZIP, and migrates it to /Applications/SkyImage.app. Failed publication or verification restores the original path. Both existing names at once are rejected for manual resolution. The bundle identifier com.myimage.app, executable MyImage, signing requirement and storage locations remain stable. Download filenames retain MyImage so older update clients can find the new release.
+The bundle is now `Bediz.app`, following the earlier MyImage and SkyImage names.
+The installer accepts one existing `MyImage.app`, `SkyImage.app` or `Bediz.app`,
+verifies its signature and the incoming version/build increase, saves a verified rollback ZIP,
+and installs at `/Applications/Bediz.app`. Failed publication or verification
+restores the original bundle at its original path. Any pair of existing names
+(or all three) is rejected for manual resolution before replacing files.
+
+The bundle identifier `com.myimage.app`, executable `MyImage`, signing requirement
+and storage locations remain stable. The rename does not reset permissions or
+move projects/settings. Download and rollback filenames retain MyImage so older
+update clients can find the new release. The DMG contains `Bediz.app`, and its
+installation instructions explain removing the previous named bundle to avoid
+leaving duplicate applications.

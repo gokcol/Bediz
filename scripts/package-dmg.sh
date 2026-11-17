@@ -1,9 +1,9 @@
 #!/bin/sh
 # Wrap an already signed, stapled release app without rebuilding or changing it.
 # MYIMAGE_SIGNING_IDENTITY=<fingerprint> MYIMAGE_NOTARY_PROFILE=MyPDF \
-#   sh scripts/package-dmg.sh target/bundle/SkyImage.app dist/installers
+#   sh scripts/package-dmg.sh target/bundle/Bediz.app dist/installers
 set -eu
-app=${1:?Supply the signed, notarized SkyImage.app}
+app=${1:?Supply the signed, notarized Bediz.app}
 out=${2:?Supply an output directory}
 identity=${MYIMAGE_SIGNING_IDENTITY:?Set the Developer ID Application fingerprint}
 profile=${MYIMAGE_NOTARY_PROFILE:?Set an existing notarytool Keychain profile}
@@ -12,6 +12,10 @@ test -d "$app" && test ! -L "$app"
 app=$(cd "$(dirname "$app")" && pwd)/$(basename "$app")
 plist=$app/Contents/Info.plist
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = com.myimage.app
+test "$(basename "$app")" = Bediz.app
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = Bediz
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = Bediz
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = MyImage
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
 build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
 case "$version.$build" in *[!0-9.]*|'') echo 'Invalid app version' >&2; exit 1;; esac
@@ -38,17 +42,18 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 mkdir "$work/layout"
-ditto "$app" "$work/layout/SkyImage.app"
+ditto "$app" "$work/layout/Bediz.app"
 ln -s /Applications "$work/layout/Applications"
-cat > "$work/layout/Install SkyImage.txt" <<'TEXT'
-Drag SkyImage.app onto Applications, then open SkyImage from Applications.
-If updating, save your work and quit SkyImage from its menu before replacing it.
-When upgrading from MyImage.app, quit it and move the old application bundle out
-of Applications after installing SkyImage.app, so only one copy remains.
+cat > "$work/layout/Install Bediz.txt" <<'TEXT'
+Drag Bediz.app onto Applications, then open Bediz from Applications.
+If updating, save your work and quit Bediz from its menu before replacing it.
+When upgrading from SkyImage.app or MyImage.app, quit it and move the old
+application bundle out of Applications after installing Bediz.app, so only one
+copy remains.
 Your projects, captures, settings and recovery data are kept separately.
 Requires macOS 14 or later. Source: https://github.com/gokcol/MyImage
 TEXT
-hdiutil create -volname "SkyImage $version" -srcfolder "$work/layout" -format UDZO "$work/$name"
+hdiutil create -volname "Bediz $version" -srcfolder "$work/layout" -format UDZO "$work/$name"
 codesign --force --timestamp --sign "$identity" "$work/$name"
 codesign --verify --strict -R "=anchor apple generic and certificate leaf[subject.OU] = \"$team\"" "$work/$name"
 xcrun notarytool submit "$work/$name" --keychain-profile "$profile" --wait --output-format json > "$work/notary.json"
@@ -62,9 +67,9 @@ mkdir "$work/mount"
 hdiutil attach -readonly -nobrowse -mountpoint "$work/mount" "$work/$name"
 mounted=true
 test "$(readlink "$work/mount/Applications")" = /Applications
-cmp "$app/Contents/MacOS/MyImage" "$work/mount/SkyImage.app/Contents/MacOS/MyImage"
-codesign --verify --deep --strict "$work/mount/SkyImage.app"
-xcrun stapler validate "$work/mount/SkyImage.app"
+cmp "$app/Contents/MacOS/MyImage" "$work/mount/Bediz.app/Contents/MacOS/MyImage"
+codesign --verify --deep --strict "$work/mount/Bediz.app"
+xcrun stapler validate "$work/mount/Bediz.app"
 hdiutil detach "$work/mount"
 mounted=false
 (cd "$work" && shasum -a 256 "$name" > "$name.sha256")

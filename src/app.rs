@@ -387,7 +387,7 @@ impl MyImageApp {
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Open editable project")
             .add_filter("Editable projects", &["myimage", "snagx"])
-            .add_filter("MyImage project", &["myimage"])
+            .add_filter(format!("{} project", crate::branding::NAME), &["myimage"])
             .add_filter("Snagit project", &["snagx"])
             .pick_file()
         {
@@ -816,7 +816,7 @@ impl MyImageApp {
                     "heif", "heic",
                 ],
             )
-            .add_filter("MyImage projects", &["myimage"])
+            .add_filter(format!("{} projects", crate::branding::NAME), &["myimage"])
             .add_filter("Snagit projects", &["snagx"])
             .add_filter(
                 "Images",
@@ -979,7 +979,10 @@ impl MyImageApp {
             let dialog = rfd::AsyncFileDialog::new()
                 .set_directory(directory)
                 .set_file_name(format!("{stem}.myimage"))
-                .add_filter("Editable MyImage project", &["myimage"]);
+                .add_filter(
+                    format!("Editable {} project", crate::branding::NAME),
+                    &["myimage"],
+                );
             self.choose_save_destination(ctx, dialog, save_dialog::SaveKind::Project);
             return true;
         };
@@ -1631,7 +1634,7 @@ impl MyImageApp {
             Some(Action::Permission) => {
                 let granted = capture::request_screen_capture_permission();
                 self.status = if granted { "Screen capture permission granted" } else {
-                    "Enable SkyImage in macOS Screen & System Audio Recording settings, then reopen if requested."
+                    "Enable Bediz in macOS Screen & System Audio Recording settings, then reopen if requested."
                 }.into();
             }
             None => {}

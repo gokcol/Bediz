@@ -73,7 +73,8 @@ fn evaluate(json: &str, installed: &str, architecture: &str) -> Result<Outcome, 
     Ok(Outcome::Available {
         id: release.tag_name.clone(),
         title: format!(
-            "SkyImage {} · build {}",
+            "{} {} · build {}",
+            crate::branding::NAME,
             release.tag_name[1..].split_once("-build").unwrap().0,
             latest.3
         ),

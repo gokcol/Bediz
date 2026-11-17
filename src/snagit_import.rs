@@ -237,7 +237,7 @@ fn load_page<R: Read + Seek>(
         return Err("Smart-redacted Snagit projects cannot be imported safely yet. Export a redacted PNG from Snagit instead.".into());
     }
     if nonempty(page, "Effects")? {
-        return Err("This Snagit project has whole-image effects that MyImage cannot import faithfully yet. Remove the effects in a copy in Snagit, or export a PNG instead.".into());
+        return Err("This Snagit project has whole-image effects that Bediz cannot import faithfully yet. Remove the effects in a copy in Snagit, or export a PNG instead.".into());
     }
     if nonempty(page, "Sections")? {
         return Err("Snagit template sections are not supported yet. Export a PNG or save an ordinary image project from Snagit.".into());
@@ -250,7 +250,7 @@ fn load_page<R: Read + Seek>(
     let dimension = |key: &str| -> Result<u32, String> {
         let n = scalar(page, key, scale, 0.)?;
         if n < 1. || n > document::MAX_IMAGE_SIDE as f32 {
-            return Err("Snagit canvas dimensions exceed MyImage's supported limits.".into());
+            return Err("Snagit canvas dimensions exceed Bediz's supported limits.".into());
         }
         Ok(n.round() as u32)
     };
@@ -336,7 +336,7 @@ fn load_page<R: Read + Seek>(
         u32::try_from(right - left).map_err(|_| "Snagit retained image bounds are too large.")?;
     let retained_height =
         u32::try_from(bottom - top).map_err(|_| "Snagit retained image bounds are too large.")?;
-    document::validate_dimensions(retained_width,retained_height).map_err(|_|"The Snagit canvas and hidden background together exceed MyImage's supported limits. No pixels were discarded.")?;
+    document::validate_dimensions(retained_width,retained_height).map_err(|_|"The Snagit canvas and hidden background together exceed Bediz's supported limits. No pixels were discarded.")?;
     let offset = [-left as f32, -top as f32];
     let mut canvas = RgbaImage::new(retained_width, retained_height);
     // Only the original visible window owns the canvas background color. New
@@ -567,7 +567,7 @@ fn import_object(
     a.color = foreground;
     a.stroke_width = scalar(o, "StrokeWidth", scale, 1.)?;
     if a.stroke_width < 0. || a.stroke_width > document::MAX_STROKE_WIDTH {
-        return Err("Snagit stroke weight exceeds MyImage's supported range.".into());
+        return Err("Snagit stroke weight exceeds Bediz's supported range.".into());
     }
     a.arrow.pattern = match o.get("DashType").and_then(Value::as_str).unwrap_or("Solid") {
         "Solid" => crate::arrow_style::Pattern::Solid,
@@ -600,7 +600,7 @@ fn import_object(
             }
             note(
                 warnings,
-                "Rounded corners use MyImage's standard corner radius.",
+                "Rounded corners use Bediz's standard corner radius.",
             );
         }
         if o.get("BorderStyle")
@@ -609,7 +609,7 @@ fn import_object(
         {
             note(
                 warnings,
-                "Shape outlines are centered on their borders in MyImage.",
+                "Shape outlines are centered on their borders in Bediz.",
             );
         }
     }
@@ -617,7 +617,7 @@ fn import_object(
         a.text = object_text(o)?;
         a.font_size = scalar(o, "FontSize", scale, 24.)?;
         if !(1. ..=document::MAX_FONT_SIZE).contains(&a.font_size) {
-            return Err("Snagit text size exceeds MyImage's supported range.".into());
+            return Err("Snagit text size exceeds Bediz's supported range.".into());
         }
         a.text_color = if o.get("TextSelectionColor").is_some() {
             object_color(o, "TextSelectionColor", foreground, opacity)?
@@ -641,7 +641,7 @@ fn import_object(
         {
             note(
                 warnings,
-                "Custom vertical text alignment uses MyImage's standard text placement.",
+                "Custom vertical text alignment uses Bediz's standard text placement.",
             );
         }
         a.text_style.monospace = o
@@ -657,13 +657,13 @@ fn import_object(
             "Center" => crate::text_style::Alignment::Center,
             "Right" => crate::text_style::Alignment::Right,
             _ => {
-                note(warnings, "Justified text uses left alignment in MyImage.");
+                note(warnings, "Justified text uses left alignment in Bediz.");
                 crate::text_style::Alignment::Left
             }
         };
         note(
             warnings,
-            "Text remains editable using MyImage fonts; exact Snagit font faces and mixed formatting may differ.",
+            "Text remains editable using Bediz fonts; exact Snagit font faces and mixed formatting may differ.",
         );
         if kind == AnnotationKind::Text {
             a.color = a.text_color;
@@ -721,7 +721,7 @@ fn import_object(
                     a.studio.rounded = true;
                     note(
                         warnings,
-                        "Rounded corners use MyImage's standard corner radius.",
+                        "Rounded corners use Bediz's standard corner radius.",
                     );
                 }
                 shape => {
@@ -784,7 +784,7 @@ fn import_object(
             if o.get("TailStyle").and_then(Value::as_str) == Some("Arrow") {
                 note(
                     warnings,
-                    "Arrow-style callout tails use MyImage's editable speech-bubble tail.",
+                    "Arrow-style callout tails use Bediz's editable speech-bubble tail.",
                 );
             }
         }
@@ -890,7 +890,7 @@ fn endpoint(
         "RoundedArrow" => {
             note(
                 warnings,
-                "Rounded Snagit arrowheads use MyImage's triangular arrowhead.",
+                "Rounded Snagit arrowheads use Bediz's triangular arrowhead.",
             );
             Endpoint::Triangle
         }

@@ -4,7 +4,7 @@
 )]
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-compile_error!("MyImage currently supports macOS and Windows.");
+compile_error!("Bediz currently supports macOS and Windows.");
 
 mod app;
 mod appearance;

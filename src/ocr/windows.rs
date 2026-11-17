@@ -191,7 +191,7 @@ fn native_error(action: &str, error: Error) -> String {
         )
     } else {
         format!(
-            "Windows could not {action}. Try the Microsoft Store edition of SkyImage; Windows officially supports this OCR service for apps with a package identity. ({error})"
+            "Windows could not {action}. Try the Microsoft Store edition of Bediz; Windows officially supports this OCR service for apps with a package identity. ({error})"
         )
     }
 }

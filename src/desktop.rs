@@ -244,22 +244,36 @@ impl DesktopIntegration {
             &PredefinedMenuItem::separator(),
             &quit,
         ])
-        .map_err(|error| format!("Could not create the MyImage tray menu: {error}"))?;
+        .map_err(|error| {
+            format!(
+                "Could not create the {} tray menu: {error}",
+                crate::branding::NAME
+            )
+        })?;
 
         install_callbacks();
         let tray = TrayIconBuilder::new()
             .with_id("myimage.tray")
-            .with_tooltip(if cfg!(target_os = "macos") {
-                "SkyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+. / Cmd+Shift+."
-            } else {
-                "SkyImage — Capture: Ctrl+Shift+C / Ctrl+Shift+."
-            })
+            .with_tooltip(format!(
+                "{} — Capture: {}",
+                crate::branding::NAME,
+                if cfg!(target_os = "macos") {
+                    "Ctrl+Shift+C / Ctrl+Shift+. / Cmd+Shift+."
+                } else {
+                    "Ctrl+Shift+C / Ctrl+Shift+."
+                }
+            ))
             .with_icon(camera_icon()?)
             .with_icon_as_template(cfg!(target_os = "macos"))
             .with_menu(Box::new(menu))
             .with_menu_on_left_click(false)
             .build()
-            .map_err(|error| format!("Could not create the MyImage tray icon: {error}"))?;
+            .map_err(|error| {
+                format!(
+                    "Could not create the {} tray icon: {error}",
+                    crate::branding::NAME
+                )
+            })?;
 
         let sink = Arc::new(EventSink {
             ctx,
@@ -323,7 +337,8 @@ impl DesktopIntegration {
             self.primary_shortcut.label()
         ));
         let _ = self._tray.set_tooltip(Some(format!(
-            "SkyImage — Capture: {} / {alternatives}",
+            "{} — Capture: {} / {alternatives}",
+            crate::branding::NAME,
             self.primary_shortcut.label()
         )));
     }
@@ -442,7 +457,7 @@ impl DesktopIntegration {
             Err(error) => {
                 let message = format!(
                     "{error}. If another application owns an unavailable shortcut, free it and retry. \
-                     Capture in the SkyImage menu or editor remains available."
+                     Capture in the Bediz menu or editor remains available."
                 );
                 self.hotkey_error = Some(message.clone());
                 Err(message)
@@ -623,8 +638,12 @@ fn camera_icon() -> Result<Icon, String> {
             }
         }
     }
-    Icon::from_rgba(rgba, SIDE, SIDE)
-        .map_err(|error| format!("Could not create the MyImage tray image: {error}"))
+    Icon::from_rgba(rgba, SIDE, SIDE).map_err(|error| {
+        format!(
+            "Could not create the {} tray image: {error}",
+            crate::branding::NAME
+        )
+    })
 }
 
 #[cfg(test)]

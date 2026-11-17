@@ -11,7 +11,7 @@ fn service() -> Result<Retained<AnyObject>, String> {
     // mainAppService returns a non-owned object; Retained handles its lifetime.
     unsafe {
         let service: Option<Retained<AnyObject>> = msg_send![class!(SMAppService), mainAppService];
-        service.ok_or_else(|| "Install SkyImage in Applications to manage login startup.".into())
+        service.ok_or_else(|| "Install Bediz in Applications to manage login startup.".into())
     }
 }
 
@@ -26,7 +26,7 @@ pub fn status() -> Result<Status, String> {
         0 | 3 => Ok(Status::Off),
         1 => Ok(Status::On),
         2 => Ok(Status::ApprovalRequired),
-        _ => Err("Install the signed SkyImage app in Applications to manage startup.".into()),
+        _ => Err("Install the signed Bediz app in Applications to manage startup.".into()),
     }
 }
 

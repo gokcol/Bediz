@@ -29,7 +29,7 @@ impl SaveFormat {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::Project => "MyImage project",
+            Self::Project => "Bediz project",
             Self::Image(ExportFormat::Jpeg) => "JPG",
             Self::Image(format) => format.label(),
         }

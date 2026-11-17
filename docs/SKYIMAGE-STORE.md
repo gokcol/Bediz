@@ -1,3 +1,7 @@
+# Store branding history
+
+The current name is **Bediz** from build 124 / Store package 3.1.2.0. See [Bediz release and migration details](BEDIZ.md). The records below describe earlier SkyImage releases.
+
 # SkyImage Windows Store update
 
 SkyImage is the Windows display name from version 3.0.1 (build 109), Store package 3.0.1.0. The Store description and About identify MyImage as the previous name. macOS also uses SkyImage from build 110.
@@ -16,7 +20,7 @@ Compatibility identities intentionally remain unchanged:
 - Settings, recovery, Pictures/MyImage, .myimage projects and clipboard formats retain their existing identifiers.
 - eframe application ID remains MyImage; only its visible window title changes.
 
-`src/branding.rs` controls visible platform names. GitHub repository variable `MSIX_DISPLAY_NAME` is SkyImage. Package generation applies it to Properties, VisualElements and StartupTask display names. Keep runFullTrust as the only restricted capability; do not restore unvirtualizedResources.
+`src/branding.rs` controls visible platform names. The SkyImage release used GitHub repository variable `MSIX_DISPLAY_NAME=SkyImage`; Bediz releases use `Bediz`. Package generation applies it to Properties, VisualElements and StartupTask display names. Keep runFullTrust as the only restricted capability; do not restore unvirtualizedResources.
 
 Windows still checks Microsoft Store; macOS still checks the existing GitHub repository. GitHub release v3.0.1-build109 also packages MyImage for macOS and SkyImage for Windows. The Windows installer keeps its upgrade AppId and installation folder, and replaces its old MyImage shortcuts with SkyImage shortcuts.
 

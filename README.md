@@ -1,18 +1,24 @@
-# SkyImage (previously MyImage)
+# Bediz (previously SkyImage and MyImage)
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download SkyImage v3.1 · build 123 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build123). Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture validation remains pending.
+[Download Bediz v3.1 · build 124 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build124). Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture validation remains pending.
 
-[Get SkyImage from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). The live Store name is **SkyImage** (previously MyImage). **SkyImage 3.1.0 build 123**, Store package **3.1.1.0**, is **in certification** and will publish automatically after Microsoft approves it. Build 120 remains the published Store version meanwhile. The product and package identities remain unchanged; Partner Center labels the product MyImage (OG).
+[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). **Bediz 3.1.0 build 124**, Store package **3.1.2.0**, renames the existing SkyImage product. The Store listing changes to Bediz when Microsoft approves the update. Existing installations, projects and settings carry forward; the Store product and package identities remain unchanged.
 
-MyImage opens in **Home**, with **Editor**, **Library**, and **Create** beside it in the compact top toolbar. **View only** remains available from the bottom **App** menu. The native editor has a drawing toolbar, a large canvas, and an annotation inspector. Add editable text, arrows, 17 shape types, stamps, numbered steps, callouts, highlights, and freehand pen strokes; select, move, resize, recolor, reorder, or delete them. Add adjustable blur and pixelate regions to obscure selected areas, or use Fill to recolor or clear connected backgrounds. Crop, resize, and rotate the image without changing its original pixels. Undo and redo cover both image edits and annotations during the current session.
+Bediz opens in **Home**, with **Editor**, **Library**, and **Create** beside it in the compact top toolbar. **View only** remains available from the bottom **App** menu. The native editor has a drawing toolbar, a large canvas, and an annotation inspector. Add editable text, arrows, 17 shape types, stamps, numbered steps, callouts, highlights, and freehand pen strokes; select, move, resize, recolor, reorder, or delete them. Add adjustable blur and pixelate regions to obscure selected areas, or use Fill to recolor or clear connected backgrounds. Crop, resize, and rotate the image without changing its original pixels. Undo and redo cover both image edits and annotations during the current session.
 
-MyImage automatically creates and saves **`.myimage` projects**, keeping each original image and its editable changes together in one portable file. **Library and Recents show projects only**. Switching images or quitting flushes pending edits; opening a project keeps its place until you change it. Existing capture/project pairs are matched by their original pixels, and verified old captures in MyImage’s dated storage are moved to Trash. External imported originals stay untouched. Deleting a project also trashes any remaining managed legacy image associated with it. **Save As…** saves an editable `.myimage` project or a flattened JPG, PNG, GIF, HEIF, TIFF, WebP or PDF copy with visible annotations included. Image edits are stored as reversible settings in the project.
+Bediz automatically creates and saves **`.myimage` projects**, keeping each original image and its editable changes together in one portable file. **Library and Recents show projects only**. Switching images or quitting flushes pending edits; opening a project keeps its place until you change it. Existing capture/project pairs are matched by their original pixels, and verified old captures in MyImage’s dated storage are moved to Trash. External imported originals stay untouched. Deleting a project also trashes any remaining managed legacy image associated with it. **Save As…** saves an editable `.myimage` project or a flattened JPG, PNG, GIF, HEIF, TIFF, WebP or PDF copy with visible annotations included. Image edits are stored as reversible settings in the project.
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
 
-## SkyImage 3.1 · build 123
+## Bediz 3.1 · build 124
+
+SkyImage is now **Bediz** on Mac and Windows. The app, native menus, About, installers and Store listing share the new name; About retains both previous names. The Mac installer migrates a verified MyImage.app or SkyImage.app to Bediz.app, with rollback protection. Windows upgrades replace the old shortcuts with Bediz shortcuts. Projects, settings, permissions and update channels keep their existing identities. Download filenames and the GitHub repository path retain MyImage so older update clients continue to work.
+
+See [Bediz release and migration details](docs/BEDIZ.md).
+
+## Retained from SkyImage 3.1 · build 123
 
 Window scrolling now starts reliably after selecting a window. It also captures independently scrolling side-by-side panes: select **Window**, choose the **scroll icon**, scroll each pane down in turn, then choose **Done**. Each pane retains its original column and separate history. Fixed headers and footers appear once, with neutral space beneath shorter captures. The preview shows how many panes were detected. Vertically stacked or overlapping scrolling areas are not supported by this version. See [build 123 validation](docs/RELEASE-123.md).
 
@@ -142,8 +148,8 @@ pipeline modeled on MyPDF, with identity validation, installation checks and
 calico assets. Microsoft signs Store packages after certification; an unsigned
 submission artifact is not a signed end-user installer. See the
 [Store preparation guide](packaging/windows/msix/README.md) and
-[privacy policy](PRIVACY.md). MyImage 2.2.1 uses MSIX version 2.2.4.0, which preserves upgrade ordering
-after earlier 1.x Store packages.
+[privacy policy](PRIVACY.md). Bediz build 124 uses MSIX version 3.1.2.0, preserving upgrade ordering
+from earlier MyImage and SkyImage Store packages.
 
 ## Run
 
@@ -156,23 +162,23 @@ cargo run -- --background
 
 `--background` starts with the window hidden after the menu-bar/system-tray icon is available. It does not install a login item or startup service.
 
-**App menu → Settings → Start MyImage at login** is opt-in and off by default. It uses the macOS login-item service, the Microsoft Store startup task, or the current-user Windows startup entry. The displayed status comes from the operating system; opening Settings or installing an update never enables it.
+**App menu → Settings → Start Bediz at login** is opt-in and off by default. It uses the macOS login-item service, the Microsoft Store startup task, or the current-user Windows startup entry. The displayed status comes from the operating system; opening Settings or installing an update never enables it.
 
 Startup status refreshes automatically when Settings opens, when you return from system settings and after changing the checkbox.
 
-**Background** keeps MyImage running for capture. On macOS, click its Dock icon or open the app again from Finder to restore the editor. **Open Editor** in the menu-bar/system-tray menu also restores it, including after using Capture Now.
+**Background** keeps Bediz running for capture. On macOS, click its Dock icon or open the app again from Finder to restore the editor. **Open Editor** in the menu-bar/system-tray menu also restores it, including after using Capture Now.
 
 For a local macOS app bundle:
 
 ```sh
 cargo run -p xtask -- bundle
 cargo run -p xtask -- bundle --debug # isolated output in target/bundle/debug/
-open target/bundle/MyImage.app
+open target/bundle/Bediz.app
 ```
 
-Bundles use optimized release builds by default; `--release` is also accepted explicitly. `--debug` keeps development builds available. The bundle has a stable location at `target/bundle/MyImage.app` and bundle identifier `com.myimage.app`. macOS packaging requires a persistent signing certificate, verifies the signature, then creates a ZIP alongside the app. Configure the certificate once using [the signing setup guide](packaging/macos/SIGNING.md). Builds never silently fall back to ad-hoc signing; disposable development builds must explicitly pass `--ad-hoc`. Distribution signing and notarization remain separate release work. On Windows, the same helper produces `target/bundle/MyImage.exe`.
+Bundles use optimized release builds by default; `--release` is also accepted explicitly. `--debug` keeps development builds available. The bundle has a stable location at `target/bundle/Bediz.app` and bundle identifier `com.myimage.app`. macOS packaging requires a persistent signing certificate, verifies the signature, then creates a ZIP alongside the app. Configure the certificate once using [the signing setup guide](packaging/macos/SIGNING.md). Builds never silently fall back to ad-hoc signing; disposable development builds must explicitly pass `--ad-hoc`. Distribution signing and notarization remain separate release work. On Windows, the same helper produces `target/bundle/MyImage.exe`.
 
-Install the macOS release at `/Applications/MyImage.app`. Open that copy for everyday use. Settings, captures, projects and annotation assets remain in their existing folders.
+Install the macOS release at `/Applications/Bediz.app`. Open that copy for everyday use. Settings, captures, projects and annotation assets remain in their existing folders.
 
 Home is the initial workspace and sits immediately before Editor. It provides the calico Open image, Capture, Paste image and Create chips plus Recents. Returning Home keeps the current document and its edits; Continue editing returns to that image. Opening another image still uses the normal unsaved-changes protection.
 
@@ -194,13 +200,13 @@ A successful project save, returning to the clean state with Undo, or explicitly
 
 Development and test builds disable incremental compilation and keep only file/line debug information for workspace code; dependency debug information is disabled. These settings apply to macOS and Windows builds. Compiled dependencies are still cached, but the large incremental caches and full dependency debug metadata no longer accumulate by default. Rebuilding changed code takes longer. Release optimization and signing settings are unchanged.
 
-Every successful `cargo run -p xtask -- bundle` (release by default) automatically preserves the previous package in `backups/`, then cleans known macOS/Windows debug and release caches and obsolete MyImage QA app copies. It retains one rollback per platform/architecture, the new package in `target/bundle/`, small review screenshots, source snapshots and editable projects. New backups use `MyImage-rollback-macos-<arch>.zip` or `MyImage-rollback-windows-<arch>.exe`; copied bytes are verified before older backups are pruned. Repackaging the same numbered Mac release (or identical Windows executable) preserves the existing rollback. The very first release has no prior package to retain.
+Every successful `cargo run -p xtask -- bundle` (release by default) automatically preserves the previous package in `backups/`, then cleans known macOS/Windows debug and release caches and obsolete QA app copies. It retains one rollback per platform/architecture, the new package in `target/bundle/`, small review screenshots, source snapshots and editable projects. New backups use `MyImage-rollback-macos-<arch>.zip` or `MyImage-rollback-windows-<arch>.exe`; copied bytes are verified before older backups are pruned. Repackaging the same numbered Mac release (or identical Windows executable) preserves the existing rollback. The very first release has no prior package to retain.
 
-Failed builds/signing/packaging do not trigger cleanup. A failed backup stops cleanup, keeps existing backups, and preserves the previous package in staging with its location printed. A release lock prevents overlapping release jobs; active Cargo builds, running QA apps, linked folders, unrecognized paths and paths containing projects/user media are skipped. Skips are printed and retried after the next release. Cleanup never installs, quits or modifies `/Applications/MyImage.app`, and never visits your capture/project folders or signing credentials. A small running build-helper executable and empty Cargo lock directories can remain, particularly on Windows.
+Failed builds/signing/packaging do not trigger cleanup. A failed backup stops cleanup, keeps existing backups, and preserves the previous package in staging with its location printed. A release lock prevents overlapping release jobs; active Cargo builds, running QA apps, linked folders, unrecognized paths and paths containing projects/user media are skipped. Skips are printed and retried after the next release. Cleanup never installs, quits or modifies `/Applications/Bediz.app`, and never visits your capture/project folders or signing credentials. A small running build-helper executable and empty Cargo lock directories can remain, particularly on Windows.
 
 `--debug` packages go to `target/bundle/debug/` and do not trigger cleanup or replace the release package. Plain `cargo build --release` only compiles; use `xtask bundle` for the release-and-cleanup workflow. Complete dependency caches are removed after releases, so the next development/release build is a cold build.
 
-`cargo clean` removes the entire `target/` tree, including packaged build outputs and review evidence. It does not remove `backups/`, the installed `/Applications/MyImage.app`, or the image library. Avoid cleaning while a build or a QA app from that directory is running.
+`cargo clean` removes the entire `target/` tree, including packaged build outputs and review evidence. It does not remove `backups/`, the installed `/Applications/Bediz.app`, or the image library. Avoid cleaning while a build or a QA app from that directory is running.
 
 ## Capture and view
 
@@ -208,17 +214,17 @@ Capture home has visual **Region**, **Multi-region**, **Window**, **Full screen*
 
 The built-in **Capture Now** is also available from the menu bar/system tray, **Ctrl + Shift + C**, **Ctrl + Shift + .**, and on macOS **Command + Shift + .**. Click the menu-bar/tray icon to open the 560 × 292 Pearl Compact panel: a shared mode selector above display, Editor/Clipboard destination, pointer, capture-on-release and delay controls grouped on the left, with a large red circular Capture button on the right. Its lighter graphite shell and violet controls match the Pearl Compact design independently of the editor theme. Escape or clicking outside dismisses the panel. **Open Editor**, **Library**, and the **More settings** icon provide direct navigation. Right-click retains the native menu; keyboard capture shortcuts still start capture directly. **Keep ready in background** hides the app while these entry points remain available. The header retains **Open…** and **Open project…**; Editor provides **Save As…** and **Save project**.
 
-Choose **After capture → Editor / Clipboard** in Capture settings, or use the destination icon menu in the capture toolbar. **Clipboard** copies pixels at the selected output size (100% by default) for pasting into another app, saves a PNG in Library, and closes the capture overlay without opening or replacing the Editor. Your existing document, unsaved edits and undo history stay intact. This also works for full-screen, window and scrolling captures; scrolling finishes with **Done**. The destination is remembered for later captures and hotkeys. Completion appears in MyImage's status bar and tray tooltip; clipboard failure retains the image and offers **Retry copy** or **Open capture in Editor**. The Editor destination asks about unsaved work before replacing it with the completed capture.
+Choose **After capture → Editor / Clipboard** in Capture settings, or use the destination icon menu in the capture toolbar. **Clipboard** copies pixels at the selected output size (100% by default) for pasting into another app, saves a PNG in Library, and closes the capture overlay without opening or replacing the Editor. Your existing document, unsaved edits and undo history stay intact. This also works for full-screen, window and scrolling captures; scrolling finishes with **Done**. The destination is remembered for later captures and hotkeys. Completion appears in Bediz's status bar and tray tooltip; clipboard failure retains the image and offers **Retry copy** or **Open capture in Editor**. The Editor destination asks about unsaved work before replacing it with the completed capture.
 
-1. Select a capture type and adjust its options. Capture Now hides MyImage before taking the screenshot.
+1. Select a capture type and adjust its options. Capture Now hides Bediz before taking the screenshot.
 2. **Region:** click a highlighted window or drag a rectangle on the frozen screen, drag inside to move it or drag an edge/corner to resize it, then click **Capture** or press Enter. The magnifier shows original pixels at a consistent **4×** zoom, with pixel coordinates, while placing or adjusting the boundary. It waits for a fresh pointer event after the overlay opens and pads screen edges instead of stretching them. **Reset** lets you redraw and **Esc** cancels.
 3. **Window:** point to a window to highlight it, click to select, then Capture/Enter. Space switches Region/Window inside the overlay; Tab cycles overlapping window candidates. Confirmation controls move near the completed selection. The native backend captures that window; closed/unavailable windows report an error. **Full screen** saves the chosen display directly after the selected delay.
-4. **Optional scrolling:** select a Region or Window, then choose the scroll icon beside **Capture**. Your selection mode stays unchanged. Scroll down yourself in small steps, keeping at least half the previous content visible; MyImage collects the overlapping sections automatically. For multi-page PDFs, enable the viewer's **continuous scrolling** mode rather than jumping between pages. The controller shows a preview and section count, **Done**, **Pause / Resume**, **Restart**, and **Cancel**. Selected areas retain their width; fixed top/bottom bars are included once instead of blocking the join. Whole-window captures trim fixed chrome. If alignment fails, scroll back a little and Resume; accepted sections remain intact. If no extra section was captured, Done explains this and offers **Resume** or **Keep visible area** instead of silently saving the first screen. Keep the window size and zoom unchanged. Vertical scrolling is supported; MyImage does not scroll the target for you, and horizontal scrolling is not implemented.
+4. **Optional scrolling:** select a Region or Window, then choose the scroll icon beside **Capture**. Your selection mode stays unchanged. Scroll down yourself in small steps, keeping at least half the previous content visible; Bediz collects the overlapping sections automatically. For multi-page PDFs, enable the viewer's **continuous scrolling** mode rather than jumping between pages. The controller shows a preview and section count, **Done**, **Pause / Resume**, **Restart**, and **Cancel**. Selected areas retain their width; fixed top/bottom bars are included once instead of blocking the join. Whole-window captures trim fixed chrome. If alignment fails, scroll back a little and Resume; accepted sections remain intact. If no extra section was captured, Done explains this and offers **Resume** or **Keep visible area** instead of silently saving the first screen. Keep the window size and zoom unchanged. Vertical scrolling is supported; Bediz does not scroll the target for you, and horizontal scrolling is not implemented.
 5. Captures save as PNG in the dated library and go to the chosen destination: Editor or Clipboard. Include pointer uses the native cursor with its hotspot; turn it off for clean screenshots. Scrolling capture omits the pointer to keep it out of stitched content. Scrolling captures are bounded to 32,768 pixels per side and 100 megapixels.
 
-On macOS, MyImage finds the typing keys that produce `c` and `.` without modifiers in the layout active at startup. Control + Shift + C uses the C key; Control + Shift + . and Command + Shift + . use the period key. Windows uses Control + Shift with `VK_C` or `VK_OEM_PERIOD`. Shortcuts trigger on key release to avoid repeat captures.
+On macOS, Bediz finds the typing keys that produce `c` and `.` without modifiers in the layout active at startup. Control + Shift + C uses the C key; Control + Shift + . and Command + Shift + . use the period key. Windows uses Control + Shift with `VK_C` or `VK_OEM_PERIOD`. Shortcuts trigger on key release to avoid repeat captures.
 
-The chosen display is used for shortcut captures, independently of the mouse position. If it is unavailable when displays are refreshed, MyImage selects the primary display or the first available display. Use **Refresh displays** after changing your monitor setup.
+The chosen display is used for shortcut captures, independently of the mouse position. If it is unavailable when displays are refreshed, Bediz selects the primary display or the first available display. Use **Refresh displays** after changing your monitor setup.
 
 **Open…** reads PNG, JPEG, WebP, BMP, TIFF, GIF, and `.myimage` projects. Imported images can be annotated; existing text or shapes already flattened into their pixels cannot be separated into editable objects. Animated files currently open as a still image.
 
@@ -244,7 +250,7 @@ Right-click a thumbnail for **Open in Editor**, **Copy**, **Rename**, **Duplicat
 2. Browse **All files**, **Images**, **Projects** or **Favorites**, then select a year, month or day. Collection counts, clickable breadcrumbs and Back/Forward make it easy to move between dates. Search narrows filenames within that collection and date.
 3. Sort by **Date modified**, **Date created**, **Name** or **Size**. Click the active sort again (or its direction arrow) to reverse the order. Creation timestamps come from the filesystem; unavailable dates appear last. Switch between grid and list views, with S/M/L thumbnail sizes.
 4. Double-click a thumbnail or choose **Open in Editor**. Project annotations stay editable. Hover a card to star it, or use its right-click menu. Favorites and display preferences are remembered.
-5. Use **Refresh library** after changing files outside MyImage. Returning to Library and successfully saving a capture, project, or export also refreshes the listing. **Folder** selects the library and destination for future captures.
+5. Use **Refresh library** after changing files outside Bediz. Returning to Library and successfully saving a capture, project, or export also refreshes the listing. **Folder** selects the library and destination for future captures.
 
 Project thumbnails include saved image edits and annotations. Browsing does not discard the image currently open in the editor; opening a different item prompts to save unsaved changes. Save projects beside their source captures to find both in the same dated folder.
 
@@ -305,7 +311,7 @@ Built-in artwork is [Twemoji v16.0.1](https://github.com/jdecked/twemoji/tree/v1
 
 Use **+ Add → New category…** to create your own collection, then **Import image / SVG…** or **Design SVG…** to add artwork. Up to 32 custom categories can hold 128 stamps each, within the shared collection size limit.
 
-**Design SVG…** provides a description field, **Copy AI prompt**, an SVG source editor, and a transparent preview. Paste the prepared prompt into any AI service yourself, then paste its SVG response into MyImage. Choose **Preview SVG**, then **Save stamp**. MyImage does not call an AI service or require an API key. **Edit SVG source…** reopens the source and description; selecting an inserted stamp allows an undoable artwork update. Other inserted copies remain independent. SVG source travels inside projects, annotation clipboard data and presets.
+**Design SVG…** provides a description field, **Copy AI prompt**, an SVG source editor, and a transparent preview. Paste the prepared prompt into any AI service yourself, then paste its SVG response into Bediz. Choose **Preview SVG**, then **Save stamp**. Bediz does not call an AI service or require an API key. **Edit SVG source…** reopens the source and description; selecting an inserted stamp allows an undoable artwork update. Other inserted copies remain independent. SVG source travels inside projects, annotation clipboard data and presets.
 
 SVG stamps must be self-contained static artwork, at most 256 KiB, using paths, shapes, text and local gradients/masks. Scripts, external resources, embedded images, CSS, filters and `use` elements are rejected. Rendering uses Rust's resvg with bundled fonts, not a browser. Source remains vector-editable; canvas/export rendering rasterizes at a bounded resolution of up to 2048 pixels per stamp. Raster-image replacement keeps an embedded normalized image; SVG replacement keeps the SVG source.
 
@@ -359,7 +365,7 @@ A fully selected group counts as one object, preserving its internal layout. Alt
 - **Cut** in the Selection panel or image menu (**Command+X / Ctrl+X**) copies the selected area first, then clears it to transparency as one undoable, editable layer. Use edges/corners or **Adjust boundary** to change the selection before cutting. Cut requires a pixel selection; use Select All for the entire canvas. Rectangular, lasso and color masks are retained, and the original image stays in the project. A failed clipboard write leaves pixels untouched; editing the document while a cut is pending cancels only its removal step. On Mac, both Command and Control work for image Copy/Cut/Paste; focused text fields retain their normal text shortcuts.
 - **Select all annotations** remains a separate image-menu command (also **All annotations** in object selection controls). Text fields keep their normal Select All behavior.
 - Draw a rectangle or lasso with **Select**, then use **Copy** or **Command+C / Ctrl+C**. Lasso and Magic Wand copies retain transparency outside the selection, including holes and disconnected color regions. Paste into any app that accepts images.
-- **Command+V / Ctrl+V** on a MyImage canvas inserts clipboard pixels at their original size as a separate, centered image layer. The canvas expands with transparent space if needed. Drag an image layer beyond any canvas edge to expand it further when released. Move it, resize it, change opacity, hide it, or delete it without changing the original. Save as `.myimage` to retain the layer. In an empty Editor, **Paste image** creates a new document.
+- **Command+V / Ctrl+V** on a Bediz canvas inserts clipboard pixels at their original size as a separate, centered image layer. The canvas expands with transparent space if needed. Drag an image layer beyond any canvas edge to expand it further when released. Move it, resize it, change opacity, hide it, or delete it without changing the original. Save as `.myimage` to retain the layer. In an empty Editor, **Paste image** creates a new document.
 - Paste keeps the editor enabled while reading the clipboard. If the image changes during that read, it asks you to paste again instead of applying stale placement.
 - Raster clipboard layers are bounded to 64 megapixels and 16 MiB of lossless PNG per layer, with a 32 MiB encoded artwork budget per project. Large pasted layers can be copied as pixels; editable annotation clipboard payloads retain their separate 4 MiB limit.
 
@@ -367,7 +373,7 @@ A fully selected group counts as one object, preserving its internal layout. Alt
 
 Right-click the image and choose **Extract text…**, or use the same action in the Selection panel. With no pixel selection, it reads the whole visible image. To read only part of the image, use **Select** to draw a region first. Recognition runs in the background on visible pixels, including image edits, annotations and any selection masks. The review dialog identifies whether it is reading the whole image or a selection. An editable preview preserves line breaks; choose **Copy text** to copy it, or **Close** to return to the image. Recognition does not modify your project or replace the clipboard automatically.
 
-To copy text directly from another app, open **Capture Now**, choose **Text**, and select a screen region. Choose **Copy text** (or release the selection if capture-on-release is enabled). MyImage recognizes and copies the text directly, without opening the Editor or saving an image/project in the Library. Empty regions, errors and cancellation leave the previous clipboard intact; a clipboard failure offers **Retry copy**. Your normal image-capture destination and pointer preferences are retained.
+To copy text directly from another app, open **Capture Now**, choose **Text**, and select a screen region. Choose **Copy text** (or release the selection if capture-on-release is enabled). Bediz recognizes and copies the text directly, without opening the Editor or saving an image/project in the Library. Empty regions, errors and cancellation leave the previous clipboard intact; a clipboard failure offers **Retry copy**. Your normal image-capture destination and pointer preferences are retained.
 
 Both routes can be canceled. A stalled recognition request stops waiting after 30 seconds and offers a retry instead of leaving the interface spinning indefinitely.
 
@@ -383,7 +389,7 @@ Select annotations or a group in **Edit**, then right-click the image and choose
 - Hidden or locked copies stay hidden or locked; Layers opens automatically so you can reveal or unlock them. Paste adds one undo step. Changing the pasted objects never changes the source image or clipboard snapshot.
 - Save the destination as **`.myimage`** to reopen and edit the pasted annotations later. New shapes are retained in project version 9.
 
-When copying selected annotation objects, the system clipboard carries a versioned MyImage text payload containing their editable data. It survives switching images; copying other content replaces it. Paste accepts MyImage annotation selections and validates their size and contents before changing the destination.
+When copying selected annotation objects, the system clipboard carries a versioned MyImage text payload containing their editable data. It survives switching images; copying other content replaces it. Paste accepts Bediz annotation selections and validates their size and contents before changing the destination.
 
 ## Layers
 
@@ -468,11 +474,11 @@ The editor displays a bounded current composition immediately and refines it in 
 
 ## Save As: projects, images and PDF
 
-Choose **Save As…** (Command/Ctrl+Shift+S), select a format and its options, then choose **Save…** to pick the destination. Select **MyImage project** to retain editable layers, or choose an image/PDF format for a flattened copy. Image copies keep the edited output dimensions and all visible annotations; PDF embeds those same full-resolution pixels.
+Choose **Save As…** (Command/Ctrl+Shift+S), select a format and its options, then choose **Save…** to pick the destination. Select **Bediz project** to retain editable layers, or choose an image/PDF format for a flattened copy. Image copies keep the edited output dimensions and all visible annotations; PDF embeds those same full-resolution pixels.
 
 | Format | Options and behavior |
 | --- | --- |
-| MyImage (`.myimage`) | Original pixels and editable annotations, together in one project. |
+| Bediz (`.myimage`) | Original pixels and editable annotations, together in one project. |
 | JPG (`.jpg` or `.jpeg`) | Quality 1–100, default 90. Transparent pixels use the chosen background color, initially white. |
 | PNG | Lossless; keep transparency or flatten against the chosen background color. |
 | GIF | A single frame with up to 256 colors. Fully transparent pixels can stay transparent; partially transparent pixels use the selected background. Disable transparency for an opaque copy. |
@@ -487,21 +493,21 @@ An image/PDF copy does not replace the active editable project or mark its pendi
 
 ## Background behavior and permissions
 
-Closing the main window or selecting **Background** keeps MyImage running in the menu bar/system tray. Choose **Open MyImage** to return. **Quit** in the window or **Quit MyImage** in the tray menu exits and releases the shortcut. If tray initialization fails, MyImage keeps the window available instead of hiding it.
+Closing the main window or selecting **Background** keeps Bediz running in the menu bar/system tray. Choose **Open Editor** to return. **Quit** in the window or **Quit Bediz** in the tray menu exits and releases the shortcut. If tray initialization fails, Bediz keeps the window available instead of hiding it.
 
-If another application owns a capture shortcut, MyImage identifies the unavailable chord. Any successfully registered shortcut keeps working, as do the button and tray menu. Free the conflicting shortcut in the other application and select **Retry unavailable shortcuts**; this only retries failed registrations.
+If another application owns a capture shortcut, Bediz identifies the unavailable chord. Any successfully registered shortcut keeps working, as do the button and tray menu. Free the conflicting shortcut in the other application and select **Retry unavailable shortcuts**; this only retries failed registrations.
 
-On macOS, restart MyImage after changing keyboard layouts. Each shortcut character is resolved independently: if the layout has no supported unmodified C or period key, MyImage reports the affected shortcuts as unavailable while keeping the other resolved shortcuts active. It never substitutes an unrelated physical key. The button and tray menu remain available even when the layout provides no readable key data.
+On macOS, restart Bediz after changing keyboard layouts. Each shortcut character is resolved independently: if the layout has no supported unmodified C or period key, Bediz reports the affected shortcuts as unavailable while keeping the other resolved shortcuts active. It never substitutes an unrelated physical key. The button and tray menu remain available even when the layout provides no readable key data.
 
-On macOS, an explicit capture action lets ScreenCaptureKit perform its authorization check and may open a system consent dialog. **Allow screen capture…**, when shown, also requests access. Enable MyImage under **System Settings → Privacy & Security → Screen & System Audio Recording** (called **Screen Recording** on some releases), then quit and reopen the same app bundle if macOS requests it. Running through `cargo run` can associate access with the terminal or launcher; use the app bundle for normal testing. Startup and display enumeration do not request permission. The permission indicator is a hint; a successful capture is the end-to-end check.
+On macOS, an explicit capture action lets ScreenCaptureKit perform its authorization check and may open a system consent dialog. **Allow screen capture…**, when shown, also requests access. Enable Bediz under **System Settings → Privacy & Security → Screen & System Audio Recording** (called **Screen Recording** on some releases), then quit and reopen the same app bundle if macOS requests it. Running through `cargo run` can associate access with the terminal or launcher; use the app bundle for normal testing. Startup and display enumeration do not request permission. The permission indicator is a hint; a successful capture is the end-to-end check.
 
-Use the same persistent signing certificate for every installed update. The older ad-hoc build's authorization does not transfer to the new certificate: that transition needs one fresh grant. If an old grant remains stale despite permission toggling and a restart, a targeted reset followed by a fresh grant may be needed. **Obtain the user's explicit consent before resetting permission**, because this removes MyImage's saved Screen Recording decision. With MyImage quit, the manual command is:
+Use the same persistent signing certificate for every installed update. The older ad-hoc build's authorization does not transfer to the new certificate: that transition needs one fresh grant. If an old grant remains stale despite permission toggling and a restart, a targeted reset followed by a fresh grant may be needed. **Obtain the user's explicit consent before resetting permission**, because this removes Bediz's saved Screen Recording decision. With Bediz quit, the manual command is:
 
 ```sh
 tccutil reset ScreenCapture com.myimage.app
 ```
 
-Reopen `/Applications/MyImage.app`, explicitly request capture, grant permission in macOS, and restart if requested. This command targets MyImage for the current user; it needs no `sudo`. Permission resets must never run automatically during startup, builds, or packaging. See Apple's [resetting access to protected resources documentation](https://developer.apple.com/documentation/xcode/resetting-access-to-protected-resources-in-macos).
+Reopen `/Applications/Bediz.app`, explicitly request capture, grant permission in macOS, and restart if requested. This command targets Bediz for the current user; it needs no `sudo`. Permission resets must never run automatically during startup, builds, or packaging. See Apple's [resetting access to protected resources documentation](https://developer.apple.com/documentation/xcode/resetting-access-to-protected-resources-in-macos).
 
 macOS capture uses **ScreenCaptureKit's `SCScreenshotManager`**, which requires macOS 14 or later. Windows uses **GDI `BitBlt` through `xcap 0.9.8`**. `xcap` also supplies display metadata on both platforms. There is no legacy CoreGraphics screenshot fallback on macOS, and Windows Graphics Capture is not implemented. Capture errors are reported; permission failures do not produce substitute blank images. Secure/protected content and HDR fidelity are not guaranteed by this milestone.
 
@@ -526,7 +532,7 @@ Open the bottom-right calico App menu and choose **Play with Calico** for a five
 
 Get official packages from [GitHub Releases](https://github.com/gokcol/MyImage/releases), also linked in the calico App menu. The releases include an Apple Silicon macOS build and a Windows x64 build labeled **UNTESTED**. Windows artifacts are not code-signed and have not had interactive capture/clipboard/installer testing.
 
-On Mac, quit MyImage after saving, open the disk image, and drag MyImage into Applications. Keep the same location and bundle identifier for upgrades. To uninstall, quit the menu-bar app and move `/Applications/MyImage.app` to Trash; captures, projects and local preferences/recovery remain intact. The app does not install a background service or login item. **Quick start & shortcuts** in the App menu reopens the three-step guide.
+On Mac, save your work and quit Bediz or the previous SkyImage/MyImage app, open the disk image, and drag Bediz into Applications. When upgrading from a previous name, open `/Applications/Bediz.app` and verify your projects and settings, then move the old SkyImage.app or MyImage.app to Trash so only the current app remains. The bundle identifier and data folders are unchanged. To uninstall, quit the menu-bar app and move `/Applications/Bediz.app` to Trash; captures, projects and local preferences/recovery remain intact. Login startup is opt-in in Settings. **Quick Start & Hotkeys** in the App menu reopens the guide.
 
 For maintainers, `cargo run -p xtask -- install` installs the prepared local bundle transactionally: it requires a newer build, verifies the distributor signature and Gatekeeper acceptance, refuses running apps, byte-verifies the staging copy and rollback ZIP, and restores the previous app on failed verification. It preserves one rollback ZIP under `backups/` and never changes user data or TCC permission records. `--allow-signing-migration` explicitly permits the one-time transition from local development signing to the official Developer ID; macOS may require a fresh Screen Recording grant for that transition. Future releases keep the same Developer ID. Updates are downloaded deliberately through GitHub Releases; the app does not silently download or replace itself.
 
@@ -544,7 +550,7 @@ Recents and cached Library thumbnails check file availability in the background 
 
 Quick Effects includes reversible torn, wave, sawtooth and rounded edges, with depth/radius and individual side controls. Borders and shadows follow the styled edge. The compact Recents header also contains icon-based image tools, Fit, zoom percentage and Effects. Library uses a compact collection/date sidebar and a search/sort header; the calico App menu groups shortcuts and interface-size settings in a compact Studio Contrast panel.
 
-Effect Styles also includes Perspective, Reflection, Fade to transparency, Sepia/Warm/Cool/Invert filters, and brightness/contrast/saturation adjustments. These compose without flattening layers and are saved in project version 21. App → About MyImage credits Orhan Gökçöl and shows version/build details.
+Effect Styles also includes Perspective, Reflection, Fade to transparency, Sepia/Warm/Cool/Invert filters, and brightness/contrast/saturation adjustments. These compose without flattening layers and are saved in project version 21. App → About Bediz credits Orhan Gökçöl and shows version/build details.
 
 The Recents filmstrip uses an icon-only chevron to expand or collapse, with Show/Hide recents tooltips.
 
@@ -568,8 +574,8 @@ Undo and Redo buttons stay visible beside the image controls and become availabl
 
 ### Import Snagit projects
 
-Use **Open…** or **Open project…** and choose a single-page **.snagx** file. MyImage imports its full-resolution background and supported editable text, arrows, basic shapes, callouts, image layers, pen strokes, highlights and standalone Magnify lenses. Retina pixel density, stacking order, transparency and supported hidden/locked states are retained. Text uses MyImage's fonts; an import-notes dialog discloses font, outline, shadow or other style approximations before continuing.
+Use **Open…** or **Open project…** and choose a single-page **.snagx** file. Bediz imports its full-resolution background and supported editable text, arrows, basic shapes, callouts, image layers, pen strokes, highlights and standalone Magnify lenses. Retina pixel density, stacking order, transparency and supported hidden/locked states are retained. Text uses Bediz's fonts; an import-notes dialog discloses font, outline, shadow or other style approximations before continuing.
 
-The result saves automatically as one `.myimage` project. Recents and Library show that project; opening the same Snagit source resumes the converted project. The `.snagx` original is never rewritten or deleted with its converted project, even if it was placed inside MyImage storage. Cropped background pixels are retained so enlarging the imported canvas can reveal them again.
+The result saves automatically as one `.myimage` project. Recents and Library show that project; opening the same Snagit source resumes the converted project. The `.snagx` original is never rewritten or deleted with its converted project, even if it was placed inside the existing `MyImage` storage folder. Cropped background pixels are retained so enlarging the imported canvas can reveal them again.
 
 This initial importer supports the single-page version-1 `.snagx` archive format. Native Mac-generated files were verified; Windows-generated `.snagx` compatibility has not yet been independently tested. Legacy `.snag`/`.snagproj`, multi-page/template projects, whole-image effects, rotated objects, unsupported groups/styles and linked Magnify lenses are not converted. Unsupported content stops the import with an explanation instead of silently dropping objects. Ungroup or simplify a copy in Snagit, or export a PNG if preserving the flattened appearance is sufficient.

@@ -1,1 +1,1 @@
-Capture, annotate and extract text with SkyImage (previously MyImage). Keep images and editable changes together in one project. Copy text from a screen region, or explain your work with arrows, Magnify and visual effects.
+Capture, annotate and extract text with Bediz (previously SkyImage and MyImage). Keep images and editable changes together in one project. Copy text from a screen region, or explain your work with arrows, Magnify and visual effects.

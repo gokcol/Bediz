@@ -32,7 +32,7 @@ pub fn run(background: bool) -> eframe::Result {
                 eframe::icon_data::from_png_bytes(include_bytes!(
                     "../assets/branding/myimage-app-icon-256.png"
                 ))
-                .expect("bundled MyImage app icon must be a valid PNG"),
+                .expect("bundled Bediz app icon must be a valid PNG"),
             )
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([980.0, 640.0]),

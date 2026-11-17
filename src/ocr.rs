@@ -17,7 +17,8 @@ mod windows;
 /// The native service is bounded even when an installed OCR model misbehaves.
 pub const JOB_TIMEOUT: Duration = Duration::from_secs(30);
 const CANCELED: &str = "Text recognition canceled.";
-const TIMED_OUT: &str = "Text recognition took too long. Try a smaller region; if this repeats, quit and reopen MyImage.";
+const TIMED_OUT: &str =
+    "Text recognition took too long. Try a smaller region; if this repeats, quit and reopen Bediz.";
 static NATIVE_BUSY: LazyLock<Arc<AtomicBool>> = LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 #[derive(Clone)]
@@ -97,7 +98,7 @@ fn supervise(
     };
     control.check()?;
     busy.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .map_err(|_| "Previous text recognition is still stopping. Please try again shortly; if it stays unavailable, quit and reopen MyImage.".to_string())?;
+        .map_err(|_| "Previous text recognition is still stopping. Please try again shortly; if it stays unavailable, quit and reopen Bediz.".to_string())?;
     let permit = NativePermit(busy);
     let worker_control = control.clone();
     let (tx, rx) = mpsc::sync_channel(1);

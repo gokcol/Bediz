@@ -33,23 +33,37 @@ try {
     $command = (Get-Item "$registry\shell\open\command").GetValue('')
     if ($command -ne "`"$install\MyImage.exe`" `"%1`"") { throw 'Incorrect file-open command quoting.' }
     if (-not (Test-Path $uninstallKey)) { throw 'Uninstall registration missing.' }
-    if ((Get-Item $uninstallKey).GetValue('DisplayName') -ne 'SkyImage') { throw 'Windows app display name was not updated.' }
-    $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'SkyImage.lnk'
+    if ((Get-Item $uninstallKey).GetValue('DisplayName') -ne 'Bediz') { throw 'Windows app display name was not updated.' }
+    $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Bediz.lnk'
+    $desktopShortcut = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Bediz.lnk'
     if (-not (Test-Path $shortcut)) { throw 'Start menu shortcut missing.' }
+    if (Test-Path $desktopShortcut) { throw 'Installer unexpectedly enabled the optional desktop shortcut.' }
     if ((Get-Item $run -ErrorAction SilentlyContinue) -and (Get-Item $run).GetValue('MyImage')) { throw 'Installer unexpectedly enabled login startup.' }
     # Unknown user files inside the installation directory must also survive.
     $localProject = Join-Path $install 'user-project.myimage'
     'keep local project' | Set-Content $localProject
-    $legacyShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'MyImage.lnk'
-    Copy-Item $shortcut $legacyShortcut
-    Run-Checked $setup[0].FullName $args
-    if (Test-Path $legacyShortcut) { throw 'Update left a duplicate legacy shortcut.' }
+    # Simulate both previous names in both installer-owned shortcut locations.
+    $legacyShortcuts = @()
+    foreach ($folder in @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('DesktopDirectory'))) {
+        $null = New-Item -ItemType Directory -Path $folder -Force
+        foreach ($name in @('MyImage', 'SkyImage')) {
+            $legacyShortcut = Join-Path $folder "$name.lnk"
+            Copy-Item $shortcut $legacyShortcut
+            $legacyShortcuts += $legacyShortcut
+        }
+    }
+    $upgradeArgs = @($args | Where-Object { -not $_.StartsWith('/TASKS=') }) + '/TASKS=openwith,desktopicon'
+    Run-Checked $setup[0].FullName $upgradeArgs
+    foreach ($legacyShortcut in $legacyShortcuts) {
+        if (Test-Path $legacyShortcut) { throw "Update left a duplicate legacy shortcut: $legacyShortcut" }
+    }
+    if (-not (Test-Path $shortcut) -or -not (Test-Path $desktopShortcut)) { throw 'Update did not create the requested Bediz shortcuts.' }
     if (-not (Test-Path $localProject)) { throw 'Update removed a project.' }
     # Simulate the optional login setting; uninstall must remove only this copy.
     $null = New-Item -Path $run -Force
     $null = New-ItemProperty -Path $run -Name MyImage -Value "`"$install\MyImage.exe`"" -PropertyType String
     Run-Checked $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
-    if ((Test-Path (Join-Path $install 'MyImage.exe')) -or (Test-Path $registry) -or (Test-Path $uninstallKey) -or (Test-Path $shortcut)) { throw 'Uninstall left installed files or integration behind.' }
+    if ((Test-Path (Join-Path $install 'MyImage.exe')) -or (Test-Path $registry) -or (Test-Path $uninstallKey) -or (Test-Path $shortcut) -or (Test-Path $desktopShortcut)) { throw 'Uninstall left installed files or integration behind.' }
     if (-not (Test-Path $localProject) -or (Get-FileHash $sentinel).Hash -ne $sentinelHash) { throw 'Uninstall changed project data.' }
     if ((Get-Item $run).GetValue('MyImage')) { throw 'Uninstall left this copy registered for login startup.' }
     foreach ($ext in @('.myimage','.png','.jpg','.jpeg','.webp','.bmp','.gif','.tif','.tiff')) {
@@ -63,7 +77,7 @@ try {
     Run-Checked $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
     if ((Get-Item $run).GetValue('MyImage') -ne $other) { throw 'Uninstall altered another copy startup entry.' }
     Remove-ItemProperty -Path $run -Name MyImage
-    'PASS install, upgrade, binary identity, Start menu, file-open quoting, startup off, targeted startup cleanup, uninstall and project preservation.'
+    'PASS install, upgrade, MyImage/SkyImage shortcut migration, Bediz branding, binary identity, optional desktop shortcut, file-open quoting, startup off, targeted startup cleanup, uninstall and project preservation.'
 } finally {
     if (Test-Path $uninstaller) { Run-Checked $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') }
     Remove-Item $scratch -Recurse -Force

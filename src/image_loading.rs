@@ -421,7 +421,7 @@ impl Loader {
     pub fn open(&self, path: PathBuf, max_side: u32) -> Result<(), String> {
         self.tx
             .try_send(Request::Open(path, max_side))
-            .map_err(|_| "The image loader is unavailable. Please reopen MyImage.".into())
+            .map_err(|_| "The image loader is unavailable. Please reopen Bediz.".into())
     }
 
     pub fn prefetch(&self, path: PathBuf, max_side: u32) {

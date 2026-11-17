@@ -11,16 +11,16 @@
 
 [Setup]
 AppId={{B9CF57F1-A083-4B7D-BE98-B1F0C466EBB4}
-AppName=SkyImage
+AppName=Bediz
 AppVersion={#AppVersion}
-AppVerName=SkyImage {#AppVersion} (build {#BuildNumber})
+AppVerName=Bediz {#AppVersion} (build {#BuildNumber})
 AppPublisher=Orhan Gökçöl
 AppPublisherURL=https://github.com/gokcol/MyImage
 AppSupportURL=https://github.com/gokcol/MyImage/issues
 AppUpdatesURL=https://github.com/gokcol/MyImage/releases
 VersionInfoVersion={#AppVersion}.{#BuildNumber}
-VersionInfoProductName=SkyImage
-VersionInfoDescription=SkyImage installer
+VersionInfoProductName=Bediz
+VersionInfoDescription=Bediz installer
 DefaultDirName={localappdata}\Programs\MyImage
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -29,7 +29,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19041
 SetupIconFile={#Source}\MyImage.ico
 UninstallDisplayIcon={app}\MyImage.ico
-UninstallDisplayName=SkyImage
+UninstallDisplayName=Bediz
 LicenseFile={#Source}\LICENSE.txt
 InfoBeforeFile={#Source}\READ-ME-WINDOWS.txt
 ChangesAssociations=yes
@@ -44,8 +44,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl"
 
 [CustomMessages]
-english.OpenWith=Add SkyImage to the Open with menu for projects and images
-turkish.OpenWith=SkyImage’i proje ve görsellerin Birlikte aç menüsüne ekle
+english.OpenWith=Add Bediz to the Open with menu for projects and images
+turkish.OpenWith=Bediz’i proje ve görsellerin Birlikte aç menüsüne ekle
 
 [Tasks]
 Name: "openwith"; Description: "{cm:OpenWith}"; GroupDescription: "{cm:AdditionalIcons}"
@@ -63,14 +63,16 @@ Source: "{#Source}\READ-ME-WINDOWS.txt"; DestDir: "{app}"; Flags: ignoreversion
 [InstallDelete]
 Type: files; Name: "{userprograms}\MyImage.lnk"
 Type: files; Name: "{userdesktop}\MyImage.lnk"
+Type: files; Name: "{userprograms}\SkyImage.lnk"
+Type: files; Name: "{userdesktop}\SkyImage.lnk"
 
 [Icons]
-Name: "{userprograms}\SkyImage"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"
-Name: "{userdesktop}\SkyImage"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"; Tasks: desktopicon
+Name: "{userprograms}\Bediz"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"
+Name: "{userdesktop}\Bediz"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"; Tasks: desktopicon
 
 [Registry]
 ; Open with only: never take over a user's default image viewer.
-Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document"; ValueType: string; ValueName: ""; ValueData: "SkyImage image or MyImage project"; Flags: uninsdeletekey; Tasks: openwith
+Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document"; ValueType: string; ValueName: ""; ValueData: "Bediz image or project"; Flags: uninsdeletekey; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\MyImage.ico"; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\MyImage.exe"" ""%1"""; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\.myimage\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
@@ -84,7 +86,7 @@ Root: HKCU; Subkey: "Software\Classes\.tif\OpenWithProgids"; ValueType: string; 
 Root: HKCU; Subkey: "Software\Classes\.tiff\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
 
 [Run]
-Filename: "{app}\MyImage.exe"; Description: "{cm:LaunchProgram,SkyImage}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\MyImage.exe"; Description: "{cm:LaunchProgram,Bediz}"; Flags: nowait postinstall skipifsilent
 
 ; No UninstallDelete entries: projects, captures, settings, recovery and unknown
 ; files are deliberately preserved. Login startup stays off by default.

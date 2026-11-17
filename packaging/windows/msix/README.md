@@ -21,7 +21,8 @@ release signatures.
 
 ## Product identity and build
 
-SkyImage and MyImage (OG) are reserved for the same Partner Center product. Copy these **public identity values**
+Reserve **Bediz** for the existing Partner Center product, retaining its SkyImage
+and MyImage (OG) names. Copy these **public identity values**
 from Product management → Product identity to the repository's Actions variables:
 
 | Variable | Exact Partner Center value |
@@ -29,7 +30,7 @@ from Product management → Product identity to the repository's Actions variabl
 | `MSIX_IDENTITY_NAME` | Package/Identity/Name |
 | `MSIX_PUBLISHER` | Package/Identity/Publisher, including `CN=` |
 | `MSIX_PUBLISHER_DISPLAY_NAME` | Package/Properties/PublisherDisplayName |
-| `MSIX_DISPLAY_NAME` | Reserved product display name |
+| `MSIX_DISPLAY_NAME` | `Bediz`, matching the reserved product display name |
 
 Do not reuse MyPDF's package identity or invent a publisher. In Actions, run
 **Microsoft Store MSIX — validation**, select the release tag and `store` mode.
@@ -46,8 +47,10 @@ These public values are configured as GitHub Actions variables. The product's
 reserved display name is configured separately in `MSIX_DISPLAY_NAME`; it must
 match Partner Center exactly, including punctuation.
 
-Current source app version is **3.1.0**, build **123**; the independent MSIX version is **3.1.1.0**.
-Windows display branding is SkyImage; the registered package identity remains MyImage. See [rename compatibility](../../../docs/SKYIMAGE-STORE.md).
+Current source app version is **3.1.0**, build **124**; the independent MSIX version is **3.1.2.0**.
+Windows display branding is Bediz; the registered package identity remains MyImage. See [rename compatibility](../../../docs/SKYIMAGE-STORE.md).
+Set the GitHub Actions variable `MSIX_DISPLAY_NAME` to `Bediz` before packaging
+the Store release; an older variable value overrides the script's new default.
 This source version includes Store-aware update checks; Microsoft approval of a previous version does not approve this new package.
 This preserves increasing package order after the earlier 1.x packages.
 Increase `version.txt` for subsequent Store releases. Revision (fourth field)
@@ -66,7 +69,7 @@ These are automated packaging checks, not interactive app certification.
 
 - `runFullTrust`: required for native desktop capture, file dialogs, GPU editing,
   clipboard and tray/keyboard integration at the user's privilege level.
-  MyImage does not request administrator elevation.
+  Bediz does not request administrator elevation.
 
 The package uses standard MSIX file-system and registry virtualization. It does
 not request `unvirtualizedResources` or declare virtualization exclusions.
@@ -77,9 +80,9 @@ The installer/portable edition's existing data is not deliberately deleted.
 
 Captures/projects stay in Pictures/MyImage or the user-chosen folder. The Store
 startup task is declared disabled; users can opt in through Settings to start
-MyImage at login. No default-app change, background service or file association
+Bediz at login. No default-app change, background service or file association
 is registered.
-The Store package opens files using MyImage's Open controls. Microsoft must
+The Store package opens files using Bediz's Open controls. Microsoft must
 review the `runFullTrust` explanation. Support: orhan.gokcol@hotmail.com.
 
 ## Submission checklist

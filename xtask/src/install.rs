@@ -34,7 +34,7 @@ fn verify(app: &Path) -> TaskResult<()> {
         "Verify app signature",
     )?;
     if value(app, "CFBundleIdentifier")? != "com.myimage.app" {
-        return Err("This is not the MyImage app bundle".into());
+        return Err("This is not the Bediz app bundle or a compatible previous version".into());
     }
     Ok(())
 }
@@ -67,9 +67,9 @@ fn stopped() -> TaskResult<()> {
     match result.status.code() {
         Some(1) => Ok(()),
         Some(0) => Err(
-            "Save your edits and quit SkyImage or MyImage before installing. No files were replaced.".into(),
+            "Save your edits and quit Bediz, SkyImage or MyImage before installing. No files were replaced.".into(),
         ),
-        _ => Err("Cannot establish whether MyImage is running. Installation stopped.".into()),
+        _ => Err("Cannot establish whether Bediz or a previous version is running. Installation stopped.".into()),
     }
 }
 fn same_tree(left: &Path, right: &Path) -> TaskResult<bool> {
@@ -126,15 +126,21 @@ fn check_upgrade(
 }
 // A rename must never overwrite an unrelated second installation.
 fn installed_path(applications: &Path) -> TaskResult<std::path::PathBuf> {
-    let current = applications.join("SkyImage.app");
-    let legacy = applications.join("MyImage.app");
-    let has_current = current.symlink_metadata().is_ok();
-    let has_legacy = legacy.symlink_metadata().is_ok();
-    match (has_current, has_legacy) {
-        (true, true) => Err("Both SkyImage.app and MyImage.app exist. Keep one verified installation before upgrading.".into()),
-        (false, true) => Ok(legacy),
-        _ => Ok(current),
+    let mut found = None;
+    for name in ["Bediz.app", "SkyImage.app", "MyImage.app"] {
+        let candidate = applications.join(name);
+        match candidate.symlink_metadata() {
+            Ok(_) => {
+                if found.is_some() {
+                    return Err("More than one of Bediz.app, SkyImage.app and MyImage.app exists. Keep one verified installation before upgrading.".into());
+                }
+                found = Some(candidate);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
     }
+    Ok(found.unwrap_or_else(|| applications.join("Bediz.app")))
 }
 
 fn publish_install(
@@ -172,8 +178,8 @@ fn publish_install(
 }
 
 pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<()> {
-    let source = workspace.join("target/bundle/SkyImage.app");
-    let destination = Path::new("/Applications/SkyImage.app");
+    let source = workspace.join("target/bundle/Bediz.app");
+    let destination = Path::new("/Applications/Bediz.app");
     let current = installed_path(Path::new("/Applications"))?;
     let installed = current.as_path();
     stopped()?;
@@ -193,7 +199,7 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
     }
     let version = value(&source, "CFBundleShortVersionString")?;
     let build: u64 = value(&source, "CFBundleVersion")?.parse()?;
-    if installed.exists() {
+    if installed.symlink_metadata().is_ok() {
         verify(installed)?;
         check_upgrade(
             &version,
@@ -208,7 +214,7 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
     cleanup::check_workspace(workspace)?;
     let _lock = cleanup::release_lock(workspace)?;
     let mut stage = StagingDirectory::create(Path::new("/Applications"))?;
-    let staged = stage.path.join("SkyImage.app");
+    let staged = stage.path.join("Bediz.app");
     checked(
         Command::new("/usr/bin/ditto").arg(&source).arg(&staged),
         "Stage update",
@@ -253,9 +259,12 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
         )?;
     }
     stopped()?;
+    if installed_path(Path::new("/Applications"))? != current {
+        return Err("The installed application changed during preparation. No files were replaced; start the update again.".into());
+    }
     publish_install(&mut stage, &staged, installed, destination, verify)?;
     println!(
-        "Installed SkyImage {version} build {build}. Captures, projects, settings and permission records were not modified."
+        "Installed Bediz {version} build {build}. Captures, projects, settings and permission records were not modified."
     );
     if migration {
         println!(
@@ -266,7 +275,7 @@ pub fn run(workspace: &Path, migration: bool, unnotarized: bool) -> TaskResult<(
 }
 pub fn notarize(workspace: &Path, profile: &str) -> TaskResult<()> {
     let bundle = workspace.join("target/bundle");
-    let app = bundle.join("SkyImage.app");
+    let app = bundle.join("Bediz.app");
     let zip = bundle.join(format!("MyImage-macos-{}.zip", std::env::consts::ARCH));
     verify(&app)?;
     checked(
@@ -310,11 +319,11 @@ mod tests {
     use super::*;
     #[test]
     fn installs_and_renames_restore_the_previous_bundle_on_failure() {
-        for previous_name in ["MyImage.app", "SkyImage.app"] {
+        for previous_name in ["MyImage.app", "SkyImage.app", "Bediz.app"] {
             for succeeds in [true, false] {
                 let root = tempfile::tempdir().unwrap();
                 let old = root.path().join(previous_name);
-                let new = root.path().join("SkyImage.app");
+                let new = root.path().join("Bediz.app");
                 fs::create_dir(&old).unwrap();
                 fs::write(old.join("binary"), b"old").unwrap();
                 assert_eq!(installed_path(root.path()).unwrap(), old);
@@ -343,21 +352,66 @@ mod tests {
     }
 
     #[test]
+    fn installed_path_rejects_every_duplicate_name_pair_without_changing_files() {
+        for names in [
+            vec!["MyImage.app", "SkyImage.app"],
+            vec!["MyImage.app", "Bediz.app"],
+            vec!["SkyImage.app", "Bediz.app"],
+            vec!["MyImage.app", "SkyImage.app", "Bediz.app"],
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            for name in &names {
+                let app = root.path().join(name);
+                fs::create_dir(&app).unwrap();
+                fs::write(app.join("binary"), name).unwrap();
+            }
+            assert!(installed_path(root.path()).is_err(), "{names:?}");
+            for name in names {
+                assert_eq!(
+                    fs::read(root.path().join(name).join("binary")).unwrap(),
+                    name.as_bytes()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn renamed_install_rejects_duplicate_destination_and_restores_failed_move() {
+        for previous_name in ["MyImage.app", "SkyImage.app", "Bediz.app"] {
+            let root = tempfile::tempdir().unwrap();
+            let old = root.path().join(previous_name);
+            let new = root.path().join("Bediz.app");
+            fs::create_dir(&old).unwrap();
+            fs::write(old.join("binary"), b"old").unwrap();
+            let mut stage = StagingDirectory::create(root.path()).unwrap();
+            let missing = stage.path.join("missing.app");
+            if old != new {
+                fs::create_dir(&new).unwrap();
+                fs::write(new.join("binary"), b"unrelated").unwrap();
+                assert!(publish_install(&mut stage, &missing, &old, &new, |_| Ok(())).is_err());
+                assert_eq!(fs::read(new.join("binary")).unwrap(), b"unrelated");
+                fs::remove_dir_all(&new).unwrap();
+            }
+            assert!(publish_install(&mut stage, &missing, &old, &new, |_| Ok(())).is_err());
+            assert_eq!(fs::read(old.join("binary")).unwrap(), b"old");
+            assert_eq!(new.exists(), old == new);
+        }
+    }
+
+    #[test]
+    fn new_install_uses_bediz_and_linked_previous_names_are_not_skipped() {
         let root = tempfile::tempdir().unwrap();
-        let old = root.path().join("MyImage.app");
-        let new = root.path().join("SkyImage.app");
-        fs::create_dir(&old).unwrap();
-        fs::write(old.join("binary"), b"old").unwrap();
-        fs::create_dir(&new).unwrap();
-        assert!(installed_path(root.path()).is_err());
-        let mut stage = StagingDirectory::create(root.path()).unwrap();
-        let missing = stage.path.join("missing.app");
-        assert!(publish_install(&mut stage, &missing, &old, &new, |_| Ok(())).is_err());
-        fs::remove_dir(&new).unwrap();
-        assert!(publish_install(&mut stage, &missing, &old, &new, |_| Ok(())).is_err());
-        assert_eq!(fs::read(old.join("binary")).unwrap(), b"old");
-        assert!(!new.exists());
+        assert_eq!(
+            installed_path(root.path()).unwrap(),
+            root.path().join("Bediz.app")
+        );
+        for previous_name in ["MyImage.app", "SkyImage.app", "Bediz.app"] {
+            let linked = root.path().join(previous_name);
+            std::os::unix::fs::symlink(root.path().join("missing.app"), &linked).unwrap();
+            assert_eq!(installed_path(root.path()).unwrap(), linked);
+            assert!(verify(&linked).is_err());
+            fs::remove_file(linked).unwrap();
+        }
     }
 
     #[test]
