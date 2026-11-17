@@ -2,7 +2,7 @@
 
 SkyImage is the Windows display name from version 3.0.1 (build 109), Store package 3.0.1.0. The Store description and About identify MyImage as the previous name. macOS also uses SkyImage from build 110.
 
-SkyImage was reserved for the existing Partner Center product on 2026-11-15. Keep the MyImage (OG) reservation. The current Store package 3.0.0.0 is approved; certification for this update is separate.
+SkyImage was reserved for the existing Partner Center product on 2026-11-15. Keep the MyImage (OG) reservation. Package 3.0.1.0 is live under the SkyImage name. The 3.1.0.0 update is in certification as of 17 November 2026.
 
 Compatibility identities intentionally remain unchanged:
 
@@ -39,3 +39,12 @@ Windows still checks Microsoft Store; macOS still checks the existing GitHub rep
 - [Native CI](https://github.com/gokcol/MyImage/actions/runs/43753097970): formatting, Clippy, 678 app tests and 17 packaging tests passed. Installation tests cover name migration and failure rollback.
 - Apple app notarization `1ce7121e-def3-4237-81c4-ecc56dd48aeb`: Accepted. DMG notarization `7f8adcbb-4ca7-44cb-baf0-0456d02523bd`: Accepted. Stapling, Gatekeeper, DMG checksum and mounted SkyImage.app verified.
 - [Mac release](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build110) published separately; Windows build 109 and its Store submission remain the Windows release.
+
+## Version 3.1 submission — 17 November 2026
+
+- Public Store listing verified as **SkyImage**; Partner Center’s internal product label remains MyImage (OG).
+- Submission 4, `1152921505702422705`, is **in certification** with automatic publishing after approval.
+- Package `MyImage-3.1.0.0-store-x64.msix`: app 3.1.0 build 120, x64, Windows 10.0.19041.0 minimum, display name SkyImage, `runFullTrust` only. Identity and publisher are unchanged.
+- SHA-256: `bb566c199884b7009b53e55bdc3512c71c5813ffc74f18b16c39d20387cae004`. Exact source: `3e22ea98ead94976f9bf8215fe5b14d75339e368`. [Store packaging checks](https://github.com/gokcol/MyImage/actions/runs/43996375491) passed; Partner Center validated the upload and replaced the superseded 3.0.1.0 package in this submission.
+- English description, What’s New and reviewer notes describe the compact capture toolbar, optional scrolling after Region/Window selection, 100/75/50/25% output, editable hotkey and Quick Start close button.
+- Certification is pending; this record does not claim the new package is live.

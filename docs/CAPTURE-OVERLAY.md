@@ -102,3 +102,15 @@ The installed Mac binary matches the release bundle. The app and DMG are Develop
 Native Firefox validation selected a 1698 × 1080 region from the numbered local page, chose the secondary scroll action, and scrolled down in three small steps. The preview grew from one to four parts. Done saved a 1698 × 1914 image: sections 01–05 and the beginning of 06 appear once, in order, without controls or repeated sections. The saved result's PNG SHA-256 is `3b4735134f7457b3b95d1c0a84c6e68b935759aedf03bf04b3c58f007ea369b6`. Region and 100% output remained selected. Opening the compact mode menu and pressing Escape canceled the entire capture; the menu contains Region, Multi-region, Window, Full screen and Text. The prior Firefox tab was restored after testing.
 
 Release downloads: [SkyImage 3.0.1 build 120](https://github.com/gokcol/MyImage/releases/tag/v3.0.1-build120). Mac Apple Silicon DMG/ZIP and unsigned Windows x64 Setup/portable ZIP have verified SHA-256 files; the Windows manifest identifies the same application and packaging source commit.
+
+## Version 3.1 and Mac title bar — 17 November 2026
+
+Version 3.1.0 build 120 promotes the verified capture workflow without behavior changes. Mac and Windows downloads: [v3.1.0-build120](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build120). Windows Store package 3.1.0.0 (build 120) is in certification under the public SkyImage name; see SKYIMAGE-STORE.md.
+
+The user’s screenshot showed the desktop through the Mac editor title and traffic lights. The shared WGPU alpha configuration also made the root NSWindow transparent. Build 121 retains alpha support in NativeOptions for child capture surfaces and uses the one-shot root window-builder hook to create an opaque editor window. Capture viewport settings are unchanged; Windows does not compile this hook.
+
+Exact source: `cf683e5339a9f2c9791f683fa042297b2a09ead3`. [Native CI](https://github.com/gokcol/MyImage/actions/runs/43997903072) passed formatting, Clippy, 704 app tests and 17 packaging tests. The installer now compares semantic version before build, allowing 3.0.1/120 → 3.1.0/120 while rejecting same-version and downgrade installs.
+
+Apple accepted app notarization `6938c18e-efcb-4ce1-8e84-9b22731e007d` and DMG notarization `90fb0542-d11a-4c51-ae9a-46404d02cfb1`. Tickets, signatures, Gatekeeper and mounted DMG contents passed. Installed /Applications/SkyImage.app is version 3.1.0 build 121 and matches the notarized binary. Native screenshots show an opaque title bar; What’s New reports build 121. Capture opens with the editor hidden and an undimmed desktop. The user confirmed “now OK.” No new timing measurement or Windows interactive capture test was performed.
+
+[Mac build 121 release](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build121) contains signed/notarized DMG and ZIP with verified GitHub SHA-256 digests, and links to Windows build 120. The published build-120 assets remain unchanged.
