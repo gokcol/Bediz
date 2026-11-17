@@ -250,7 +250,10 @@ impl EditorState {
                     return;
                 }
                 history.commit(pending.before, document);
-                self.select(Some(index), document);
+                // A bucket click finishes a fill; the color controls should then
+                // configure the next one. Only an explicit region update keeps
+                // the existing fill selected for further editing.
+                self.select(pending.index, document);
                 self.fill_tool.error = None;
                 self.focus_canvas = true;
             }
@@ -366,7 +369,11 @@ impl EditorState {
                 && self.additional.is_empty()
         });
         let enabled = selected.is_none_or(|i| !document.annotations[i].locked());
-        ui.heading("Fill");
+        ui.heading(if selected.is_some() {
+            "Selected fill"
+        } else {
+            "Fill"
+        });
         ui.weak("Quick colors");
         ui.add_enabled_ui(enabled,|ui| {
             let previous = (self.fill_tool.color, self.fill_tool.tolerance, self.fill_tool.global);
@@ -408,6 +415,8 @@ impl EditorState {
                 ui.weak("Color updates immediately. Update the region after changing tolerance, Global fill or underlying artwork.");
                 if ui.button("Remove fill").clicked() {self.delete(document,history);}
                 if ui.button("Open layers").clicked() {self.inspector.show(InspectorPanel::Layers);}
+            } else {
+                ui.weak("Colors apply to the next fill. Use Select or Layers to edit an existing fill.");
             }
             ui.separator();
             if self.area.is_some() {
@@ -449,6 +458,141 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         assert!(e.fill_tool.error.is_none(), "{:?}", e.fill_tool.error);
+    }
+
+    fn click_fill_control(
+        label: &str,
+        e: &mut EditorState,
+        ctx: &egui::Context,
+        d: &mut Document,
+        h: &mut EditHistory,
+    ) {
+        ctx.enable_accesskit();
+        let mut frame = |events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(500., 900.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| e.fill_panel(ui, d, h));
+                },
+            )
+        };
+        let output = frame(vec![]);
+        let bounds = output
+            .platform_output
+            .accesskit_update
+            .unwrap()
+            .nodes
+            .iter()
+            .find_map(|(_, node)| {
+                (node.label() == Some(label))
+                    .then(|| node.bounds())
+                    .flatten()
+            })
+            .unwrap_or_else(|| panic!("Missing fill control: {label}"));
+        let at = egui::pos2(
+            ((bounds.x0 + bounds.x1) * 0.5) as f32,
+            ((bounds.y0 + bounds.y1) * 0.5) as f32,
+        );
+        for pressed in [true, false] {
+            frame(vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::PointerButton {
+                    pos: at,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                },
+            ]);
+        }
+    }
+
+    #[test]
+    fn next_fill_color_does_not_recolor_completed_fills_or_add_an_undo_edit() {
+        let ctx = egui::Context::default();
+        let mut e = EditorState::default();
+        let mut d = doc();
+        d.image = std::sync::Arc::new(image::RgbaImage::from_fn(60, 50, |x, _| {
+            image::Rgba(if x == 30 { [0, 0, 0, 255] } else { [255; 4] })
+        }));
+        let mut h = EditHistory::new(d.edit_state());
+        e.activate_fill(&mut d, &mut h);
+        click_fill_control("Red", &mut e, &ctx, &mut d, &mut h);
+        e.place_fill(&ctx, Point { x: 10., y: 10. }, &d);
+        finish(&mut e, &ctx, &mut d, &mut h);
+        let first = d.edit_state();
+        assert_eq!(d.annotations[0].color, [225, 62, 61, 255]);
+
+        click_fill_control("Blue", &mut e, &ctx, &mut d, &mut h);
+        assert_eq!(
+            d.edit_state(),
+            first,
+            "Choosing the next color changed the completed fill"
+        );
+        assert_eq!(e.fill_tool.color, [46, 137, 221, 255]);
+        assert!(e.selected.is_none());
+        assert_eq!(e.tool, Tool::Fill);
+        h.undo(&mut d);
+        assert!(
+            d.annotations.is_empty(),
+            "Changing a tool color added an undo edit"
+        );
+        h.redo(&mut d);
+        assert_eq!(d.edit_state(), first);
+
+        e.place_fill(&ctx, Point { x: 40., y: 10. }, &d);
+        finish(&mut e, &ctx, &mut d, &mut h);
+        let both = d.edit_state();
+        let flat = crate::render::flatten(&d).unwrap();
+        assert_eq!(flat.get_pixel(10, 10), &image::Rgba([225, 62, 61, 255]));
+        assert_eq!(flat.get_pixel(40, 10), &image::Rgba([46, 137, 221, 255]));
+        click_fill_control("Transparent", &mut e, &ctx, &mut d, &mut h);
+        assert_eq!(e.fill_tool.color[3], 0);
+        assert_eq!(d.edit_state(), both);
+        h.undo(&mut d);
+        assert_eq!(d.edit_state(), first);
+        h.redo(&mut d);
+        assert_eq!(d.edit_state(), both);
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("independent-fills.myimage");
+        crate::document::save_project(&d, &path).unwrap();
+        assert_eq!(
+            crate::document::load_project(&path).unwrap().edit_state(),
+            both
+        );
+    }
+
+    #[test]
+    fn explicitly_selected_fills_still_recolor_and_update_but_new_fills_leave_edit_mode() {
+        let ctx = egui::Context::default();
+        let mut e = EditorState::default();
+        let mut d = doc();
+        let mut h = EditHistory::new(d.edit_state());
+        e.activate_fill(&mut d, &mut h);
+        e.place_fill(&ctx, Point { x: 10., y: 10. }, &d);
+        finish(&mut e, &ctx, &mut d, &mut h);
+        let first = d.edit_state();
+        e.select(Some(0), &d);
+        click_fill_control("Red", &mut e, &ctx, &mut d, &mut h);
+        assert_eq!(d.annotations[0].color, [225, 62, 61, 255]);
+        h.undo(&mut d);
+        assert_eq!(d.edit_state(), first);
+        h.redo(&mut d);
+        click_fill_control("Update fill region", &mut e, &ctx, &mut d, &mut h);
+        finish(&mut e, &ctx, &mut d, &mut h);
+        assert_eq!(e.selected, Some(0));
+        assert_eq!(d.annotations.len(), 1);
+        let previous = d.annotations[0].clone();
+        e.place_fill(&ctx, Point { x: 20., y: 20. }, &d);
+        finish(&mut e, &ctx, &mut d, &mut h);
+        assert!(e.selected.is_none());
+        click_fill_control("Blue", &mut e, &ctx, &mut d, &mut h);
+        assert_eq!(d.annotations[0], previous);
+        assert_eq!(d.annotations[1].color, previous.color);
     }
     #[test]
     fn switching_to_fill_preserves_area_and_async_fill_is_one_edit() {

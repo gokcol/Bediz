@@ -1,10 +1,10 @@
-Bediz (previously SkyImage and MyImage) 3.1.0 — build 124
-Microsoft Store package: 3.1.2.0
+Bediz (previously SkyImage and MyImage) 3.1.0 — build 125
+Microsoft Store package: 3.1.3.0
 
-- SkyImage is now Bediz on Mac and Windows. Existing MyImage and SkyImage projects, settings and update identity carry forward.
+- Quick Fill keeps completed fills in their original color when you choose another color or transparency. New colors apply to the next fill; use Select or Layers to edit an existing fill.
+- SkyImage is now Bediz. Existing MyImage and SkyImage projects, settings and updates carry forward.
 - Window scrolling captures independently scrolling panes in their original columns. Scroll each pane down in turn, then choose Done to combine them.
-- Combined captures preserve fixed headers and footers, with plain space below shorter panes and a pane count in the preview.
-- Fix scrolling capture after selecting a window, preserving the window target and handling fixed toolbars and sidebars.
+- Window scrolling preserves fixed headers, footers and sidebars, with a pane count in the preview.
 - Compact capture toolbar with icons, tooltips and a clear output percentage.
 - Keep Region or Window as your selection mode. After selecting, choose Capture for a still image or the scroll icon to collect a longer image, then Done.
 - Pause, restart or cancel scrolling capture. Escape cancels selection even when a capture menu is open.
@@ -12,7 +12,6 @@ Microsoft Store package: 3.1.2.0
 - Output size still defaults to 100%; choose 75%, 50% or 25% for a smaller finished image.
 - Click the shortcut in Capture Now to customize your capture hotkey.
 - Quick Start & Hotkeys has a visible close button as well as Escape.
-- The compact capture controls and automatic region scrolling are shared with Mac.
 - Store-installed copies continue to check Microsoft Store for updates.
 
 Support: orhan.gokcol@hotmail.com

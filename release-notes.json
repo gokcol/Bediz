@@ -1,8 +1,9 @@
 {
   "version": "3.1.0",
-  "build": 124,
-  "store_version": "3.1.2.0",
+  "build": 125,
+  "store_version": "3.1.3.0",
   "changes": [
+    "Completed fills keep their color when you choose a new color or transparency. Select an existing fill to recolor it.",
     "SkyImage is now Bediz on Mac and Windows. Existing MyImage and SkyImage projects, settings and update identity carry forward.",
     "Window scrolling captures independently scrolling panes in their original columns. Scroll each pane down in turn, then choose Done to combine them.",
     "Combined captures preserve fixed headers and footers, with plain space below shorter panes and a pane count in the preview.",
