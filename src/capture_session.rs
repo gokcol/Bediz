@@ -428,15 +428,23 @@ impl SelectionSession {
 #[derive(Debug, PartialEq)]
 enum SelectionAction {
     Cancel,
-    Window(u32, Option<[f32; 4]>),
+    Window(WindowCaptureRequest),
     Regions(Vec<selection::PixelRect>),
     Region(selection::PixelRect),
     Scroll(selection::PixelRect),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct WindowCaptureRequest {
+    pub id: u32,
+    pub crop: Option<[f32; 4]>,
+    pub scrolling: bool,
+}
+
 pub(super) struct WindowScrollArea {
     pub crop: Option<[f32; 4]>,
     pub bounds: Rect,
+    pub return_hidden: bool,
 }
 
 pub(super) struct ScrollSession {
@@ -530,8 +538,8 @@ impl MyImageApp {
                     self.restore_window(ctx, session.return_hidden);
                     self.status = "Capture canceled".into();
                 }
-                SelectionAction::Window(id, crop) => {
-                    self.capture_selected_window(ctx, screen, id, crop)
+                SelectionAction::Window(request) => {
+                    self.capture_selected_window(ctx, screen, request)
                 }
                 SelectionAction::Regions(regions) => {
                     self.queue_capture_output(ctx, screen.captured_at, move || {
@@ -1085,7 +1093,7 @@ impl MyImageApp {
                     Color32::WHITE,
                 );
                 if confirm && !placing_overlay && !selection.drag.active {
-                    if scroll {
+                    if scroll && mode != CaptureMode::Window {
                         accepted = chosen.and_then(|rect| selection::selection_to_pixels(
                             [rect.left() - bounds.left(), rect.top() - bounds.top()],
                             [rect.right() - bounds.left(), rect.bottom() - bounds.top()],
@@ -1112,14 +1120,15 @@ impl MyImageApp {
                                     .flatten()
                             })
                         {
-                            window = Some((
-                                w.id,
-                                if mode == CaptureMode::Scrolling {
+                            window = Some(WindowCaptureRequest {
+                                id: w.id,
+                                crop: if mode == CaptureMode::Scrolling {
                                     chosen.and_then(|r| window_selection(r, window_rect(w)))
                                 } else {
                                     None
                                 },
-                            ));
+                                scrolling: scroll || mode == CaptureMode::Scrolling,
+                            });
                         }
                     } else if let Some(rect) = chosen {
                         accepted = selection::selection_to_pixels(
@@ -1136,8 +1145,8 @@ impl MyImageApp {
         }
         if cancel {
             Some(SelectionAction::Cancel)
-        } else if let Some((id, crop)) = window {
-            Some(SelectionAction::Window(id, crop))
+        } else if let Some(request) = window {
+            Some(SelectionAction::Window(request))
         } else if !accepted_regions.is_empty() {
             Some(SelectionAction::Regions(accepted_regions))
         } else {
@@ -1153,13 +1162,16 @@ impl MyImageApp {
         &mut self,
         ctx: &egui::Context,
         selection: Selection,
-        id: u32,
-        crop: Option<[f32; 4]>,
+        request: WindowCaptureRequest,
     ) {
         self.pending_capture = Some(selection.return_hidden);
         self.generation += 1;
         let generation = self.generation;
-        let scrolling = selection.mode == CaptureMode::Scrolling;
+        let WindowCaptureRequest {
+            id,
+            crop,
+            scrolling,
+        } = request;
         let window = selection.windows.iter().find(|w| w.id == id);
         let bounds = window
             .map(|w| {
@@ -1218,13 +1230,12 @@ impl MyImageApp {
             let _ = tx.send(WorkEvent::WindowCaptured(
                 generation,
                 selection.display,
-                id,
-                crop,
+                request,
                 bounds,
                 Local::now(),
                 result,
             ));
-            ctx.request_repaint();
+            crate::runtime::wake_root(&ctx);
         });
     }
 
@@ -1320,15 +1331,14 @@ impl MyImageApp {
             capture_size: size,
             captured_at: at,
             stitcher: Some(stitcher),
-            message: "Scroll down in the selected window. Sections are collected automatically."
-                .into(),
+            message: "Scroll each pane down in turn. Done combines them.".into(),
             texture: None,
             placement_frames: 0,
             demo_offset: 0,
             window_id: Some(id),
             window_crop,
             bounds: area.bounds,
-            return_hidden: true,
+            return_hidden: area.return_hidden,
             reset_requested: false,
             paused: false,
             finish_requested: false,
@@ -1629,7 +1639,12 @@ impl MyImageApp {
                 .show(child, |ui| {
                     crate::capture_panel::apply_look(ui, &look);
                     ui.vertical_centered(|ui| {
-                        ui.small("Preview");
+                        let pane_count = session.stitcher.as_ref().map_or(0, Stitcher::pane_count);
+                        if pane_count >= 2 {
+                            ui.small(format!("Preview · {pane_count} panes"));
+                        } else {
+                            ui.small("Preview");
+                        }
                         let (rect, _) =
                             ui.allocate_exact_size(Vec2::new(132., 176.), egui::Sense::hover());
                         if let Some(texture) = &session.texture {
@@ -1717,6 +1732,9 @@ fn scroll_id(index: usize) -> egui::ViewportId {
     egui::ViewportId::from_hash_of(("scroll-capture", index))
 }
 impl ScrollSession {
+    pub fn captures_whole_window(&self) -> bool {
+        self.window_id.is_some() && self.window_crop.is_none()
+    }
     pub fn close(&self, ctx: &egui::Context) {
         for index in 0..6 {
             ctx.send_viewport_cmd_to(scroll_id(index), ViewportCommand::Visible(false));
@@ -2001,14 +2019,16 @@ mod tests {
     }
 
     #[test]
-    fn scroll_action_collects_without_changing_region_or_window_mode() {
-        for mode in [CaptureMode::Region, CaptureMode::Window] {
+    fn region_scroll_collects_and_cancels_from_editor_or_background() {
+        for return_hidden in [false, true] {
+            let mode = CaptureMode::Region;
             let ctx = egui::Context::default();
             ctx.set_embed_viewports(false);
             let mut app =
                 MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
             app.settings.capture_mode = mode;
             let mut screen = test_screens(&ctx, mode).screens.remove(0);
+            screen.return_hidden = return_hidden;
             screen.image = image::RgbaImage::from_fn(800, 600, demo_scroll_pixel);
             let rect = selection::PixelRect {
                 x: 100,
@@ -2022,6 +2042,8 @@ mod tests {
             app.capture_scroll_section(&ctx);
             wait_for_scroll_sample(&mut app, &ctx);
             let session = app.scroll_session.as_ref().unwrap();
+            assert_eq!(session.window_id, None);
+            assert_eq!(session.return_hidden, return_hidden);
             let stitcher = session.stitcher.as_ref().unwrap();
             assert_eq!(stitcher.image.dimensions(), (320, 400));
             assert_eq!(stitcher.sections, 2);
@@ -2082,6 +2104,113 @@ mod tests {
             assert!(app.scroll_session.is_none());
             assert!(app.document.is_none());
             assert_eq!(app.settings.capture_mode, mode);
+        }
+    }
+
+    #[test]
+    fn window_scroll_button_starts_collection_without_changing_mode() {
+        for return_hidden in [false, true] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            let mut app =
+                MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+            app.settings.capture_mode = CaptureMode::Window;
+            app.settings.capture_on_release = false;
+            let mut screen = test_screens(&ctx, CaptureMode::Window).screens.remove(0);
+            screen.return_hidden = return_hidden;
+            screen.windows.push(capture::WindowInfo {
+                id: 42,
+                name: "Scrolling document".into(),
+                x: 100,
+                y: 80,
+                width: 400,
+                height: 300,
+            });
+            for _ in 0..3 {
+                overlay_frame(&mut app, &ctx, &mut screen, vec![]);
+            }
+            let p = Pos2::new(200., 180.);
+            for pressed in [true, false] {
+                assert!(
+                    overlay_frame(
+                        &mut app,
+                        &ctx,
+                        &mut screen,
+                        vec![egui::Event::PointerMoved(p), pointer_button(p, pressed)],
+                    )
+                    .is_none()
+                );
+            }
+            assert_eq!(screen.window_id, Some(42));
+            let mut button = None;
+            for _ in 0..3 {
+                let output = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        assert!(app.selection_overlay_ui(ctx, &mut screen).is_none());
+                    },
+                );
+                button = output
+                    .platform_output
+                    .accesskit_update
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .find_map(|(_, node)| {
+                        (node.label() == Some("Scrolling capture"))
+                            .then(|| node.bounds())
+                            .flatten()
+                    });
+            }
+            let button = button.expect("selected Window must offer scrolling");
+            let p = Pos2::new(
+                (button.x0 + button.x1) as f32 / 2.,
+                (button.y0 + button.y1) as f32 / 2.,
+            );
+            overlay_frame(
+                &mut app,
+                &ctx,
+                &mut screen,
+                vec![egui::Event::PointerMoved(p), pointer_button(p, true)],
+            );
+            let action = overlay_frame(&mut app, &ctx, &mut screen, vec![pointer_button(p, false)]);
+            let Some(SelectionAction::Window(request)) = action else {
+                panic!("Window scrolling lost its native target: {action:?}");
+            };
+            assert_eq!(request.id, 42);
+            assert!(request.scrolling);
+            assert_eq!(request.crop, None);
+            app.capture_selected_window(&ctx, screen, request);
+            let until = std::time::Instant::now() + Duration::from_secs(5);
+            while app.pending_capture.is_some() && std::time::Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(5));
+                let _ = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
+            }
+            let session = app
+                .scroll_session
+                .as_ref()
+                .expect("Window scroll must start without changing the saved capture mode");
+            assert_eq!(session.window_id, Some(42));
+            assert_eq!(session.window_crop, None);
+            assert_eq!(session.capture_size, (400, 300));
+            assert_eq!(session.return_hidden, return_hidden);
+            assert!(
+                app.document.is_none(),
+                "starting scrolling must not deliver a still image"
+            );
+            assert_eq!(app.settings.capture_mode, CaptureMode::Window);
+            app.capture_scroll_section(&ctx);
+            wait_for_scroll_sample(&mut app, &ctx);
+            let session = app.scroll_session.as_ref().unwrap();
+            assert!(!session.paused);
+            assert_eq!(session.stitcher.as_ref().unwrap().sections, 2);
+            app.cancel_capture(&ctx);
+            assert!(app.scroll_session.is_none());
+            assert_eq!(app.hidden.load(Ordering::Relaxed), return_hidden);
+            assert_eq!(app.settings.capture_mode, CaptureMode::Window);
         }
     }
 
@@ -2788,6 +2917,7 @@ mod tests {
             WindowScrollArea {
                 crop: Some([0., 0., 1., 1.]),
                 bounds: Rect::from_min_size(Pos2::new(20., 30.), Vec2::new(300., 400.)),
+                return_hidden: false,
             },
             image::RgbaImage::new(300, 400),
             Local::now(),

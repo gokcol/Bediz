@@ -55,8 +55,7 @@ enum WorkEvent {
     WindowCaptured(
         u64,
         DisplayInfo,
-        u32,
-        Option<[f32; 4]>,
+        capture_session::WindowCaptureRequest,
         Rect,
         DateTime<Local>,
         Result<image::RgbaImage, String>,
@@ -1268,24 +1267,27 @@ impl MyImageApp {
                         }
                     }
                 }
-                WorkEvent::WindowCaptured(generation, display, id, crop, bounds, at, result) => {
-                    if generation != self.generation || self.pending_capture.take().is_none() {
+                WorkEvent::WindowCaptured(generation, display, request, bounds, at, result) => {
+                    if generation != self.generation {
                         continue;
                     }
+                    let Some(return_hidden) = self.pending_capture.take() else {
+                        continue;
+                    };
                     self.capture_cancel = None;
                     match result {
-                        Ok(image)
-                            if self.settings.capture_mode == capture::CaptureMode::Scrolling =>
-                        {
-                            self.start_window_scroll(
-                                ctx,
-                                display,
-                                id,
-                                capture_session::WindowScrollArea { crop, bounds },
-                                image,
-                                at,
-                            )
-                        }
+                        Ok(image) if request.scrolling => self.start_window_scroll(
+                            ctx,
+                            display,
+                            request.id,
+                            capture_session::WindowScrollArea {
+                                crop: request.crop,
+                                bounds,
+                                return_hidden,
+                            },
+                            image,
+                            at,
+                        ),
                         Ok(image) => self.save_captured_image(ctx, image, at),
                         Err(error) => {
                             self.restore_window(ctx, false);
@@ -1312,9 +1314,12 @@ impl MyImageApp {
                             }
                             Ok(false) => {
                                 if !session.paused {
-                                    session.message =
+                                    session.message = if session.captures_whole_window() {
+                                        "Scroll each pane down in turn. Done combines them."
+                                    } else {
                                         "Scroll down slowly. Sections are collected automatically."
-                                            .into();
+                                    }
+                                    .into();
                                 }
                             }
                             Err(error) => {

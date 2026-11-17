@@ -1,8 +1,11 @@
 {
   "version": "3.1.0",
-  "build": 121,
-  "store_version": "3.1.0.0",
+  "build": 123,
+  "store_version": "3.1.1.0",
   "changes": [
+    "Window scrolling captures independently scrolling panes in their original columns. Scroll each pane down in turn, then choose Done to combine them.",
+    "Combined captures preserve fixed headers and footers, with plain space below shorter panes and a pane count in the preview.",
+    "Fix scrolling capture after selecting a window, preserving the window target and handling fixed toolbars and sidebars.",
     "Compact capture toolbar with icons, tooltips and a clear output percentage.",
     "Keep Region or Window as your selection mode. After selecting, choose Capture for a still image or the scroll icon to collect a longer image, then Done.",
     "Pause, restart or cancel scrolling capture. Escape cancels selection even when a capture menu is open.",

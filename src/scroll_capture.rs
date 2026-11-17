@@ -1,6 +1,11 @@
 //! Guided vertical capture. Failed/ambiguous matches never modify accepted pixels.
 use image::RgbaImage;
 
+#[cfg(test)]
+mod multi_pane_tests;
+mod window;
+
+#[derive(Clone)]
 pub struct Stitcher {
     pub image: RgbaImage,
     last: RgbaImage,
@@ -10,6 +15,7 @@ pub struct Stitcher {
     pending: Option<RgbaImage>,
     preserve_bounds: bool,
     footer_height: u32,
+    window_tracks: Option<window::WindowTracks>,
 }
 impl Stitcher {
     pub fn new(image: RgbaImage) -> Self {
@@ -22,12 +28,14 @@ impl Stitcher {
             pending: None,
             preserve_bounds: false,
             footer_height: 0,
+            window_tracks: None,
         }
     }
     pub fn window(image: RgbaImage) -> Self {
         let size = image.dimensions();
         Self {
             window_size: Some(size),
+            window_tracks: Some(window::WindowTracks::new(image.clone())),
             ..Self::new(image)
         }
     }
@@ -35,14 +43,18 @@ impl Stitcher {
         let (width, height) = image.dimensions();
         Self {
             preserve_bounds: true,
+            window_size: Some((width, height)),
             window_area: Some(crate::selection::PixelRect {
                 x: 0,
                 y: 0,
                 width,
                 height,
             }),
-            ..Self::window(image)
+            ..Self::new(image)
         }
+    }
+    pub fn pane_count(&self) -> usize {
+        self.window_tracks.as_ref().map_or(0, |window| window.len())
     }
     /// Collect reliable overlaps while the user scrolls. A changing/animated frame
     /// may fail transiently; report an alignment problem only once it settles.
@@ -63,6 +75,14 @@ impl Stitcher {
         }
     }
     fn join_window(&mut self, frame: &RgbaImage) -> Result<bool, String> {
+        if let Some(window) = &mut self.window_tracks {
+            let Some(image) = window.observe(frame)? else {
+                return Ok(false);
+            };
+            self.image = image;
+            self.sections += 1;
+            return Ok(true);
+        }
         if let Some(rect) = self.window_area {
             let next = crop(frame, rect);
             if similar_frame(&self.last, &next) {
@@ -222,6 +242,18 @@ fn similar_frame(a: &RgbaImage, b: &RgbaImage) -> bool {
     if a.dimensions() != b.dimensions() {
         return false;
     }
+    similar_frame_area(
+        a,
+        b,
+        crate::selection::PixelRect {
+            x: 0,
+            y: 0,
+            width: a.width(),
+            height: a.height(),
+        },
+    )
+}
+fn similar_frame_area(a: &RgbaImage, b: &RgbaImage, area: crate::selection::PixelRect) -> bool {
     // A pointer highlight can cover more than a few sample points. Treat up to
     // two small, localized changes (its old/new positions) as an idle frame.
     // Otherwise a repeated paragraph can falsely match one whole section below
@@ -231,8 +263,8 @@ fn similar_frame(a: &RgbaImage, b: &RgbaImage) -> bool {
     let mut changed = Vec::new();
     for row in 0..64 {
         for col in 0..64 {
-            let x = col * (a.width() - 1) / 63;
-            let y = row * (a.height() - 1) / 63;
+            let x = area.x + col * (area.width - 1) / 63;
+            let y = area.y + row * (area.height - 1) / 63;
             if a.get_pixel(x, y).0[..3]
                 .iter()
                 .zip(&b.get_pixel(x, y).0[..3])
@@ -257,6 +289,14 @@ fn similar_frame(a: &RgbaImage, b: &RgbaImage) -> bool {
     changed.is_empty()
 }
 fn moving_regions(a: &RgbaImage, b: &RgbaImage) -> Vec<crate::selection::PixelRect> {
+    moving_regions_with_margin(a, b, 8)
+}
+
+fn moving_regions_with_margin(
+    a: &RgbaImage,
+    b: &RgbaImage,
+    margin: u32,
+) -> Vec<crate::selection::PixelRect> {
     let (w, h) = a.dimensions();
     if b.dimensions() != (w, h) {
         return vec![];
@@ -311,11 +351,11 @@ fn moving_regions(a: &RgbaImage, b: &RgbaImage) -> Vec<crate::selection::PixelRe
             if right - left < 32 || bottom - top < 48 {
                 return None;
             }
-            let left = left.saturating_sub(8);
+            let left = left.saturating_sub(margin);
             Some(crate::selection::PixelRect {
                 x: left,
                 y: top,
-                width: (right + 8).min(w) - left,
+                width: (right + margin).min(w) - left,
                 height: bottom - top,
             })
         })
@@ -575,6 +615,62 @@ mod tests {
         assert_eq!(stitch.image, before);
         assert!(stitch.observe_window(frame(450)).unwrap());
         assert!(stitch.observe_window(RgbaImage::new(200, 300)).is_err());
+    }
+    #[test]
+    fn whole_window_scroll_excludes_fixed_sidebar_that_blocks_region_alignment() {
+        let page = page();
+        let frame = |offset| {
+            let mut window = RgbaImage::from_pixel(640, 500, image::Rgba([30, 40, 50, 255]));
+            // A large stationary sidebar with detailed thumbnails, plus fixed
+            // header/footer chrome, as in a document or image viewer. Unlike
+            // flat borders, these pixels must not participate in vertical joins.
+            for y in 70..470u32 {
+                for x in 16..336u32 {
+                    let n = x
+                        .wrapping_mul(4397)
+                        .wrapping_add(y.wrapping_mul(19997))
+                        .wrapping_mul(31337);
+                    window.put_pixel(
+                        x,
+                        y,
+                        image::Rgba([
+                            (n % 251) as u8,
+                            ((n >> 8) % 251) as u8,
+                            ((n >> 16) % 251) as u8,
+                            255,
+                        ]),
+                    );
+                }
+            }
+            image::imageops::replace(
+                &mut window,
+                &image::imageops::crop_imm(&page, 0, offset, 240, 400).to_image(),
+                360,
+                70,
+            );
+            window
+        };
+
+        // Routing Window through the Region path cannot preserve this selected
+        // width and align the moving page. It pauses without corrupting pixels.
+        let first = frame(0);
+        let mut region = Stitcher::region(first.clone());
+        assert!(!region.observe_window(frame(150)).unwrap());
+        assert!(region.observe_window(frame(150)).is_err());
+        assert_eq!(region.sections, 1);
+        assert_eq!(region.image, first);
+
+        // Window capture discovers the moving content and excludes fixed UI.
+        let mut window = Stitcher::window(frame(0));
+        assert!(window.observe_window(frame(150)).unwrap());
+        assert!(window.observe_window(frame(310)).unwrap());
+        assert!(!window.observe_window(frame(310)).unwrap());
+        assert_eq!(window.sections, 3);
+        assert_eq!(window.image.dimensions(), (256, 710));
+        assert_eq!(
+            image::imageops::crop_imm(&window.image, 8, 0, 240, 710).to_image(),
+            image::imageops::crop_imm(&page, 0, 0, 240, 710).to_image()
+        );
     }
     #[test]
     fn window_focus_change_does_not_become_a_scrolling_header() {
