@@ -4,7 +4,7 @@
   "store_version": "3.0.1.0",
   "changes": [
     "Compact capture toolbar with icons, tooltips and a clear output percentage.",
-    "Select a region, choose Scrolling capture, scroll down, then choose Done. A live preview grows as sections are collected.",
+    "Keep Region or Window as your selection mode. After selecting, choose Capture for a still image or the scroll icon to collect a longer image, then Done.",
     "Pause, restart or cancel scrolling capture. Escape cancels selection even when a capture menu is open.",
     "Output size still defaults to 100%; choose 75%, 50% or 25% for a smaller finished image."
   ],

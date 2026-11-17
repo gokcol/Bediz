@@ -96,6 +96,7 @@ pub struct Settings {
     pub corner_radius: u32,
     pub delay_seconds: u32,
     pub capture_shortcut: crate::desktop::shortcut::CaptureShortcut,
+    #[serde(deserialize_with = "selection_mode")]
     pub capture_mode: crate::capture::CaptureMode,
     pub capture_output_size: crate::capture_size::OutputSize,
     pub capture_destination: crate::capture::CaptureDestination,
@@ -216,6 +217,20 @@ pub fn preset_library_path(demo: bool) -> Result<PathBuf, String> {
         .ok_or_else(|| "Cannot locate the annotation preset folder.".into())
 }
 
+// Legacy scrolling preferences become Region. Scrolling is now chosen after
+// selecting an area, and never replaces the user's Region/Window preference.
+fn selection_mode<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<crate::capture::CaptureMode, D::Error> {
+    use crate::capture::CaptureMode;
+    let mode = CaptureMode::deserialize(deserializer)?;
+    Ok(if mode == CaptureMode::Scrolling {
+        CaptureMode::Region
+    } else {
+        mode
+    })
+}
+
 pub fn load_settings() -> Result<Settings, String> {
     let path = settings_path()?;
     match fs::read(&path) {
@@ -242,6 +257,24 @@ mod tests {
     use super::*;
     use chrono::{Local, TimeZone};
     use std::sync::Arc;
+
+    #[test]
+    fn scrolling_is_an_action_and_legacy_preferences_open_region() {
+        use crate::capture::CaptureMode;
+        let legacy: Settings = serde_json::from_str(r#"{"capture_mode":"Scrolling"}"#).unwrap();
+        assert_eq!(legacy.capture_mode, CaptureMode::Region);
+        assert_eq!(Settings::default().capture_mode, CaptureMode::Region);
+        assert!(!CaptureMode::ALL.contains(&CaptureMode::Scrolling));
+        for mode in CaptureMode::ALL {
+            let original = Settings {
+                capture_mode: mode,
+                ..Default::default()
+            };
+            let restored: Settings =
+                serde_json::from_value(serde_json::to_value(original).unwrap()).unwrap();
+            assert_eq!(restored.capture_mode, mode);
+        }
+    }
 
     #[test]
     fn browsing_unchanged_recents_does_not_require_a_settings_write() {

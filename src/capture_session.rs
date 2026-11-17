@@ -704,16 +704,6 @@ impl MyImageApp {
                                 if capture_icon(ui, "Magnifier", appearance::Icon::Search, selection.magnifier).clicked() {
                                     selection.magnifier = !selection.magnifier;
                                 }
-                                if matches!(mode, CaptureMode::Region | CaptureMode::Window) {
-                                    let response = ui.add_enabled_ui(selection.drag.bounds().is_some(), |ui| {
-                                        let response = ui.add_sized([30., 30.], egui::Button::new(""));
-                                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Scrolling capture"));
-                                        crate::capture_panel::mode_icon(ui.painter(), CaptureMode::Scrolling,
-                                            Rect::from_center_size(response.rect.center(), Vec2::splat(18.)), ui.style().interact(&response).fg_stroke.color);
-                                        response.on_hover_text("Scrolling capture · Scroll this region, then choose Done")
-                                    }).inner;
-                                    if response.clicked() { scroll = true; }
-                                }
                                 if capture_icon(ui, "Reset selection", appearance::Icon::Refresh, false).clicked() {
                                     selection.drag = RegionDrag::default();
                                     selection.multi = MultiRegions::default();
@@ -725,6 +715,16 @@ impl MyImageApp {
                                     if ui.add_enabled_ui(selection.multi.selected.is_some(), |ui| capture_icon(ui, "Remove region · Delete", appearance::Icon::Trash, false)).inner.clicked() {
                                         selection.multi.remove_selected(&mut selection.drag);
                                     }
+                                }
+                                if matches!(mode, CaptureMode::Region | CaptureMode::Window) {
+                                    let response = ui.add_enabled_ui(selection.drag.bounds().is_some(), |ui| {
+                                        let response = ui.add_sized([30., 30.], egui::Button::new(""));
+                                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Scrolling capture"));
+                                        crate::capture_panel::mode_icon(ui.painter(), CaptureMode::Scrolling,
+                                            Rect::from_center_size(response.rect.center(), Vec2::splat(18.)), ui.style().interact(&response).fg_stroke.color);
+                                        response.on_hover_text("Scroll the selected area · Scroll slowly, then choose Done")
+                                    }).inner;
+                                    if response.clicked() { scroll = true; }
                                 }
                                 let ready = mode == CaptureMode::FullScreen
                                     || selection.drag.bounds().is_some()
@@ -2001,83 +2001,88 @@ mod tests {
     }
 
     #[test]
-    fn region_scroll_collects_automatically_resets_and_rejects_canceled_work() {
-        let ctx = egui::Context::default();
-        ctx.set_embed_viewports(false);
-        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
-        let mut screen = test_screens(&ctx, CaptureMode::Region).screens.remove(0);
-        screen.image = image::RgbaImage::from_fn(800, 600, demo_scroll_pixel);
-        let rect = selection::PixelRect {
-            x: 100,
-            y: 100,
-            width: 320,
-            height: 300,
-        };
-        app.start_scroll_session(&ctx, screen, rect);
-        assert!(app.hidden.load(Ordering::Relaxed));
-        assert_eq!(app.settings.capture_mode, CaptureMode::Region);
-        app.capture_scroll_section(&ctx);
-        wait_for_scroll_sample(&mut app, &ctx);
-        let session = app.scroll_session.as_ref().unwrap();
-        let stitcher = session.stitcher.as_ref().unwrap();
-        assert_eq!(stitcher.image.dimensions(), (320, 400));
-        assert_eq!(stitcher.sections, 2);
-        assert!(!session.paused);
+    fn scroll_action_collects_without_changing_region_or_window_mode() {
+        for mode in [CaptureMode::Region, CaptureMode::Window] {
+            let ctx = egui::Context::default();
+            ctx.set_embed_viewports(false);
+            let mut app =
+                MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+            app.settings.capture_mode = mode;
+            let mut screen = test_screens(&ctx, mode).screens.remove(0);
+            screen.image = image::RgbaImage::from_fn(800, 600, demo_scroll_pixel);
+            let rect = selection::PixelRect {
+                x: 100,
+                y: 100,
+                width: 320,
+                height: 300,
+            };
+            app.start_scroll_session(&ctx, screen, rect);
+            assert!(app.hidden.load(Ordering::Relaxed));
+            assert_eq!(app.settings.capture_mode, mode);
+            app.capture_scroll_section(&ctx);
+            wait_for_scroll_sample(&mut app, &ctx);
+            let session = app.scroll_session.as_ref().unwrap();
+            let stitcher = session.stitcher.as_ref().unwrap();
+            assert_eq!(stitcher.image.dimensions(), (320, 400));
+            assert_eq!(stitcher.sections, 2);
+            assert!(!session.paused);
 
-        app.scroll_session.as_mut().unwrap().reset_requested = true;
-        app.capture_scroll_section(&ctx);
-        wait_for_scroll_sample(&mut app, &ctx);
-        let stitcher = app
-            .scroll_session
-            .as_ref()
-            .unwrap()
-            .stitcher
-            .as_ref()
-            .unwrap();
-        assert_eq!(stitcher.image.dimensions(), (320, 300));
-        assert_eq!(stitcher.sections, 1);
-        assert_eq!(*stitcher.image.get_pixel(0, 0), demo_scroll_pixel(100, 200));
+            app.scroll_session.as_mut().unwrap().reset_requested = true;
+            app.capture_scroll_section(&ctx);
+            wait_for_scroll_sample(&mut app, &ctx);
+            let stitcher = app
+                .scroll_session
+                .as_ref()
+                .unwrap()
+                .stitcher
+                .as_ref()
+                .unwrap();
+            assert_eq!(stitcher.image.dimensions(), (320, 300));
+            assert_eq!(stitcher.sections, 1);
+            assert_eq!(*stitcher.image.get_pixel(0, 0), demo_scroll_pixel(100, 200));
 
-        let generation = app.generation;
-        let stale = app
-            .scroll_session
-            .as_mut()
-            .unwrap()
-            .stitcher
-            .take()
-            .unwrap();
-        app.busy = true;
-        app.desktop_tx.send(DesktopEvent::CancelCapture).unwrap();
-        let output = ctx.run(egui::RawInput::default(), |ctx| {
+            let generation = app.generation;
+            let stale = app
+                .scroll_session
+                .as_mut()
+                .unwrap()
+                .stitcher
+                .take()
+                .unwrap();
+            app.busy = true;
+            app.desktop_tx.send(DesktopEvent::CancelCapture).unwrap();
+            let output = ctx.run(egui::RawInput::default(), |ctx| {
+                for index in 0..6 {
+                    ctx.show_viewport_deferred(
+                        scroll_id(index),
+                        egui::ViewportBuilder::default(),
+                        |_, _| {},
+                    );
+                }
+                app.handle_events(ctx);
+            });
+            assert!(app.scroll_session.is_none());
+            assert!(!app.busy);
             for index in 0..6 {
-                ctx.show_viewport_deferred(
-                    scroll_id(index),
-                    egui::ViewportBuilder::default(),
-                    |_, _| {},
+                assert!(
+                    output.viewport_output[&scroll_id(index)]
+                        .commands
+                        .contains(&ViewportCommand::Close)
                 );
             }
-            app.handle_events(ctx);
-        });
-        assert!(app.scroll_session.is_none());
-        assert!(!app.busy);
-        for index in 0..6 {
-            assert!(
-                output.viewport_output[&scroll_id(index)]
-                    .commands
-                    .contains(&ViewportCommand::Close)
-            );
+            app.work_tx
+                .send(WorkEvent::ScrollSection(
+                    generation,
+                    Box::new(stale),
+                    Ok(true),
+                    true,
+                ))
+                .unwrap();
+            let _ = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
+            assert!(app.scroll_session.is_none());
+            assert!(app.document.is_none());
+            assert_eq!(app.settings.capture_mode, mode);
         }
-        app.work_tx
-            .send(WorkEvent::ScrollSection(
-                generation,
-                Box::new(stale),
-                Ok(true),
-                true,
-            ))
-            .unwrap();
-        let _ = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
-        assert!(app.scroll_session.is_none());
-        assert!(app.document.is_none());
     }
 
     #[test]

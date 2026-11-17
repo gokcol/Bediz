@@ -83,6 +83,8 @@ Scrolling regions are sampled automatically with the existing overlap matcher. A
 
 Escape cancels a selection even with a popup open. A temporary native Escape registration also routes cancellation while the document has focus during scrolling; registration is removed outside capture. Canceled worker results are rejected by the capture generation. ScreenCaptureKit excludes this app's controls; Windows HUD windows request WDA_EXCLUDEFROMCAPTURE.
 
-Local validation: 701 app tests and 17 packaging tests passed, as did formatting and Clippy. Regressions cover popup cancellation, compact layout in every mode, Retina/negative-origin geometry, automatic region sampling and restart, canceled work, controller-only reopen, and hidden-editor/input-transparent HUD lifecycle. Native Mac and Windows CI validation are pending.
+Scrolling is no longer offered as a capture mode. The saved active mode remains Region or Window; a separate secondary scroll action sits beside Capture after selection. Old Scrolling preferences migrate to Region. The resident runtime retains delayed repaint deadlines so automatic collection continues while its editor is hidden.
+
+Local validation of the initial candidate: 701 app tests and 17 packaging tests passed, as did formatting and Clippy. Regressions cover popup cancellation, compact layout in every mode, Retina/negative-origin geometry, automatic region sampling and restart, canceled work, controller-only reopen, and hidden-editor/input-transparent HUD lifecycle. Native Mac and Windows CI validation are pending.
 
 The local Dock had retained an entry pointing to the missing /Applications/MyImage.app. That single entry was repaired to /Applications/SkyImage.app after backing up the Dock preferences. The installed build 117 was observed opening normally; no app crash report explained the earlier launch delay.

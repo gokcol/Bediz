@@ -59,12 +59,13 @@ pub enum CaptureMode {
     Text,
 }
 impl CaptureMode {
-    pub const ALL: [Self; 6] = [
+    // Scrolling is a post-selection action. Keep the legacy variant readable
+    // for compatibility, but never offer it as a selection mode.
+    pub const ALL: [Self; 5] = [
         Self::Region,
         Self::MultiRegion,
         Self::Window,
         Self::FullScreen,
-        Self::Scrolling,
         Self::Text,
     ];
     pub fn label(self) -> &'static str {
