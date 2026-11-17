@@ -14,6 +14,13 @@ Image paste retains separate, movable and resizable image layers. Native image p
 
 ## Release status
 
-Release tag: `v3.1.0-build126`. Release preparation is pending commit, push and packaging verification. Mac distribution requires Developer ID signing and Apple notarization; Windows Setup/portable packages require the existing installer validation workflow. Interactive Windows clipboard/device validation remains pending.
+Source commit `308f44546bb590078037061b296c7c421ac36ff1` and tag `v3.1.0-build126` are pushed. The [GitHub draft release](https://github.com/gokcol/MyImage/releases/tag/untagged-74e3169592cbfa0ec965) has all nine verified Mac/Windows distribution assets attached.
+
+- Mac app notarization accepted: `ae72a010-f09b-42c7-80eb-6b8f6ffbfd75`. DMG notarization accepted: `77763691-cfb4-4109-ac6f-364aca0145a5`. Developer ID signatures, hardened runtime, timestamps, stapled tickets, Gatekeeper, archive contents and the read-only DMG check passed.
+- [Windows packaging and installer checks](https://github.com/gokcol/MyImage/actions/runs/44112055497) passed for the tagged source. Setup/portable checksums, source/build metadata, executable identity, Bediz branding and embedded release notes passed verification.
+- All nine GitHub distribution asset sizes and SHA-256 digests match the verified local files. Evidence is recorded in `dist/release-v3.1.0-build126/release-validation.json` and attached to the draft.
+- [GitHub Native checks](https://github.com/gokcol/MyImage/actions/runs/44111939692) is still queued waiting for a Mac runner as of 17 November 2026. Publication is pending that workflow's successful completion; the local suite passed as recorded above.
+
+Windows GitHub downloads are unsigned. Interactive Windows clipboard/device validation remains pending. The installer workflow tests reinstallation and simulated legacy shortcut migration, rather than an interactive upgrade from build 125. This release preparation did not update the installed Mac app.
 
 The Microsoft Store submission remains a separate build 125 submission (package 3.1.3.0); this GitHub release request does not submit a Store update. Application identifiers, project format and storage paths are retained.
