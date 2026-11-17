@@ -1,0 +1,14 @@
+SkyImage (previously MyImage) 3.1.0 — build 120
+Microsoft Store package: 3.1.0.0
+
+- Compact capture toolbar with icons, tooltips and a clear output percentage.
+- Keep Region or Window as your selection mode. After selecting, choose Capture for a still image or the scroll icon to collect a longer image, then Done.
+- Pause, restart or cancel scrolling capture. Escape cancels selection even when a capture menu is open.
+- Scrolling capture ignores localized cursor changes so repeated sections are not duplicated.
+- Output size still defaults to 100%; choose 75%, 50% or 25% for a smaller finished image.
+- Click the shortcut in Capture Now to customize your capture hotkey.
+- Quick Start & Hotkeys has a visible close button as well as Escape.
+- The compact capture controls and automatic region scrolling are shared with Mac.
+- Store-installed copies continue to check Microsoft Store for updates.
+
+Support: orhan.gokcol@hotmail.com

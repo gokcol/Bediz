@@ -46,7 +46,7 @@ These public values are configured as GitHub Actions variables. The product's
 reserved display name is configured separately in `MSIX_DISPLAY_NAME`; it must
 match Partner Center exactly, including punctuation.
 
-Current source app version is **3.0.1**, build **109**; the independent MSIX version is **3.0.1.0**.
+Current source app version is **3.1.0**, build **120**; the independent MSIX version is **3.1.0.0**.
 Windows display branding is SkyImage; the registered package identity remains MyImage. See [rename compatibility](../../../docs/SKYIMAGE-STORE.md).
 This source version includes Store-aware update checks; Microsoft approval of a previous version does not approve this new package.
 This preserves increasing package order after the earlier 1.x packages.
