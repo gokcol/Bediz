@@ -167,10 +167,8 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
             crate::capture_window::after_paint();
         }
 
-        if (self.hidden.load(Ordering::Relaxed) || self.root.occluded)
-            && matches!(event_loop.control_flow(), ControlFlow::Poll)
-        {
-            event_loop.set_control_flow(ControlFlow::Wait);
+        if self.hidden.load(Ordering::Relaxed) || self.root.occluded {
+            event_loop.set_control_flow(self.wakeup.control_flow(event_loop.control_flow()));
         }
     }
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
@@ -186,16 +184,38 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
 
 #[derive(Default)]
 struct RootWakeup {
-    pending: bool,
+    deadline: Option<std::time::Instant>,
 }
 impl RootWakeup {
     fn schedule(&mut self, event: &UserEvent, dormant: bool) {
-        self.pending |= dormant
-            && matches!(event, UserEvent::RequestRepaint { when, .. }
-            if *when <= std::time::Instant::now());
+        if dormant && let UserEvent::RequestRepaint { when, .. } = event {
+            self.deadline = Some(self.deadline.map_or(*when, |old| old.min(*when)));
+        }
     }
     fn take(&mut self, dormant: bool) -> bool {
-        std::mem::take(&mut self.pending) && dormant
+        self.take_at(dormant, std::time::Instant::now())
+    }
+    fn take_at(&mut self, dormant: bool, now: std::time::Instant) -> bool {
+        if !dormant {
+            self.deadline = None;
+            return false;
+        }
+        if self.deadline.is_some_and(|deadline| deadline <= now) {
+            self.deadline = None;
+            true
+        } else {
+            false
+        }
+    }
+    fn control_flow(&self, current: ControlFlow) -> ControlFlow {
+        match (current, self.deadline) {
+            (ControlFlow::WaitUntil(native), Some(deadline)) => {
+                ControlFlow::WaitUntil(native.min(deadline))
+            }
+            (_, Some(deadline)) => ControlFlow::WaitUntil(deadline),
+            (ControlFlow::Poll, None) => ControlFlow::Wait,
+            (other, None) => other,
+        }
     }
 }
 
@@ -297,6 +317,56 @@ mod tests {
             true,
         );
         assert!(!wakeup.take(true));
+    }
+
+    #[test]
+    fn delayed_capture_repaint_wakes_hidden_root_without_continuous_polling() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let later = now + Duration::from_millis(200);
+        let mut wakeup = RootWakeup::default();
+        wakeup.schedule(
+            &UserEvent::RequestRepaint {
+                viewport_id: egui::ViewportId::ROOT,
+                when: later,
+                cumulative_pass_nr: 1,
+            },
+            true,
+        );
+        assert!(!wakeup.take_at(true, now));
+        assert_eq!(
+            wakeup.control_flow(ControlFlow::Poll),
+            ControlFlow::WaitUntil(later)
+        );
+        assert_eq!(
+            wakeup.control_flow(ControlFlow::Wait),
+            ControlFlow::WaitUntil(later)
+        );
+        let native = now + Duration::from_millis(50);
+        assert_eq!(
+            wakeup.control_flow(ControlFlow::WaitUntil(native)),
+            ControlFlow::WaitUntil(native)
+        );
+        assert!(wakeup.take_at(true, later));
+        assert!(!wakeup.take_at(true, later));
+        assert_eq!(wakeup.control_flow(ControlFlow::Poll), ControlFlow::Wait);
+        // Later child animation requests cannot postpone the capture deadline.
+        for when in [later, later + Duration::from_secs(1)] {
+            wakeup.schedule(
+                &UserEvent::RequestRepaint {
+                    viewport_id: egui::ViewportId::from_hash_of("scroll-preview"),
+                    when,
+                    cumulative_pass_nr: 2,
+                },
+                true,
+            );
+        }
+        assert_eq!(
+            wakeup.control_flow(ControlFlow::Wait),
+            ControlFlow::WaitUntil(later)
+        );
+        assert!(!wakeup.take_at(false, later));
+        assert_eq!(wakeup.control_flow(ControlFlow::Wait), ControlFlow::Wait);
     }
 
     #[test]
