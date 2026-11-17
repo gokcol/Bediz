@@ -2,9 +2,9 @@
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download Bediz v3.1 · build 125 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build125). Completed fills now keep their colors when choosing the next fill color. Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture/device testing remains pending.
+[Download Bediz v3.1 · build 127 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build127). Existing Recents thumbnails stay visible after capture, and pasted text becomes an editable canvas text box. Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture/device testing remains pending.
 
-[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). Store package **3.1.3.0** for **Bediz 3.1.0 build 125** is **submitted and in certification** as submission **7**, with automatic publication after Microsoft approval. Bediz build 124, package 3.1.2.0, is published in the Store. The same Store product carries forward existing installations, projects and settings. See [build 125 validation and release status](docs/RELEASE-125.md).
+[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). The last recorded Store submission is package **3.1.3.0** for **Bediz 3.1.0 build 125**: submission **7**, submitted for certification on 17 November 2026 with automatic publication after Microsoft approval. Build 127 is a separate GitHub release. The same Store product carries forward existing installations, projects and settings. See [build 125 validation and submission record](docs/RELEASE-125.md).
 
 Bediz opens in **Home**, with **Editor**, **Library**, and **Create** beside it in the compact top toolbar. **View only** remains available from the bottom **App** menu. The native editor has a drawing toolbar, a large canvas, and an annotation inspector. Add editable text, arrows, 17 shape types, stamps, numbered steps, callouts, highlights, and freehand pen strokes; select, move, resize, recolor, reorder, or delete them. Add adjustable blur and pixelate regions to obscure selected areas, or use Fill to recolor or clear connected backgrounds. Crop, resize, and rotate the image without changing its original pixels. Undo and redo cover both image edits and annotations during the current session.
 
@@ -12,7 +12,7 @@ Bediz automatically creates and saves **`.myimage` projects**, keeping each orig
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
 
-## Bediz 3.1 · build 127 — release preparation
+## Bediz 3.1 · build 127
 
 Capturing keeps existing Recents thumbnails visible while only the new capture loads. Temporary capture hiding and clipboard retries preserve the cached previews. Intentional backgrounding still releases caches, and thumbnail storage remains bounded.
 
