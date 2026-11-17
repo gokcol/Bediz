@@ -1,6 +1,6 @@
 # Store branding history
 
-The current name is **Bediz** from build 124 / Store package 3.1.2.0. See [Bediz release and migration details](BEDIZ.md). The records below describe earlier SkyImage releases.
+The current app name is **Bediz** from build 124 / Store package 3.1.2.0. Its Store rename is in certification as submission 6, with automatic publishing after approval. See [Bediz release and migration details](BEDIZ.md). The records below describe earlier SkyImage releases.
 
 # SkyImage Windows Store update
 
