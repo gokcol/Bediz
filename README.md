@@ -2,7 +2,7 @@
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download Bediz v3.1 · build 127 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build127). Existing Recents thumbnails stay visible after capture, and pasted text becomes an editable canvas text box. Mac Apple Silicon DMG/ZIP are Developer ID signed and notarized. Windows x64 Setup and portable ZIP are unsigned; interactive Windows capture/device testing remains pending.
+[Download Bediz v3.1 · build 128 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build128). The capture selection overlay can finish opening while Bediz is in the background, even if macOS delays window redraws. Download a Developer ID signed and notarized DMG or ZIP for Mac Apple Silicon, or an unsigned Setup installer or portable ZIP for Windows x64.
 
 [Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). **Bediz 3.1.0 build 127**, Store package **3.1.4.0**, is **in certification** as submission **8**, submitted on 17 November 2026 with automatic publication after Microsoft approval. Build 125 / package 3.1.3.0 is currently published. The same Store product carries forward existing installations, projects and settings. See [build 127 validation and submission record](docs/RELEASE-127.md).
 
