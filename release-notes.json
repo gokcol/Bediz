@@ -1,8 +1,9 @@
 {
   "version": "3.1.0",
-  "build": 127,
+  "build": 128,
   "store_version": "3.1.4.0",
   "changes": [
+    "Capture selection keeps preparing in the background even when the editor is hidden and native redraws are delayed.",
     "Existing Recents thumbnails stay visible after capture. Only the new capture loads, avoiding the one-by-one strip redraw.",
     "Paste text on an open canvas to create an editable text box. Double-click to edit, or drag to move it.",
     "Paste images as movable, resizable canvas layers. Clipboard images take priority over accompanying URL text.",

@@ -362,6 +362,8 @@ pub(super) struct SelectionSession {
     pub return_hidden: bool,
 }
 
+const SELECTION_PLACEMENT_FRAMES: u8 = 4;
+
 fn overlay_id(display: &DisplayInfo) -> egui::ViewportId {
     egui::ViewportId::from_hash_of(("capture-screen", display.id))
 }
@@ -418,7 +420,7 @@ impl SelectionSession {
 
     pub fn focus(&self, ctx: &egui::Context) {
         if let Some(screen) = self.screens.first()
-            && screen.placement_frames >= 4
+            && screen.placement_frames >= SELECTION_PLACEMENT_FRAMES
         {
             ctx.send_viewport_cmd_to(overlay_id(&screen.display), ViewportCommand::Focus);
         }
@@ -474,6 +476,7 @@ impl MyImageApp {
             return;
         };
         let mut chosen = None;
+        let mut needs_placement_frame = false;
         if !self.demo {
             crate::capture_window::prepare();
         }
@@ -486,7 +489,9 @@ impl MyImageApp {
                 screen.window_id = None;
                 screen.hover_cycle = 0;
             }
-            let first_reveal = screen.placement_frames >= 4 && screen.reveal_time.is_none();
+            let placing = screen.placement_frames < SELECTION_PLACEMENT_FRAMES;
+            needs_placement_frame |= placing;
+            let first_reveal = !placing && screen.reveal_time.is_none();
             if index == 0
                 && first_reveal
                 && let Some(desktop) = &self.desktop
@@ -514,7 +519,7 @@ impl MyImageApp {
                 .with_transparent(cfg!(target_os = "macos"))
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_active(false)
-                .with_visible(screen.placement_frames >= 4);
+                .with_visible(!placing);
             // Every display has a dedicated surface. The resident runtime
             // drains child repaint/input requests while the editor stays hidden.
             ctx.show_viewport_immediate(overlay_id(&screen.display), builder, |child, _| {
@@ -551,6 +556,12 @@ impl MyImageApp {
             }
         } else {
             self.selection = Some(session);
+            if needs_placement_frame {
+                // Both editor and overlays can be hidden during placement.
+                // Schedule the next root update even if macOS suppresses
+                // native redraws or egui coalesces child repaint requests.
+                crate::runtime::wake_root(ctx);
+            }
         }
     }
 
@@ -565,7 +576,7 @@ impl MyImageApp {
         {
             return Some(SelectionAction::Cancel);
         }
-        let placing_overlay = selection.placement_frames < 4;
+        let placing_overlay = selection.placement_frames < SELECTION_PLACEMENT_FRAMES;
         if !placing_overlay && !self.demo {
             crate::capture_window::reveal_after_paint(&crate::capture_window::title(
                 &selection.display.name,
@@ -581,7 +592,6 @@ impl MyImageApp {
             ctx.send_viewport_cmd(ViewportCommand::InnerSize(size));
             ctx.send_viewport_cmd(ViewportCommand::OuterPosition(position));
             selection.placement_frames += 1;
-            ctx.request_repaint();
         }
         if !placing_overlay {
             selection
@@ -2580,6 +2590,42 @@ mod tests {
             );
             assert!(session.screens[1 - index].drag.bounds().is_none());
         }
+    }
+
+    #[test]
+    fn selection_reaches_reveal_with_only_explicit_background_wakes() {
+        let ctx = egui::Context::default();
+        let hidden = Arc::new(AtomicBool::new(true));
+        let mut app = MyImageApp::with_context(&ctx, false, hidden.clone(), true);
+        app.settings.capture_mode = CaptureMode::Region;
+        let pending = Arc::new(AtomicBool::new(false));
+        crate::runtime::install_root_waker(&ctx, pending.clone(), |_| {});
+        let mut session = test_screens(&ctx, CaptureMode::Region);
+        for screen in &mut session.screens {
+            screen.placement_frames = 0;
+        }
+        app.selection = Some(session);
+
+        // No native window or repaint callback advances these frames. Each
+        // placement frame must queue the next one, including the reveal.
+        for frame in 0..=SELECTION_PLACEMENT_FRAMES {
+            if frame > 0 {
+                assert!(pending.swap(false, Ordering::AcqRel));
+            }
+            let _ = ctx.run(egui::RawInput::default(), |ctx| app.selection_ui(ctx));
+            assert!(hidden.load(Ordering::Relaxed));
+            assert!(
+                app.selection
+                    .as_ref()
+                    .unwrap()
+                    .screens
+                    .iter()
+                    .all(|screen| {
+                        screen.reveal_time.is_some() == (frame == SELECTION_PLACEMENT_FRAMES)
+                    })
+            );
+        }
+        assert!(!pending.load(Ordering::Acquire));
     }
 
     #[test]

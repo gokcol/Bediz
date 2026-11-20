@@ -1265,9 +1265,6 @@ impl MyImageApp {
                                 self.settings.capture_mode,
                                 return_hidden,
                             ));
-                            // Prepare dedicated overlays while the editor stays
-                            // hidden at its normal geometry throughout capture.
-                            crate::runtime::wake_root(ctx);
                         }
                         result => {
                             self.error = Some(

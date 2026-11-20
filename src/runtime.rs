@@ -47,20 +47,12 @@ pub fn run(background: bool) -> eframe::Result {
         "MyImage",
         options,
         Box::new(move |cc| {
-            cc.egui_ctx.data_mut(|data| {
-                data.insert_temp(
-                    egui::Id::new("root-command-waker"),
-                    CommandWaker {
-                        pending: app_wake,
-                        notify: Arc::new(move |cumulative_pass_nr| {
-                            let _ = proxy.send_event(UserEvent::RequestRepaint {
-                                viewport_id: egui::ViewportId::ROOT,
-                                when: std::time::Instant::now(),
-                                cumulative_pass_nr,
-                            });
-                        }),
-                    },
-                );
+            install_root_waker(&cc.egui_ctx, app_wake, move |cumulative_pass_nr| {
+                let _ = proxy.send_event(UserEvent::RequestRepaint {
+                    viewport_id: egui::ViewportId::ROOT,
+                    when: std::time::Instant::now(),
+                    cumulative_pass_nr,
+                });
             });
             Ok(Box::new(crate::app::MyImageApp::new(
                 cc, background, app_hidden,
@@ -85,6 +77,22 @@ pub fn run(background: bool) -> eframe::Result {
 struct CommandWaker {
     pending: Arc<AtomicBool>,
     notify: Arc<dyn Fn(u64) + Send + Sync>,
+}
+
+pub(crate) fn install_root_waker(
+    ctx: &egui::Context,
+    pending: Arc<AtomicBool>,
+    notify: impl Fn(u64) + Send + Sync + 'static,
+) {
+    ctx.data_mut(|data| {
+        data.insert_temp(
+            egui::Id::new("root-command-waker"),
+            CommandWaker {
+                pending,
+                notify: Arc::new(notify),
+            },
+        );
+    });
 }
 
 pub fn wake_root(ctx: &egui::Context) {
@@ -163,16 +171,19 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
         // External commands get one root update even if native occlusion state
         // is stale. Drain only here, after native input, never recursively from
         // user_event (immediate child viewports may enqueue more repaints).
-        let command = self.external_wake.swap(false, Ordering::AcqRel);
-        if (command || redraw)
-            && let Some(id) = self.root.id
+        if let Some(id) = self.root.id
+            && (self.external_wake.swap(false, Ordering::AcqRel) || redraw)
         {
             self.inner
                 .window_event(event_loop, id, WindowEvent::RedrawRequested);
             crate::capture_window::after_paint();
         }
 
-        if self.hidden.load(Ordering::Relaxed) || self.root.occluded {
+        // Painting can queue the next step of a capture after native events
+        // have been drained. Run another event-loop turn for that work.
+        if self.root.id.is_some() && self.external_wake.load(Ordering::Acquire) {
+            event_loop.set_control_flow(ControlFlow::Poll);
+        } else if self.hidden.load(Ordering::Relaxed) || self.root.occluded {
             event_loop.set_control_flow(self.wakeup.control_flow(event_loop.control_flow()));
         }
     }
@@ -264,16 +275,8 @@ mod tests {
         let pending = Arc::new(AtomicBool::new(false));
         let notifications = Arc::new(AtomicUsize::new(0));
         let count = notifications.clone();
-        ctx.data_mut(|data| {
-            data.insert_temp(
-                egui::Id::new("root-command-waker"),
-                CommandWaker {
-                    pending: pending.clone(),
-                    notify: Arc::new(move |_| {
-                        count.fetch_add(1, Ordering::Relaxed);
-                    }),
-                },
-            )
+        install_root_waker(&ctx, pending.clone(), move |_| {
+            count.fetch_add(1, Ordering::Relaxed);
         });
         // Hotkey delivery and a worker result must both escape that suppression.
         wake_root(&ctx);
