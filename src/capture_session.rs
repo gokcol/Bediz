@@ -411,6 +411,7 @@ impl SelectionSession {
     }
 
     pub fn close(&self, ctx: &egui::Context) {
+        crate::capture_window::forget_overlay_reveals();
         for screen in &self.screens {
             ctx.send_viewport_cmd_to(overlay_id(&screen.display), ViewportCommand::Visible(false));
             ctx.send_viewport_cmd_to(overlay_id(&screen.display), ViewportCommand::Close);
@@ -419,6 +420,13 @@ impl SelectionSession {
     }
 
     pub fn focus(&self, ctx: &egui::Context) {
+        for screen in &self.screens {
+            if screen.reveal_time.is_some() {
+                crate::capture_window::reveal_after_paint(&crate::capture_window::title(
+                    &screen.display,
+                ));
+            }
+        }
         if let Some(screen) = self.screens.first()
             && screen.placement_frames >= SELECTION_PLACEMENT_FRAMES
         {
@@ -508,7 +516,7 @@ impl MyImageApp {
                 };
             let (position, size) = overlay_geometry(&screen.display, divisor);
             let builder = egui::ViewportBuilder::default()
-                .with_title(crate::capture_window::title(&screen.display.name))
+                .with_title(crate::capture_window::title(&screen.display))
                 .with_position(position)
                 .with_inner_size(size)
                 .with_min_inner_size(Vec2::ZERO)
@@ -577,9 +585,9 @@ impl MyImageApp {
             return Some(SelectionAction::Cancel);
         }
         let placing_overlay = selection.placement_frames < SELECTION_PLACEMENT_FRAMES;
-        if !placing_overlay && !self.demo {
+        if !placing_overlay && selection.reveal_time.is_none() && !self.demo {
             crate::capture_window::reveal_after_paint(&crate::capture_window::title(
-                &selection.display.name,
+                &selection.display,
             ));
         }
         if placing_overlay {

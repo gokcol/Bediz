@@ -150,10 +150,12 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
         }
         let redraw = matches!(event, WindowEvent::RedrawRequested);
         self.inner.window_event(event_loop, id, event);
-        if redraw {
+        if redraw && self.root.id == Some(id) {
             // Visibility commands are applied by eframe after painting. Reveal
             // capture backing surfaces only after that entire operation returns.
-            crate::capture_window::after_paint();
+            if let Some(when) = crate::capture_window::after_paint() {
+                self.wakeup.schedule_deadline(when);
+            }
         }
     }
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
@@ -183,15 +185,24 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
         {
             self.inner
                 .window_event(event_loop, id, WindowEvent::RedrawRequested);
-            crate::capture_window::after_paint();
+            if let Some(when) = crate::capture_window::after_paint() {
+                self.wakeup.schedule_deadline(when);
+            }
         }
 
         // Painting can queue the next step of a capture after native events
         // have been drained. Run another event-loop turn for that work.
         if self.root.id.is_some() && self.external_wake.load(Ordering::Acquire) {
             event_loop.set_control_flow(ControlFlow::Poll);
-        } else if self.hidden.load(Ordering::Relaxed) || self.root.occluded {
-            event_loop.set_control_flow(self.wakeup.control_flow(event_loop.control_flow()));
+        } else {
+            let current = event_loop.control_flow();
+            let now = std::time::Instant::now();
+            if self.hidden.load(Ordering::Relaxed)
+                || self.root.occluded
+                || matches!(current, ControlFlow::WaitUntil(deadline) if deadline <= now)
+            {
+                event_loop.set_control_flow(self.wakeup.control_flow_at(current, now));
+            }
         }
     }
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
@@ -212,8 +223,11 @@ struct RootWakeup {
 impl RootWakeup {
     fn schedule(&mut self, event: &UserEvent, dormant: bool) {
         if dormant && let UserEvent::RequestRepaint { when, .. } = event {
-            self.deadline = Some(self.deadline.map_or(*when, |old| old.min(*when)));
+            self.schedule_deadline(*when);
         }
+    }
+    fn schedule_deadline(&mut self, when: std::time::Instant) {
+        self.deadline = Some(self.deadline.map_or(when, |old| old.min(when)));
     }
     fn take(&mut self, dormant: bool) -> bool {
         self.take_at(dormant, std::time::Instant::now())
@@ -230,7 +244,13 @@ impl RootWakeup {
             false
         }
     }
-    fn control_flow(&self, current: ControlFlow) -> ControlFlow {
+    fn control_flow_at(&self, current: ControlFlow, now: std::time::Instant) -> ControlFlow {
+        // The event loop can still hold the deadline for the turn just run.
+        // Carrying it forward would poll until the next native event.
+        let current = match current {
+            ControlFlow::WaitUntil(deadline) if deadline <= now => ControlFlow::Wait,
+            other => other,
+        };
         match (current, self.deadline) {
             (ControlFlow::WaitUntil(native), Some(deadline)) => {
                 ControlFlow::WaitUntil(native.min(deadline))
@@ -350,21 +370,24 @@ mod tests {
         );
         assert!(!wakeup.take_at(true, now));
         assert_eq!(
-            wakeup.control_flow(ControlFlow::Poll),
+            wakeup.control_flow_at(ControlFlow::Poll, now),
             ControlFlow::WaitUntil(later)
         );
         assert_eq!(
-            wakeup.control_flow(ControlFlow::Wait),
+            wakeup.control_flow_at(ControlFlow::Wait, now),
             ControlFlow::WaitUntil(later)
         );
         let native = now + Duration::from_millis(50);
         assert_eq!(
-            wakeup.control_flow(ControlFlow::WaitUntil(native)),
+            wakeup.control_flow_at(ControlFlow::WaitUntil(native), now),
             ControlFlow::WaitUntil(native)
         );
         assert!(wakeup.take_at(true, later));
         assert!(!wakeup.take_at(true, later));
-        assert_eq!(wakeup.control_flow(ControlFlow::Poll), ControlFlow::Wait);
+        assert_eq!(
+            wakeup.control_flow_at(ControlFlow::Poll, later),
+            ControlFlow::Wait
+        );
         // Later child animation requests cannot postpone the capture deadline.
         for when in [later, later + Duration::from_secs(1)] {
             wakeup.schedule(
@@ -377,11 +400,33 @@ mod tests {
             );
         }
         assert_eq!(
-            wakeup.control_flow(ControlFlow::Wait),
+            wakeup.control_flow_at(ControlFlow::Wait, now),
             ControlFlow::WaitUntil(later)
         );
         assert!(!wakeup.take_at(false, later));
-        assert_eq!(wakeup.control_flow(ControlFlow::Wait), ControlFlow::Wait);
+        assert_eq!(
+            wakeup.control_flow_at(ControlFlow::Wait, later),
+            ControlFlow::Wait
+        );
+    }
+
+    #[test]
+    fn reveal_retry_replaces_the_consumed_wait_deadline() {
+        use std::time::{Duration, Instant};
+        let now = Instant::now();
+        let previous = ControlFlow::WaitUntil(now);
+        let retry = now + Duration::from_millis(32);
+        let mut wakeup = RootWakeup::default();
+        wakeup.schedule_deadline(retry);
+        assert_eq!(
+            wakeup.control_flow_at(previous, now),
+            ControlFlow::WaitUntil(retry)
+        );
+        assert!(wakeup.take_at(true, retry));
+        assert_eq!(
+            wakeup.control_flow_at(ControlFlow::WaitUntil(retry), retry),
+            ControlFlow::Wait
+        );
     }
 
     #[test]

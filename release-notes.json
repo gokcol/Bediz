@@ -1,7 +1,7 @@
 {
   "version": "3.1.0",
-  "build": 134,
-  "store_version": "3.1.4.0",
+  "build": 135,
+  "store_version": "3.1.6.0",
   "changes": [
     "Medium is the default interface size and sits between Normal and Large.",
     "Open Satin highlights the selected tool with a faint background tint and a stronger shade of its icon color.",
@@ -29,6 +29,7 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "Show the capture overlay on the current desktop when a shortcut is pressed from another app or full-screen Space.",
     "Use Helvetica for clearer menu, toolbar and dialog text.",
     "Open images directly from Seyir with Edit in Bediz.",
     "Restore the opaque editor title bar while retaining transparent capture overlays and smooth startup.",

@@ -1,18 +1,34 @@
 //! Native capture surfaces must cover system chrome as well as normal windows.
 
-pub fn title(display: &str) -> String {
-    format!("{} Capture — {display}", crate::branding::NAME)
+fn title_prefix() -> String {
+    format!("{} Capture — ", crate::branding::NAME)
+}
+
+pub fn title(display: &crate::capture::DisplayInfo) -> String {
+    format!("{}{} [{}]", title_prefix(), display.name, display.id)
 }
 
 #[cfg(target_os = "macos")]
 mod macos {
     use objc2::{MainThreadMarker, rc::Retained};
-    use objc2_app_kit::{NSWindow, NSWindowAnimationBehavior};
+    use objc2_app_kit::{NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior};
     use objc2_foundation::NSArray;
-    use std::{cell::RefCell, collections::BTreeSet};
+    use std::{
+        cell::RefCell,
+        collections::BTreeMap,
+        time::{Duration, Instant},
+    };
+
+    const REVEAL_RETRY: Duration = Duration::from_millis(32);
+    const REVEAL_TIMEOUT: Duration = Duration::from_millis(640);
+
+    enum Reveal {
+        Editor,
+        Overlay { deadline: Instant },
+    }
 
     thread_local! {
-        static REVEALS: RefCell<BTreeSet<String>> = const { RefCell::new(BTreeSet::new()) };
+        static REVEALS: RefCell<BTreeMap<String, Reveal>> = const { RefCell::new(BTreeMap::new()) };
     }
 
     fn windows(mut visit: impl FnMut(&NSWindow)) {
@@ -49,14 +65,24 @@ mod macos {
     pub fn prepare() {
         use objc2_core_graphics::{CGWindowLevelForKey, CGWindowLevelKey};
         let level = CGWindowLevelForKey(CGWindowLevelKey::OverlayWindowLevelKey) as isize;
+        let behavior = NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::CanJoinAllApplications
+            | NSWindowCollectionBehavior::FullScreenAuxiliary
+            | NSWindowCollectionBehavior::Transient
+            | NSWindowCollectionBehavior::IgnoresCycle;
+        let prefix = super::title_prefix();
         windows(|window| {
-            if window.title().to_string().starts_with(&super::title("")) {
+            if window.title().to_string().starts_with(&prefix) {
                 window.setAnimationBehavior(NSWindowAnimationBehavior::None);
-                // A native show/unhide can expose a backing surface before its
-                // first painted frame. Keep that surface transparent until the
-                // runtime has finished painting and applied viewport commands.
-                if !window.isVisible() {
-                    window.setAlphaValue(0.);
+                // The capture belongs to the current desktop, which may be
+                // another app's full-screen space or Stage Manager group.
+                if window.collectionBehavior() != behavior {
+                    // Initialize a new surface before the first native show.
+                    // Temporary visibility changes later should keep its alpha.
+                    if !window.isVisible() {
+                        window.setAlphaValue(0.);
+                    }
+                    window.setCollectionBehavior(behavior);
                 }
                 if window.level() != level {
                     window.setLevel(level);
@@ -67,24 +93,66 @@ mod macos {
 
     pub fn reveal_after_paint(name: &str) {
         REVEALS.with(|pending| {
-            pending.borrow_mut().insert(name.into());
+            pending.borrow_mut().entry(name.into()).or_insert_with(|| {
+                if name == crate::branding::NAME {
+                    Reveal::Editor
+                } else {
+                    Reveal::Overlay {
+                        deadline: Instant::now() + REVEAL_TIMEOUT,
+                    }
+                }
+            });
         });
     }
 
-    pub fn after_paint() {
-        let names = REVEALS.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
-        if names.is_empty() {
-            return;
+    pub fn forget_overlay_reveals() {
+        REVEALS.with(|pending| {
+            pending
+                .borrow_mut()
+                .retain(|_, reveal| matches!(reveal, Reveal::Editor));
+        });
+    }
+
+    pub fn after_paint() -> Option<Instant> {
+        let mut requests = REVEALS.with(|pending| std::mem::take(&mut *pending.borrow_mut()));
+        if requests.is_empty() {
+            return None;
         }
+        let now = Instant::now();
         windows(|window| {
             let name = window.title().to_string();
-            if names.contains(&name) && window.isVisible() {
-                window.setAlphaValue(1.);
-                if name == crate::branding::NAME {
-                    window.setAnimationBehavior(NSWindowAnimationBehavior::Default);
+            match requests.get(&name) {
+                Some(Reveal::Editor) => {
+                    if window.isVisible() {
+                        window.setAlphaValue(1.);
+                        window.setAnimationBehavior(NSWindowAnimationBehavior::Default);
+                    }
                 }
+                Some(Reveal::Overlay { .. }) => {
+                    if !window.isVisible() || !window.isOnActiveSpace() {
+                        // A native window can be ordered in but on a different
+                        // Space. Reorder it and give Metal another paint there
+                        // before making a new surface opaque.
+                        window.orderFrontRegardless();
+                        return;
+                    }
+                    window.setAlphaValue(1.);
+                }
+                None => return,
             }
+            requests.remove(&name);
         });
+        requests.retain(|name, reveal| match reveal {
+            Reveal::Editor => false,
+            Reveal::Overlay { deadline } if *deadline <= now => {
+                log::warn!("Capture window did not reach the active space: {name}");
+                false
+            }
+            Reveal::Overlay { .. } => true,
+        });
+        let retry = (!requests.is_empty()).then_some(now + REVEAL_RETRY);
+        REVEALS.with(|pending| pending.borrow_mut().append(&mut requests));
+        retry
     }
 }
 
@@ -105,9 +173,16 @@ pub fn reveal_after_paint(name: &str) {
     let _ = name;
 }
 
-pub fn after_paint() {
+pub fn forget_overlay_reveals() {
     #[cfg(target_os = "macos")]
-    macos::after_paint();
+    macos::forget_overlay_reveals();
+}
+
+pub fn after_paint() -> Option<std::time::Instant> {
+    #[cfg(target_os = "macos")]
+    return macos::after_paint();
+    #[cfg(not(target_os = "macos"))]
+    None
 }
 
 /// Recover a mouse release that happened outside a capture viewport. egui-winit
