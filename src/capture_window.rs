@@ -10,9 +10,13 @@ pub fn title(display: &crate::capture::DisplayInfo) -> String {
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use objc2::{MainThreadMarker, rc::Retained};
-    use objc2_app_kit::{NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior};
-    use objc2_foundation::NSArray;
+    use objc2::{AnyThread, MainThreadMarker, MainThreadOnly, rc::Retained};
+    use objc2_app_kit::{
+        NSApplication, NSBackingStoreType, NSColor, NSEvent, NSPanel, NSTrackingArea,
+        NSTrackingAreaOptions, NSWindow, NSWindowAnimationBehavior, NSWindowCollectionBehavior,
+        NSWindowOrderingMode, NSWindowStyleMask,
+    };
+    use objc2_foundation::{NSArray, NSPointInRect};
     use std::{
         cell::RefCell,
         collections::BTreeMap,
@@ -29,9 +33,51 @@ mod macos {
 
     thread_local! {
         static REVEALS: RefCell<BTreeMap<String, Reveal>> = const { RefCell::new(BTreeMap::new()) };
+        static OVERLAY_HOSTS: RefCell<BTreeMap<String, OverlayHost>> = const { RefCell::new(BTreeMap::new()) };
     }
 
-    fn windows(mut visit: impl FnMut(&NSWindow)) {
+    struct OverlayHost {
+        panel: Retained<NSPanel>,
+        window: Retained<NSWindow>,
+    }
+
+    impl OverlayHost {
+        fn new(window: Retained<NSWindow>) -> Self {
+            // A nonactivating panel can join another app's full-screen Space.
+            // Keep winit's NSWindow and content view intact for rendering and input.
+            let panel = NSPanel::initWithContentRect_styleMask_backing_defer(
+                NSPanel::alloc(window.mtm()),
+                window.frame(),
+                NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel,
+                NSBackingStoreType::Buffered,
+                false,
+            );
+            panel.setCollectionBehavior(window.collectionBehavior());
+            panel.setLevel(window.level());
+            panel.setAnimationBehavior(NSWindowAnimationBehavior::None);
+            panel.setHidesOnDeactivate(false);
+            panel.setHasShadow(false);
+            panel.setOpaque(false);
+            panel.setBackgroundColor(Some(&NSColor::clearColor()));
+            panel.setIgnoresMouseEvents(true);
+            // SAFETY: Both windows are retained, on the main thread, and distinct.
+            // Drop detaches the child and closes the panel while we still own both.
+            unsafe {
+                panel.setReleasedWhenClosed(false);
+                panel.addChildWindow_ordered(&window, NSWindowOrderingMode::Above);
+            }
+            Self { panel, window }
+        }
+    }
+
+    impl Drop for OverlayHost {
+        fn drop(&mut self) {
+            self.window.orderOut(None);
+            self.panel.close();
+        }
+    }
+
+    fn windows(mut visit: impl FnMut(&Retained<NSWindow>)) {
         let Some(_main_thread) = MainThreadMarker::new() else {
             return;
         };
@@ -83,6 +129,33 @@ mod macos {
                         window.setAlphaValue(0.);
                     }
                     window.setCollectionBehavior(behavior);
+                    if let Some(view) = window.contentView() {
+                        // winit's tracking rect is for an active window. Send
+                        // real hover events to the same view while the browser
+                        // still owns focus, including when crossing displays.
+                        let options = NSTrackingAreaOptions::ActiveAlways
+                            | NSTrackingAreaOptions::InVisibleRect
+                            | NSTrackingAreaOptions::MouseMoved
+                            | NSTrackingAreaOptions::MouseEnteredAndExited;
+                        if !view
+                            .trackingAreas()
+                            .iter()
+                            .any(|area| area.options() == options)
+                        {
+                            // SAFETY: The content view implements the mouse
+                            // tracking callbacks and owns the area for its lifetime.
+                            let tracking = unsafe {
+                                NSTrackingArea::initWithRect_options_owner_userInfo(
+                                    NSTrackingArea::alloc(),
+                                    view.bounds(),
+                                    options,
+                                    Some(&view),
+                                    None,
+                                )
+                            };
+                            view.addTrackingArea(&tracking);
+                        }
+                    }
                 }
                 if window.level() != level {
                     window.setLevel(level);
@@ -111,6 +184,8 @@ mod macos {
                 .borrow_mut()
                 .retain(|_, reveal| matches!(reveal, Reveal::Editor));
         });
+        let hosts = OVERLAY_HOSTS.with(|hosts| std::mem::take(&mut *hosts.borrow_mut()));
+        drop(hosts);
     }
 
     pub fn after_paint() -> Option<Instant> {
@@ -129,14 +204,39 @@ mod macos {
                     }
                 }
                 Some(Reveal::Overlay { .. }) => {
-                    if !window.isVisible() || !window.isOnActiveSpace() {
-                        // A native window can be ordered in but on a different
-                        // Space. Reorder it and give Metal another paint there
-                        // before making a new surface opaque.
+                    let host_was_ordered = OVERLAY_HOSTS.with(|hosts| {
+                        let mut hosts = hosts.borrow_mut();
+                        if hosts
+                            .get(&name)
+                            .is_some_and(|host| !std::ptr::eq(&*host.window, &**window))
+                        {
+                            hosts.remove(&name);
+                        }
+                        let host = hosts
+                            .entry(name.clone())
+                            .or_insert_with(|| OverlayHost::new(window.clone()));
+                        let needs_order = !host.panel.isVisible() || !host.panel.isOnActiveSpace();
+                        if needs_order {
+                            host.panel.orderFrontRegardless();
+                        }
+                        needs_order
+                    });
+                    if host_was_ordered || !window.isVisible() || !window.isOnActiveSpace() {
+                        // Paint once on the panel's Space before making a new
+                        // surface opaque, even if ordering took effect immediately.
                         window.orderFrontRegardless();
                         return;
                     }
                     window.setAlphaValue(1.);
+                    // If Bediz already owns the keyboard, keep Space/Enter on
+                    // the display under the pointer. Otherwise leave the other
+                    // application active; Escape uses our capture-only hotkey.
+                    if NSApplication::sharedApplication(window.mtm()).isActive()
+                        && NSPointInRect(NSEvent::mouseLocation(), window.frame())
+                        && !window.isKeyWindow()
+                    {
+                        window.makeKeyWindow();
+                    }
                 }
                 None => return,
             }
@@ -154,6 +254,18 @@ mod macos {
         REVEALS.with(|pending| pending.borrow_mut().append(&mut requests));
         retry
     }
+}
+
+pub fn desktop_pointer() -> Option<eframe::egui::Pos2> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_core_graphics::CGEvent;
+        let event = CGEvent::new(None)?;
+        let location = CGEvent::location(Some(&event));
+        Some(eframe::egui::pos2(location.x as f32, location.y as f32))
+    }
+    #[cfg(not(target_os = "macos"))]
+    None
 }
 
 pub fn hide_before_capture() {

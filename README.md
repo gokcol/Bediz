@@ -2,9 +2,9 @@
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download Bediz v3.1 · build 134 for Mac and Windows](https://github.com/gokcol/MyImage/releases/tag/v3.1.0-build134). Build 134 adds Medium as the default interface size and sharpens macOS menus and labels. Downloads include a Developer ID signed and notarized DMG or ZIP for Mac Apple Silicon and a Setup installer or portable ZIP for Windows x64.
+[Download Bediz for Mac and Windows](https://github.com/gokcol/MyImage/releases/latest). Downloads include a Developer ID signed and notarized DMG or ZIP for Mac Apple Silicon and a Setup installer or portable ZIP for Windows x64.
 
-[Get the app from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). **Bediz 3.1.0 build 127**, Store package **3.1.4.0**, is **in certification** as submission **8**, submitted on 17 November 2026 with automatic publication after Microsoft approval. Build 125 / package 3.1.3.0 is currently published. The same Store product carries forward existing installations, projects and settings. See [build 127 validation and submission record](docs/RELEASE-127.md).
+[Get Bediz from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). The same Store product carries forward existing installations, projects and settings from MyImage and SkyImage.
 
 Bediz opens in **Home**, with **Editor**, **Library**, and **Create** beside it in the compact top toolbar. **View only** remains available from the bottom **App** menu. The native editor has a drawing toolbar, a large canvas, and an annotation inspector. Add editable text, arrows, 17 shape types, stamps, numbered steps, callouts, highlights, and freehand pen strokes; select, move, resize, recolor, reorder, or delete them. Add adjustable blur and pixelate regions to obscure selected areas, or use Fill to recolor or clear connected backgrounds. Crop, resize, and rotate the image without changing its original pixels. Undo and redo cover both image edits and annotations during the current session.
 

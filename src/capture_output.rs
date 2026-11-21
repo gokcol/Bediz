@@ -81,7 +81,7 @@ impl MyImageApp {
                 )
             });
             let _ = tx.send(WorkEvent::CaptureFinished(result));
-            ctx.request_repaint();
+            crate::runtime::wake_root(&ctx);
         });
     }
 
@@ -183,7 +183,7 @@ impl MyImageApp {
         std::thread::spawn(move || {
             output.clipboard = crate::image_clipboard::write_image(&output.image);
             let _ = tx.send(WorkEvent::CaptureFinished(Ok(output)));
-            ctx.request_repaint();
+            crate::runtime::wake_root(&ctx);
         });
     }
 }
@@ -196,6 +196,27 @@ mod tests {
         image::RgbaImage::from_fn(83, 51, |x, y| {
             image::Rgba([x as u8, y as u8, 177, if x < 3 { 0 } else { 255 }])
         })
+    }
+
+    #[test]
+    fn capture_completion_wakes_hidden_editor() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+        let folder = tempfile::tempdir().unwrap();
+        app.settings.output_dir = folder.path().to_owned();
+        app.settings.capture_destination = CaptureDestination::Editor;
+        let (woke, wake) = std::sync::mpsc::channel();
+        crate::runtime::install_root_waker(&ctx, Arc::new(AtomicBool::new(false)), move |_| {
+            let _ = woke.send(());
+        });
+
+        app.queue_capture_output(&ctx, Local::now(), || Ok(pixels()));
+
+        wake.recv_timeout(Duration::from_secs(5)).unwrap();
+        let WorkEvent::CaptureFinished(Ok(result)) = app.work_rx.try_recv().unwrap() else {
+            panic!("The capture completion must be queued before waking the editor");
+        };
+        assert!(result.path.unwrap().is_file());
     }
 
     fn dirty_editor(ctx: &egui::Context) -> MyImageApp {

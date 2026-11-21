@@ -375,6 +375,15 @@ fn overlay_geometry(display: &DisplayInfo, desktop_units_per_point: f32) -> (Pos
     )
 }
 
+fn pointer_in_overlay(pointer: Pos2, display: &DisplayInfo, bounds: Rect) -> Option<Pos2> {
+    // Quartz cursor locations and DisplayInfo both use top-left desktop points.
+    // Half-open edges assign a cursor on a display seam to exactly one overlay.
+    let local = pointer - Pos2::new(display.x as f32, display.y as f32);
+    let size = Vec2::new(display.width as f32, display.height as f32);
+    ((0.0..size.x).contains(&local.x) && (0.0..size.y).contains(&local.y))
+        .then(|| bounds.min + local / size * bounds.size())
+}
+
 impl SelectionSession {
     pub fn new(
         ctx: &egui::Context,
@@ -485,9 +494,18 @@ impl MyImageApp {
         };
         let mut chosen = None;
         let mut needs_placement_frame = false;
+        let native_reveal = cfg!(target_os = "macos") && !self.demo;
         if !self.demo {
             crate::capture_window::prepare();
         }
+        let desktop_pointer = if native_reveal
+            && session.screens.iter().any(|screen| {
+                screen.placement_frames >= SELECTION_PLACEMENT_FRAMES && !screen.pointer_ready
+            }) {
+            crate::capture_window::desktop_pointer()
+        } else {
+            None
+        };
         for (index, screen) in session.screens.iter_mut().enumerate() {
             // Mode changes in one controller apply to every screen.
             if screen.mode != self.settings.capture_mode {
@@ -527,14 +545,16 @@ impl MyImageApp {
                 .with_transparent(cfg!(target_os = "macos"))
                 .with_window_level(WindowLevel::AlwaysOnTop)
                 .with_active(false)
-                .with_visible(!placing);
+                // winit shows an NSWindow with makeKeyAndOrderFront. Let the
+                // native post-paint hook order it over the current Space instead.
+                .with_visible(!placing && !native_reveal);
             // Every display has a dedicated surface. The resident runtime
             // drains child repaint/input requests while the editor stays hidden.
             ctx.show_viewport_immediate(overlay_id(&screen.display), builder, |child, _| {
-                if let Some(action) = self.selection_overlay_ui(child, screen) {
+                if let Some(action) = self.selection_overlay_ui(child, screen, desktop_pointer) {
                     chosen = Some((index, action));
                 }
-                if index == 0 && first_reveal {
+                if index == 0 && first_reveal && !native_reveal {
                     child.send_viewport_cmd(ViewportCommand::Focus);
                 }
                 crate::pointer_style::paint(child, self.settings.pointer_style);
@@ -577,6 +597,7 @@ impl MyImageApp {
         &mut self,
         ctx: &egui::Context,
         selection: &mut Selection,
+        desktop_pointer: Option<Pos2>,
     ) -> Option<SelectionAction> {
         let menu_was_open = egui::Popup::is_any_open(ctx);
         if ctx.input(|i| i.viewport().close_requested())
@@ -624,7 +645,11 @@ impl MyImageApp {
             selection.pointer_ready = false;
         } else if !placing_overlay && pointer_moved {
             selection.pointer_ready = true;
-            if !ctx.input(|i| i.viewport().focused.unwrap_or(i.focused)) {
+            // Hovering an inactive Mac window must not activate Bediz. AppKit
+            // handles deliberate clicks (the winit view accepts first mouse).
+            if !cfg!(target_os = "macos")
+                && !ctx.input(|i| i.viewport().focused.unwrap_or(i.focused))
+            {
                 ctx.send_viewport_cmd(ViewportCommand::Focus);
             }
         }
@@ -805,8 +830,17 @@ impl MyImageApp {
                 let bounds = ui.max_rect();
                 let response = ui.allocate_rect(bounds, egui::Sense::click_and_drag());
                 let pointer = ctx.input(|i| i.pointer.hover_pos()).filter(|p| {
-                    !menu_interaction && selection.pointer_ready && bounds.contains(*p)
+                    selection.pointer_ready && bounds.contains(*p)
                 });
+                let pointer = pointer.or_else(|| {
+                    if placing_overlay || selection.pointer_ready {
+                        return None;
+                    }
+                    pointer_in_overlay(desktop_pointer?, &selection.display, bounds)
+                });
+                // A stationary pointer can paint guides on the first frame.
+                // Only actual viewport input above enables a click or a drag.
+                let pointer = pointer.filter(|_| !menu_interaction);
                 if response.hovered() && mode != CaptureMode::Window {
                     ctx.set_cursor_icon(
                         pointer.map_or(egui::CursorIcon::Crosshair, |p| {
@@ -1216,7 +1250,11 @@ impl MyImageApp {
         let tx = self.work_tx.clone();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(250));
+            // ScreenCaptureKit reads the target window directly on Mac. GDI
+            // capture still gives the selection overlay time to leave the screen.
+            if cfg!(target_os = "windows") {
+                std::thread::sleep(Duration::from_millis(250));
+            }
             if cancel.load(Ordering::Acquire) {
                 return;
             }
@@ -2168,7 +2206,7 @@ mod tests {
                         ..Default::default()
                     },
                     |ctx| {
-                        assert!(app.selection_overlay_ui(ctx, &mut screen).is_none());
+                        assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none());
                     },
                 );
                 button = output
@@ -2305,6 +2343,8 @@ mod tests {
                 .contains(&ViewportCommand::Visible(true))
         );
 
+        // Use production presentation for the synthetic child windows.
+        app.demo = false;
         let render_frame = Rc::new(RefCell::new(0));
         let frame_for_renderer = render_frame.clone();
         let rendered = Rc::new(RefCell::new(Vec::new()));
@@ -2314,14 +2354,21 @@ mod tests {
             let _ = ctx.run(
                 egui::RawInput {
                     viewport_id: viewport.ids.this,
-                    viewports: [(viewport.ids.this, egui::ViewportInfo::default())]
-                        .into_iter()
-                        .collect(),
+                    viewports: [(
+                        viewport.ids.this,
+                        egui::ViewportInfo {
+                            focused: Some(false),
+                            ..Default::default()
+                        },
+                    )]
+                    .into_iter()
+                    .collect(),
                     time: Some(10. + f64::from(frame) * 0.01),
                     screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
                     events: match frame {
-                        5 => vec![pointer_button(Pos2::new(100., 150.), true)],
-                        6 => vec![egui::Event::PointerMoved(Pos2::new(300., 350.))],
+                        5 => vec![egui::Event::PointerMoved(Pos2::new(100., 150.))],
+                        6 => vec![pointer_button(Pos2::new(100., 150.), true)],
+                        7 => vec![egui::Event::PointerMoved(Pos2::new(300., 350.))],
                         _ => vec![],
                     },
                     ..Default::default()
@@ -2332,7 +2379,7 @@ mod tests {
                 .borrow_mut()
                 .push((viewport.ids.this, viewport.builder.visible));
         });
-        for frame in 0..7 {
+        for frame in 0..8 {
             *render_frame.borrow_mut() = frame;
             rendered.borrow_mut().clear();
             let output = ctx.run(egui::RawInput::default(), |ctx| app.selection_ui(ctx));
@@ -2350,16 +2397,16 @@ mod tests {
                 rendered
                     .iter()
                     .all(|&(id, visible)| id == overlay_id(&screen.display)
-                        && visible == Some(frame >= 4))
+                        && visible == Some(frame >= 4 && !cfg!(target_os = "macos")))
             );
             assert_eq!(
                 output.viewport_output[&overlay_id(&screen.display)]
                     .commands
                     .contains(&ViewportCommand::Focus),
-                frame == 4
+                frame >= 4 && !cfg!(target_os = "macos")
             );
             assert_eq!(screen.reveal_time.is_some(), frame >= 4);
-            if frame == 6 {
+            if frame == 7 {
                 assert!(screen.drag.active);
                 assert_eq!(
                     screen.drag.bounds(),
@@ -2370,6 +2417,7 @@ mod tests {
                 );
             }
         }
+        crate::capture_window::forget_overlay_reveals();
         ctx.set_embed_viewports(true);
     }
 
@@ -2416,7 +2464,7 @@ mod tests {
                         ..Default::default()
                     },
                     |ctx| {
-                        assert!(app.selection_overlay_ui(ctx, &mut screen).is_none());
+                        assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none());
                     },
                 );
                 assert!(
@@ -2450,7 +2498,7 @@ mod tests {
                     ..Default::default()
                 },
                 |ctx| {
-                    assert!(app.selection_overlay_ui(ctx, &mut screen).is_none());
+                    assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none());
                 },
             );
             if time == 20.3 {
@@ -2527,7 +2575,7 @@ mod tests {
                 ..Default::default()
             },
             |ctx| {
-                action = app.selection_overlay_ui(ctx, screen);
+                action = app.selection_overlay_ui(ctx, screen, None);
             },
         );
         action
@@ -2755,6 +2803,59 @@ mod tests {
     }
 
     #[test]
+    fn stationary_cursor_paints_first_guides_only_on_its_display_without_starting_selection() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(true)), true);
+        let mut session = test_screens(&ctx, CaptureMode::Region);
+        let bounds = Rect::from_min_size(Pos2::ZERO, Vec2::new(400., 300.));
+        let pointer = Pos2::new(-600., -450.);
+        for screen in &mut session.screens {
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(bounds),
+                    ..Default::default()
+                },
+                |ctx| {
+                    assert!(
+                        app.selection_overlay_ui(ctx, screen, Some(pointer))
+                            .is_none()
+                    );
+                },
+            );
+            let guides: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|shape| {
+                    if let egui::Shape::LineSegment { points, stroke } = &shape.shape
+                        && stroke.color == Color32::from_white_alpha(170)
+                    {
+                        Some(*points)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if screen.display.is_primary {
+                assert!(guides.is_empty());
+            } else {
+                assert_eq!(
+                    guides,
+                    [
+                        [Pos2::new(0., 75.), Pos2::new(400., 75.)],
+                        [Pos2::new(100., 0.), Pos2::new(100., 300.)],
+                    ]
+                );
+                assert_eq!(
+                    pointer_in_overlay(Pos2::ZERO, &screen.display, bounds),
+                    None
+                );
+            }
+            assert!(!screen.pointer_ready && !screen.drag.active);
+            assert!(screen.drag.bounds().is_none());
+        }
+    }
+
+    #[test]
     fn leaving_overlay_clears_hover_but_drag_can_resume_and_finish() {
         let ctx = egui::Context::default();
         let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
@@ -2942,11 +3043,19 @@ mod tests {
             assert!(commands.contains(&ViewportCommand::Close));
             assert!(!commands.contains(&ViewportCommand::Decorations(true)));
         }
-        assert!(
-            output.viewport_output[&egui::ViewportId::ROOT]
-                .commands
-                .contains(&ViewportCommand::Decorations(true))
+        let editor_commands = &output.viewport_output[&egui::ViewportId::ROOT].commands;
+        assert!(editor_commands.contains(&ViewportCommand::Visible(true)));
+        assert_eq!(
+            editor_commands.contains(&ViewportCommand::Decorations(true)),
+            !cfg!(target_os = "macos")
         );
+        if cfg!(target_os = "macos") {
+            assert!(!editor_commands.iter().any(|command| matches!(
+                command,
+                ViewportCommand::InnerSize(_) | ViewportCommand::OuterPosition(_)
+            )));
+            assert_eq!(app.restore_frames_left, 0);
+        }
         ctx.set_embed_viewports(true);
     }
 
@@ -3054,7 +3163,7 @@ mod tests {
                     ..Default::default()
                 },
                 |ctx| {
-                    app.selection_overlay_ui(ctx, &mut screen);
+                    app.selection_overlay_ui(ctx, &mut screen, None);
                 },
             )
         };

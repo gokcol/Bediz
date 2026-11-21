@@ -694,7 +694,8 @@ impl MyImageApp {
     fn remember_window(&mut self, ctx: &egui::Context) {
         // Never replace the editor's geometry with the full-display overlay,
         // including frames in which its asynchronous restoration is underway.
-        if self.selection.is_some()
+        if cfg!(target_os = "macos")
+            || self.selection.is_some()
             || self.scroll_session.is_some()
             || self.pending_capture.is_some()
             || self.restore_frames_left > 0
@@ -765,20 +766,23 @@ impl MyImageApp {
     }
 
     fn restore_window(&mut self, ctx: &egui::Context, hide: bool) {
-        ctx.send_viewport_cmd(ViewportCommand::Title(crate::branding::NAME.into()));
-        // Change native styles once per transition. On macOS even querying
-        // maximization of a borderless window temporarily adds a title bar;
-        // repeated Maximized(false) requests can change its native geometry.
-        if cfg!(target_os = "windows") {
-            ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+        // Mac capture surfaces are separate native windows. The editor retains
+        // its frame and styles while hidden, including across full-screen Spaces.
+        if !cfg!(target_os = "macos") {
+            ctx.send_viewport_cmd(ViewportCommand::Title(crate::branding::NAME.into()));
+            if cfg!(target_os = "windows") {
+                ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+            }
+            ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
+            ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
+            ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
+            self.restore_frames_left = 4;
+            self.apply_window_restoration(ctx);
         }
-        ctx.send_viewport_cmd(ViewportCommand::Decorations(true));
-        ctx.send_viewport_cmd(ViewportCommand::Resizable(true));
-        ctx.send_viewport_cmd(ViewportCommand::WindowLevel(WindowLevel::Normal));
-        self.restore_frames_left = 4;
-        self.apply_window_restoration(ctx);
         if hide {
-            self.hide_during_capture(ctx);
+            if !cfg!(target_os = "macos") || !self.hidden.load(Ordering::Relaxed) {
+                self.hide_during_capture(ctx);
+            }
         } else {
             self.show(ctx);
         }
@@ -1015,7 +1019,7 @@ impl MyImageApp {
                     Err(error) => (directory, Err(error)),
                 };
                 let _ = tx.send(WorkEvent::ProjectSaved(path, document.edit_state(), result));
-                ctx.request_repaint();
+                crate::runtime::wake_root(&ctx);
             });
             return true;
         }
@@ -1059,7 +1063,7 @@ impl MyImageApp {
         std::thread::spawn(move || {
             let result = document::save_project(&document, &path);
             let _ = tx.send(WorkEvent::ProjectSaved(path, document.edit_state(), result));
-            ctx.request_repaint();
+            crate::runtime::wake_root(&ctx);
         });
     }
 
