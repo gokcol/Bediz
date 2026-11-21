@@ -44,6 +44,8 @@ mod inspector_panel;
 mod inspector_widgets;
 #[path = "object_properties.rs"]
 mod object_properties;
+#[path = "page_correction_ui.rs"]
+mod page_correction_ui;
 #[path = "precision_tools.rs"]
 mod precision_tools;
 #[path = "quick_styles.rs"]
@@ -322,6 +324,7 @@ pub struct EditorState {
     focus_text: bool,
     text_editor_generation: u64,
     crop: Option<CropDraft>,
+    page_correction: Option<page_correction_ui::PageDraft>,
     resize: Option<ResizeDraft>,
     resize_feedback: Option<([u32; 2], std::time::Instant)>,
     canvas_size: Option<canvas_tools::CanvasDraft>,
@@ -396,6 +399,7 @@ impl Default for EditorState {
             focus_text: false,
             text_editor_generation: 0,
             crop: None,
+            page_correction: None,
             resize: None,
             resize_feedback: None,
             canvas_size: None,
@@ -506,6 +510,7 @@ impl EditorState {
             || self.text_dialog.is_some()
             || self.stamps.is_importing()
             || self.resize.is_some()
+            || self.page_correction.is_some()
             || self.canvas_size.is_some()
             || self.rename_layer.is_some()
             || self.presets.dialog.is_some()
@@ -514,6 +519,7 @@ impl EditorState {
     pub fn cancel_image_tools(&mut self) {
         self.canvas_resize = None;
         self.crop = None;
+        self.page_correction = None;
         self.resize = None;
         self.canvas_size = None;
         self.image_error = None;
@@ -689,6 +695,7 @@ impl EditorState {
         });
         self.customize_toolbar(ui.ctx());
         self.resize_dialog(ui.ctx(), document, history);
+        self.page_correction_dialog(ui.ctx(), document, history, texture);
         self.canvas_size_dialog(ui.ctx(), document, history);
         self.layer_rename_dialog(ui.ctx(), document, history);
         self.preset_dialog(ui.ctx());
@@ -793,6 +800,7 @@ impl EditorState {
             || self.tool == Tool::Crop
             || self.inspector.is(InspectorPanel::Presets)
             || self.inspector.is(InspectorPanel::Layers)
+            || self.style_kind(document) == Some(AnnotationKind::LocalAdjust)
             || (self.tool == Tool::Area && self.selected.is_none()))
         {
             self.shape_picker(ui, document, history);
@@ -810,9 +818,9 @@ impl EditorState {
             && !self.inspector.is(InspectorPanel::Presets)
             && self.tool != Tool::Crop
             && (self.selected.is_some() || self.tool.kind().is_some())
-            && !self
-                .style_kind(document)
-                .is_some_and(|k| k.is_area_edit() || k == AnnotationKind::Fill);
+            && !self.style_kind(document).is_some_and(|k| {
+                k.is_area_edit() || matches!(k, AnnotationKind::Fill | AnnotationKind::LocalAdjust)
+            });
         // Let the footer claim its real height before laying out the
         // scroll area. A guessed reserve lets selection controls enlarge
         // the whole workspace, refitting the canvas under a held pointer.
@@ -839,6 +847,14 @@ impl EditorState {
                                     && self.extra_panel_active(document)
                                 {
                                     self.extra_tools_panel(ui, document, history);
+                                } else if !self.inspector.is(InspectorPanel::Layers)
+                                    && !self.inspector.is(InspectorPanel::Presets)
+                                    && self.additional.is_empty()
+                                    && let Some(index) = self.selected.filter(|&i| {
+                                        document.annotations[i].kind == AnnotationKind::LocalAdjust
+                                    })
+                                {
+                                    self.local_adjustment_panel(ui, document, history, index);
                                 } else if !self.inspector.is(InspectorPanel::Layers)
                                     && !self.inspector.is(InspectorPanel::Presets)
                                     && (self.tool == Tool::Fill
@@ -1801,6 +1817,7 @@ impl EditorState {
                 // moved privacy region can never reveal the unprocessed image
                 // for one frame while its replacement preview is being built.
                 if paint_document.geometry.canvas.is_some()
+                    || paint_document.geometry.page.is_some()
                     || (paint_document.geometry.has_cutouts()
                         || paint_document.geometry.effects.active())
                     || paint_document
@@ -2202,6 +2219,7 @@ impl EditorState {
             } else {
                 Default::default()
             },
+            local_adjustment: Default::default(),
             points: if kind == AnnotationKind::Freehand {
                 vec![point]
             } else {
@@ -2858,6 +2876,7 @@ fn hits_transformed(annotation: &Annotation, at: Point, scale: f32, document: &D
         }
         AnnotationKind::Blur
         | AnnotationKind::Pixelate
+        | AnnotationKind::LocalAdjust
         | AnnotationKind::Spotlight
         | AnnotationKind::Simplify
         | AnnotationKind::Highlighter
@@ -3136,61 +3155,17 @@ fn paint_crop(
     }
 }
 
-fn tool_button(ui: &mut egui::Ui, tool: Tool, label: &str, selected: bool) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(Vec2::new(44.0, 38.0), Sense::click());
-    response.widget_info(|| {
-        egui::WidgetInfo::selected(
-            egui::WidgetType::SelectableLabel,
-            ui.is_enabled(),
-            selected,
-            label,
-        )
-    });
-    if ui.is_rect_visible(rect) {
-        let (fill, color) = if selected {
-            (crate::appearance::palette(ui.ctx()).accent, Color32::WHITE)
-        } else if response.hovered() {
-            (
-                ui.visuals().widgets.hovered.weak_bg_fill,
-                ui.visuals().strong_text_color(),
-            )
-        } else {
-            (Color32::TRANSPARENT, ui.visuals().text_color())
-        };
-        let painter = ui.painter();
-        if selected {
-            crate::appearance::satin(
-                painter,
-                rect,
-                7.,
-                true,
-                response.is_pointer_button_down_on(),
-            );
-        } else {
-            painter.rect_filled(rect, 7, fill);
-        }
-        let center = Pos2::new(rect.center().x, rect.top() + 12.);
-        paint_tool_icon(painter, center, tool, color);
-        painter.text(
-            Pos2::new(rect.center().x, rect.bottom() - 7.),
-            egui::Align2::CENTER_CENTER,
-            label,
-            egui::FontId::proportional(10.5),
-            color,
-        );
-        if response.has_focus() {
-            painter.rect_stroke(
-                rect,
-                7,
-                Stroke::new(1.0, ui.visuals().selection.stroke.color),
-                StrokeKind::Inside,
-            );
-        }
-    }
-    response
+fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Color32) {
+    paint_tool_icon_sized(painter, center, tool, color, 21.);
 }
 
-fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Color32) {
+fn paint_tool_icon_sized(
+    painter: &egui::Painter,
+    center: Pos2,
+    tool: Tool,
+    color: Color32,
+    size: f32,
+) {
     use crate::icon_style::{self, Family, Glyph};
     let glyph = match tool {
         Tool::Select => Some(Glyph::Select),
@@ -3204,7 +3179,7 @@ fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Col
         _ => None,
     };
     if let Some(glyph) = glyph {
-        icon_style::paint(painter, center, glyph, color, 21.);
+        icon_style::paint(painter, center, glyph, color, size);
         return;
     }
     let family = match tool {
@@ -3214,15 +3189,15 @@ fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Col
         _ => Family::Cobalt,
     };
     let color = icon_style::color(painter.ctx(), color, family);
-    let stroke = Stroke::new(icon_style::current(painter.ctx()).width(), color);
+    let scale = size / 21.;
+    let at = |x, y| center + Vec2::new(x, y) * scale;
+    let inset = |x, y| at(x * 0.75, y * 0.75);
+    let stroke = Stroke::new(icon_style::current(painter.ctx()).width() * scale, color);
     match tool {
         Tool::ConnectedArrow => {
-            painter.line_segment(
-                [center - egui::vec2(8., 0.), center + egui::vec2(8., 0.)],
-                stroke,
-            );
+            painter.line_segment([at(-8., 0.), at(8., 0.)], stroke);
             for dx in [-8., 8.] {
-                painter.circle_stroke(center + egui::vec2(dx, 0.), 3., stroke);
+                painter.circle_stroke(at(dx, 0.), 3. * scale, stroke);
             }
         }
         Tool::Repair | Tool::ScreenshotText | Tool::Redact => {
@@ -3235,59 +3210,33 @@ fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Col
                 center,
                 egui::Align2::CENTER_CENTER,
                 glyph,
-                egui::FontId::proportional(20.),
+                egui::FontId::proportional(20. * scale),
                 color,
             );
         }
         Tool::StyleBrush | Tool::Measure | Tool::ColorInspector => {
-            precision_tools::paint_icon(painter, center, tool, color, stroke);
+            precision_tools::paint_icon(painter, center, tool, color, stroke, scale);
         }
         Tool::Wand => {
-            painter.line_segment(
-                [center + egui::vec2(-7., 7.), center + egui::vec2(4., -4.)],
-                Stroke::new(2., color),
-            );
-            for offset in [
-                egui::vec2(-6., -6.),
-                egui::vec2(7., -7.),
-                egui::vec2(7., 3.),
-            ] {
-                let p = center + offset;
-                painter.line_segment([p - egui::vec2(2., 0.), p + egui::vec2(2., 0.)], stroke);
-                painter.line_segment([p - egui::vec2(0., 2.), p + egui::vec2(0., 2.)], stroke);
+            painter.line_segment([at(-7., 7.), at(4., -4.)], Stroke::new(2. * scale, color));
+            for (x, y) in [(-6., -6.), (7., -7.), (7., 3.)] {
+                painter.line_segment([at(x - 2., y), at(x + 2., y)], stroke);
+                painter.line_segment([at(x, y - 2.), at(x, y + 2.)], stroke);
             }
-        }
-        Tool::Magnify => {
-            painter.circle_stroke(center - egui::vec2(2., 2.), 6., stroke);
-            painter.line_segment(
-                [center + egui::vec2(3., 3.), center + egui::vec2(8., 8.)],
-                Stroke::new(2.5, color),
-            );
-            painter.line_segment(
-                [center + egui::vec2(-5., -2.), center + egui::vec2(1., -2.)],
-                stroke,
-            );
-            painter.line_segment(
-                [center + egui::vec2(-2., -5.), center + egui::vec2(-2., 1.)],
-                stroke,
-            );
         }
         Tool::Spotlight => {
             painter.rect_filled(
-                Rect::from_center_size(center, egui::vec2(20., 16.)),
+                Rect::from_center_size(center, Vec2::new(20., 16.) * scale),
                 3,
                 color.gamma_multiply(0.3),
             );
-            painter.circle_filled(center, 5., color);
-            painter.circle_stroke(center, 8., stroke);
+            painter.circle_filled(center, 5. * scale, color);
+            painter.circle_stroke(center, 8. * scale, stroke);
         }
         Tool::Simplify => {
-            for (y, w) in [(-5., 18.), (0., 12.), (5., 15.)] {
+            for (y, width) in [(-5., 18.), (0., 12.), (5., 15.)] {
                 painter.rect_filled(
-                    Rect::from_center_size(
-                        center + egui::vec2((w - 18.) / 2., y),
-                        egui::vec2(w, 3.),
-                    ),
+                    Rect::from_center_size(at((width - 18.) / 2., y), Vec2::new(width, 3.) * scale),
                     1,
                     color,
                 );
@@ -3295,252 +3244,107 @@ fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Col
         }
         Tool::CutOut => {
             for y in [-6., 6.] {
-                painter.line_segment(
-                    [center + egui::vec2(-9., y), center + egui::vec2(9., y)],
-                    stroke,
-                );
+                painter.line_segment([at(-9., y), at(9., y)], stroke);
             }
-            painter.add(egui::Shape::line(
+            painter.line(
                 vec![
-                    center + egui::vec2(-9., 0.),
-                    center + egui::vec2(-4., -2.),
-                    center + egui::vec2(1., 2.),
-                    center + egui::vec2(6., -2.),
-                    center + egui::vec2(9., 0.),
-                ],
-                stroke,
-            ));
-        }
-        Tool::Pen => {
-            painter.add(egui::Shape::line(
-                vec![
-                    center + (Vec2::new(-11.0, 7.0) * 0.75),
-                    center + (Vec2::new(-6.0, -3.0) * 0.75),
-                    center + (Vec2::new(-1.0, 4.0) * 0.75),
-                    center + (Vec2::new(5.0, -8.0) * 0.75),
-                    center + (Vec2::new(11.0, -4.0) * 0.75),
-                ],
-                Stroke::new(2.0, color),
-            ));
-        }
-        Tool::Eraser => {
-            let points = [
-                (-11.0, 2.0),
-                (1.0, -10.0),
-                (11.0, 0.0),
-                (1.0, 10.0),
-                (-3.0, 10.0),
-            ]
-            .into_iter()
-            .map(|(x, y)| center + (Vec2::new(x, y) * 0.75))
-            .collect();
-            painter.add(egui::Shape::closed_line(points, stroke));
-            painter.line_segment(
-                [
-                    center + (Vec2::new(-5.0, -4.0) * 0.75),
-                    center + (Vec2::new(5.0, 6.0) * 0.75),
+                    at(-9., 0.),
+                    at(-4., -2.),
+                    at(1., 2.),
+                    at(6., -2.),
+                    at(9., 0.),
                 ],
                 stroke,
             );
         }
+        Tool::Pen => {
+            painter.line(
+                vec![
+                    inset(-11., 7.),
+                    inset(-6., -3.),
+                    inset(-1., 4.),
+                    inset(5., -8.),
+                    inset(11., -4.),
+                ],
+                Stroke::new(2. * scale, color),
+            );
+        }
+        Tool::Eraser => {
+            let points = [(-11., 2.), (1., -10.), (11., 0.), (1., 10.), (-3., 10.)]
+                .into_iter()
+                .map(|(x, y)| inset(x, y))
+                .collect();
+            painter.add(egui::Shape::closed_line(points, stroke));
+            painter.line_segment([inset(-5., -4.), inset(5., 6.)], stroke);
+        }
         Tool::Area => {
             painter.rect_stroke(
-                Rect::from_center_size(center, Vec2::new(18., 15.)),
+                Rect::from_center_size(center, Vec2::new(18., 15.) * scale),
                 0,
                 stroke,
                 StrokeKind::Inside,
             );
-            for offset in [Vec2::new(-9., -7.5), Vec2::new(9., 7.5)] {
+            for (x, y) in [(-9., -7.5), (9., 7.5)] {
                 painter.rect_filled(
-                    Rect::from_center_size(center + offset, Vec2::splat(4.)),
+                    Rect::from_center_size(at(x, y), Vec2::splat(4. * scale)),
                     0,
                     color,
                 );
             }
         }
-        Tool::Select => {
-            let points = [
-                (-6.0, -10.0),
-                (-6.0, 7.0),
-                (-1.0, 3.0),
-                (3.0, 10.0),
-                (6.0, 8.0),
-                (2.0, 1.0),
-                (9.0, 1.0),
-            ]
-            .into_iter()
-            .map(|(x, y)| center + (Vec2::new(x, y) * 0.75))
-            .collect();
-            painter.add(egui::Shape::closed_line(points, stroke));
-        }
         Tool::Crop => {
-            painter.line_segment(
-                [
-                    center + (Vec2::new(-6.0, -11.0) * 0.75),
-                    center + (Vec2::new(-6.0, 6.0) * 0.75),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    center + (Vec2::new(-6.0, 6.0) * 0.75),
-                    center + (Vec2::new(11.0, 6.0) * 0.75),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    center + (Vec2::new(-11.0, -6.0) * 0.75),
-                    center + (Vec2::new(6.0, -6.0) * 0.75),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    center + (Vec2::new(6.0, -6.0) * 0.75),
-                    center + (Vec2::new(6.0, 11.0) * 0.75),
-                ],
-                stroke,
-            );
-        }
-        Tool::Fill => {
-            let p = |x, y| center + Vec2::new(x, y);
-            painter.add(egui::Shape::closed_line(
-                vec![p(-8., -3.), p(0., -11.), p(10., -1.), p(2., 7.)],
-                stroke,
-            ));
-            painter.line_segment([p(-5., -6.), p(-5., -13.)], stroke);
-            painter.line_segment([p(-6., -1.), p(6., -1.)], stroke);
-            painter.add(egui::Shape::convex_polygon(
-                vec![p(12., 3.), p(9., 9.), p(15., 9.)],
-                color,
-                Stroke::NONE,
-            ));
-        }
-        Tool::Stamp => {
-            painter.circle_stroke(center + Vec2::new(0., -7.), 5., stroke);
-            painter.line_segment(
-                [center + Vec2::new(-3., -2.), center + Vec2::new(-3., 4.)],
-                stroke,
-            );
-            painter.line_segment(
-                [center + Vec2::new(3., -2.), center + Vec2::new(3., 4.)],
-                stroke,
-            );
-            painter.rect_stroke(
-                Rect::from_center_size(center + Vec2::new(0., 8.), Vec2::new(21., 7.)),
-                2.,
-                stroke,
-                StrokeKind::Inside,
-            );
-        }
-        Tool::Text => {
-            painter.line_segment(
-                [
-                    center + (Vec2::new(-9.0, -8.0) * 0.75),
-                    center + (Vec2::new(9.0, -8.0) * 0.75),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    center + (Vec2::new(0.0, -8.0) * 0.75),
-                    center + (Vec2::new(0.0, 9.0) * 0.75),
-                ],
-                stroke,
-            );
-            painter.line_segment(
-                [
-                    center + (Vec2::new(-5.0, 9.0) * 0.75),
-                    center + (Vec2::new(5.0, 9.0) * 0.75),
-                ],
-                stroke,
-            );
-        }
-        Tool::Arrow => {
-            painter.arrow(
-                center + (Vec2::new(-9.0, 8.0) * 0.75),
-                Vec2::new(18.0, -16.0) * 0.75,
-                stroke,
-            );
-        }
-        Tool::Rectangle | Tool::Shape(_) => {
-            painter.rect_stroke(
-                Rect::from_center_size(center, Vec2::new(22.0, 17.0) * 0.75),
-                1,
-                stroke,
-                StrokeKind::Middle,
-            );
+            for (start, end) in [
+                (inset(-6., -11.), inset(-6., 6.)),
+                (inset(-6., 6.), inset(11., 6.)),
+                (inset(-11., -6.), inset(6., -6.)),
+                (inset(6., -6.), inset(6., 11.)),
+            ] {
+                painter.line_segment([start, end], stroke);
+            }
         }
         Tool::Ellipse => {
             painter.add(egui::Shape::ellipse_stroke(
                 center,
-                Vec2::new(11.0, 9.0) * 0.75,
+                Vec2::new(11., 9.) * (0.75 * scale),
                 stroke,
             ));
         }
         Tool::Step => {
-            painter.circle_stroke(center, 7.5, stroke);
+            painter.circle_stroke(center, 7.5 * scale, stroke);
             painter.text(
                 center,
                 egui::Align2::CENTER_CENTER,
                 "1",
-                egui::FontId::proportional(12.0),
+                egui::FontId::proportional(12. * scale),
                 color,
             );
         }
-        Tool::Callout => {
-            let points = [
-                (-11.0, -8.0),
-                (11.0, -8.0),
-                (11.0, 5.0),
-                (3.0, 5.0),
-                (-3.0, 11.0),
-                (-3.0, 5.0),
-                (-11.0, 5.0),
-            ]
-            .into_iter()
-            .map(|(x, y)| center + (Vec2::new(x, y) * 0.75))
-            .collect();
-            painter.add(egui::Shape::closed_line(points, stroke));
-            for offset in [-3.0, 1.0] {
-                painter.line_segment(
-                    [
-                        center + (Vec2::new(-6.0, offset) * 0.75),
-                        center + (Vec2::new(6.0, offset) * 0.75),
-                    ],
-                    stroke,
-                );
-            }
-        }
         Tool::Highlighter => {
-            let points = [(3.0, -11.0), (11.0, -3.0), (1.0, 7.0), (-7.0, -1.0)]
+            let points = [(3., -11.), (11., -3.), (1., 7.), (-7., -1.)]
                 .into_iter()
-                .map(|(x, y)| center + (Vec2::new(x, y) * 0.75))
+                .map(|(x, y)| inset(x, y))
                 .collect();
             painter.add(egui::Shape::closed_line(points, stroke));
             painter.line_segment(
-                [
-                    center + (Vec2::new(-7.0, 0.0) * 0.75),
-                    center + (Vec2::new(-10.0, 5.0) * 0.75),
-                ],
-                Stroke::new(3.0, color),
+                [inset(-7., 0.), inset(-10., 5.)],
+                Stroke::new(3. * scale, color),
             );
             painter.line_segment(
-                [
-                    center + (Vec2::new(-11.0, 10.0) * 0.75),
-                    center + (Vec2::new(11.0, 10.0) * 0.75),
-                ],
-                Stroke::new(2.25, color.gamma_multiply(0.5)),
+                [inset(-11., 10.), inset(11., 10.)],
+                Stroke::new(2.25 * scale, color.gamma_multiply(0.5)),
             );
         }
         Tool::Blur => {
             for y in -1_i32..=1 {
                 for x in -1_i32..=1 {
                     let strength = if x == 0 && y == 0 { 1.0 } else { 0.45 };
-                    let position = center + (Vec2::new(x as f32 * 7.0, y as f32 * 7.0) * 0.75);
-                    painter.circle_filled(position, 3.4, color.gamma_multiply(strength * 0.25));
-                    painter.circle_filled(position, 2.25, color.gamma_multiply(strength));
+                    let position = inset(x as f32 * 7., y as f32 * 7.);
+                    painter.circle_filled(
+                        position,
+                        3.4 * scale,
+                        color.gamma_multiply(strength * 0.25),
+                    );
+                    painter.circle_filled(position, 2.25 * scale, color.gamma_multiply(strength));
                 }
             }
         }
@@ -3550,9 +3354,8 @@ fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Col
                     let shade = [0.35, 0.7, 1.0][(x + y * 2) % 3];
                     painter.rect_filled(
                         Rect::from_min_size(
-                            center
-                                + (Vec2::new(x as f32 * 7.0 - 10.0, y as f32 * 7.0 - 10.0) * 0.75),
-                            Vec2::splat(4.5),
+                            inset(x as f32 * 7. - 10., y as f32 * 7. - 10.),
+                            Vec2::splat(4.5 * scale),
                         ),
                         0,
                         color.gamma_multiply(shade),
@@ -3560,6 +3363,7 @@ fn paint_tool_icon(painter: &egui::Painter, center: Pos2, tool: Tool, color: Col
                 }
             }
         }
+        _ => unreachable!("icon rendered by the shared glyph painter"),
     }
 }
 
@@ -3609,6 +3413,7 @@ fn has_extent(annotation: &Annotation) -> bool {
         | AnnotationKind::DeleteArea
         | AnnotationKind::Blur
         | AnnotationKind::Pixelate
+        | AnnotationKind::LocalAdjust
         | AnnotationKind::Magnify
         | AnnotationKind::Spotlight
         | AnnotationKind::Simplify
@@ -3923,6 +3728,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
             points: if kind == AnnotationKind::Freehand {
                 vec![Point { x: 20.0, y: 30.0 }, Point { x: 80.0, y: 90.0 }]
             } else {
@@ -5613,6 +5419,7 @@ mod tests {
             annotations: vec![annotation(AnnotationKind::Rectangle)],
             geometry: ImageGeometry {
                 effects: Default::default(),
+                page: None,
                 viewport: None,
                 flip_horizontal: false,
                 flip_vertical: false,

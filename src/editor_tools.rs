@@ -164,7 +164,10 @@ impl EditorState {
         self.extra_tools.pending = Some((document.edit_state(), rx));
         std::thread::spawn(move || {
             let mut source = document.clone();
-            source.geometry = Default::default();
+            source.geometry = ImageGeometry {
+                page: source.geometry.page,
+                ..Default::default()
+            };
             let result=render::flatten(&source).and_then(|pixels| {
                 let crop=document.geometry.crop_rect(original_size(&document));
                 let visible=image::imageops::crop_imm(&pixels,crop.x,crop.y,crop.width,crop.height).to_image();

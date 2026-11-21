@@ -50,6 +50,8 @@ pub struct ImageGeometry {
         skip_serializing_if = "crate::image_effects::ImageEffects::is_default"
     )]
     pub effects: crate::image_effects::ImageEffects,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<crate::page_correction::PageCorrection>,
     #[serde(default, skip_serializing_if = "is_false")]
     pub flip_horizontal: bool,
     #[serde(default, skip_serializing_if = "is_false")]
@@ -184,6 +186,9 @@ impl ImageGeometry {
     pub fn validate(self, original: [u32; 2]) -> Result<(), String> {
         validate_dimensions(original[0], original[1])?;
         self.effects.validate()?;
+        if let Some(page) = self.page {
+            page.validate(original)?;
+        }
         if self.quarter_turns > 3 {
             return Err("The image rotation must be 0, 90, 180, or 270 degrees.".into());
         }
@@ -504,6 +509,7 @@ mod tests {
         for quarter_turns in 0..4 {
             let mut geometry = ImageGeometry {
                 effects: Default::default(),
+                page: None,
                 viewport: None,
                 flip_horizontal: false,
                 flip_vertical: false,

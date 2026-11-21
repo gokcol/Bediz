@@ -53,6 +53,7 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 
 [Files]
 Source: "{#Source}\MyImage.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Source}\bediz-open-protocol.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Source}\MyImage.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\Twemoji-LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion

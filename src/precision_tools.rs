@@ -76,11 +76,15 @@ impl Sample {
 }
 
 fn compatible(source: AnnotationKind, target: AnnotationKind) -> bool {
-    !source.is_area_edit() && (source == target || source.is_shape() && target.is_shape())
+    !source.is_area_edit()
+        && source != AnnotationKind::LocalAdjust
+        && (source == target || source.is_shape() && target.is_shape())
 }
 
 fn colorable(kind: AnnotationKind) -> bool {
-    !kind.is_area_edit() && !kind.is_effect() && kind != AnnotationKind::Stamp
+    !kind.is_area_edit()
+        && !kind.is_effect()
+        && !matches!(kind, AnnotationKind::Stamp | AnnotationKind::LocalAdjust)
 }
 
 fn output_point(position: Pos2, rect: Rect, scale: f32, size: [u32; 2]) -> Point {
@@ -184,7 +188,7 @@ impl EditorState {
         let Some(annotation) = document
             .annotations
             .get(index)
-            .filter(|a| a.visible() && !a.kind.is_area_edit())
+            .filter(|a| a.visible() && compatible(a.kind, a.kind))
         else {
             self.precision.message = Some("Choose an annotation to copy its style.".into());
             return;
@@ -902,64 +906,57 @@ pub(super) fn paint_icon(
     tool: Tool,
     color: Color32,
     stroke: Stroke,
+    scale: f32,
 ) {
+    let at = |x, y| center + egui::vec2(x, y) * scale;
     match tool {
         Tool::StyleBrush => {
             painter.rect_stroke(
-                Rect::from_center_size(center + egui::vec2(0., -5.), egui::vec2(16., 8.)),
+                Rect::from_center_size(at(0., -5.), egui::vec2(16., 8.) * scale),
                 2.,
                 stroke,
                 StrokeKind::Inside,
             );
             painter.add(egui::Shape::line(
                 vec![
-                    center + egui::vec2(8., -5.),
-                    center + egui::vec2(11., -5.),
-                    center + egui::vec2(11., 2.),
-                    center + egui::vec2(0., 2.),
-                    center + egui::vec2(0., 8.),
+                    at(8., -5.),
+                    at(11., -5.),
+                    at(11., 2.),
+                    at(0., 2.),
+                    at(0., 8.),
                 ],
                 stroke,
             ));
             painter.rect_filled(
-                Rect::from_center_size(center + egui::vec2(0., 8.), egui::vec2(4., 7.)),
+                Rect::from_center_size(at(0., 8.), egui::vec2(4., 7.) * scale),
                 1.,
                 color,
             );
         }
         Tool::Measure => {
             painter.rect_stroke(
-                Rect::from_center_size(center, egui::vec2(22., 12.)),
+                Rect::from_center_size(center, egui::vec2(22., 12.) * scale),
                 1.,
                 stroke,
                 StrokeKind::Inside,
             );
             for (x, length) in [(-7., 4.), (-3., 6.), (1., 4.), (5., 6.)] {
-                painter.line_segment(
-                    [
-                        center + egui::vec2(x, -6.),
-                        center + egui::vec2(x, -6. + length),
-                    ],
-                    stroke,
-                );
+                painter.line_segment([at(x, -6.), at(x, -6. + length)], stroke);
             }
         }
         Tool::ColorInspector => {
             painter.add(egui::Shape::closed_line(
                 vec![
-                    center + egui::vec2(-8., 8.),
-                    center + egui::vec2(-6., 2.),
-                    center + egui::vec2(4., -8.),
-                    center + egui::vec2(8., -4.),
-                    center + egui::vec2(-2., 6.),
+                    at(-8., 8.),
+                    at(-6., 2.),
+                    at(4., -8.),
+                    at(8., -4.),
+                    at(-2., 6.),
                 ],
                 stroke,
             ));
-            painter.line_segment(
-                [center + egui::vec2(0., -7.), center + egui::vec2(7., 0.)],
-                stroke,
-            );
-            painter.circle_filled(center + egui::vec2(8., 7.), 3., color);
+            painter.line_segment([at(0., -7.), at(7., 0.)], stroke);
+            painter.circle_filled(at(8., 7.), 3. * scale, color);
         }
         _ => {}
     }

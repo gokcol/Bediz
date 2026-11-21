@@ -13,6 +13,7 @@ struct PreviewKey {
     max_side: u32,
     expanded_geometry: Option<crate::geometry::ImageGeometry>,
     effects: crate::image_effects::ImageEffects,
+    page: Option<crate::page_correction::PageCorrection>,
 }
 
 impl PreviewKey {
@@ -20,6 +21,7 @@ impl PreviewKey {
         Arc::ptr_eq(&self.original, &document.image)
             && self.annotations == document.annotations
             && self.effects == document.geometry.effects
+            && self.page == document.geometry.page
             && self.max_side == max_side
             && self.expanded_geometry == document.geometry.canvas.map(|_| document.geometry)
     }
@@ -73,6 +75,7 @@ impl PrivacyPreview {
             max_side: max_side.min(MAX_PREVIEW_SIDE),
             expanded_geometry: document.geometry.canvas.map(|_| document.geometry),
             effects: document.geometry.effects,
+            page: document.geometry.page,
         });
         self.refined = true;
         self.ready =
@@ -172,6 +175,7 @@ impl PrivacyPreview {
                 max_side,
                 expanded_geometry: document.geometry.canvas.map(|_| document.geometry),
                 effects: document.geometry.effects,
+                page: document.geometry.page,
             });
             self.ready = None;
             self.refined = false;
@@ -258,6 +262,7 @@ mod tests {
                 pixel_mask: None,
                 arrow: Default::default(),
                 studio: Default::default(),
+                local_adjustment: Default::default(),
                 points: Vec::new(),
             }],
             geometry: Default::default(),

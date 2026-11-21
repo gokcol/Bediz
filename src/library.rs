@@ -649,6 +649,7 @@ mod tests {
                 pixel_mask: None,
                 arrow: Default::default(),
                 studio: Default::default(),
+                local_adjustment: Default::default(),
                 points: Vec::new(),
             }],
         };
@@ -698,10 +699,12 @@ mod tests {
                 pixel_mask: None,
                 arrow: Default::default(),
                 studio: Default::default(),
+                local_adjustment: Default::default(),
                 points: Vec::new(),
             }],
             geometry: ImageGeometry {
                 effects: Default::default(),
+                page: None,
                 viewport: None,
                 flip_horizontal: false,
                 flip_vertical: false,
@@ -765,6 +768,7 @@ mod tests {
                 pixel_mask: None,
                 arrow: Default::default(),
                 studio: Default::default(),
+                local_adjustment: Default::default(),
                 points: Vec::new(),
             }],
             geometry: Default::default(),

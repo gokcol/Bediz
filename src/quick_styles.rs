@@ -99,6 +99,7 @@ pub(super) fn kind_name(kind: AnnotationKind) -> &'static str {
         AnnotationKind::Simplify => "Simplify",
         AnnotationKind::Blur => "Blur",
         AnnotationKind::Pixelate => "Pixelate",
+        AnnotationKind::LocalAdjust => "Local adjustment",
     }
 }
 
@@ -210,7 +211,12 @@ impl EditorState {
         let Some(kind) = self.style_kind(document) else {
             return;
         };
-        if kind.is_area_edit() || matches!(kind, AnnotationKind::Stamp | AnnotationKind::Fill) {
+        if kind.is_area_edit()
+            || matches!(
+                kind,
+                AnnotationKind::Stamp | AnnotationKind::Fill | AnnotationKind::LocalAdjust
+            )
+        {
             return;
         }
         if !kind.is_shape() {
@@ -466,6 +472,7 @@ fn preview(
         pixel_mask: None,
         arrow: Default::default(),
         studio: Default::default(),
+        local_adjustment: Default::default(),
         points: vec![],
     };
     match kind {

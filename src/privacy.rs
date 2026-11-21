@@ -210,6 +210,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
             points: Vec::new(),
         }
     }

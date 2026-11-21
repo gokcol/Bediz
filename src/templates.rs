@@ -267,6 +267,7 @@ fn annotation(kind: AnnotationKind, rect: [f32; 4]) -> Annotation {
         pixel_mask: None,
         arrow: Default::default(),
         studio: Default::default(),
+        local_adjustment: Default::default(),
     }
 }
 pub fn build(spec: &Spec) -> Result<Document, String> {

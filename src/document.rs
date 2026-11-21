@@ -13,6 +13,7 @@
 //! Version 9 adds reversible area moves, pixel deletion and 3D diagram shapes.
 //! Version 10 adds embedded stamps/signatures and whole-object text formatting.
 //! Version 14 adds focus effects, pixel-selection masks and reversible cut-out strips.
+//! Version 24 adds photographed page correction and selection-based tone adjustments.
 
 use crate::geometry::ImageGeometry;
 use image::{ImageDecoder, ImageFormat, ImageReader, RgbaImage};
@@ -26,7 +27,7 @@ use std::{
 };
 
 const MAGIC: &[u8; 8] = b"MYIMAGE\0";
-const VERSION: u32 = 23;
+const VERSION: u32 = 24;
 const HEADER_BYTES: u64 = 24;
 const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
 pub(crate) const MAX_METADATA_BYTES: usize = 48 * 1024 * 1024;
@@ -80,6 +81,7 @@ pub enum AnnotationKind {
     Simplify,
     Blur,
     Pixelate,
+    LocalAdjust,
     Step,
     Callout,
     Highlighter,
@@ -131,7 +133,10 @@ impl AnnotationKind {
         matches!(self, Self::Magnify | Self::Spotlight | Self::Simplify)
     }
     pub fn needs_composite(self) -> bool {
-        self.is_effect() || self.is_studio() || self.is_area_edit() || self == Self::Fill
+        self.is_effect()
+            || self.is_studio()
+            || self.is_area_edit()
+            || matches!(self, Self::Fill | Self::LocalAdjust)
     }
     pub fn is_effect(self) -> bool {
         matches!(self, Self::Blur | Self::Pixelate)
@@ -182,6 +187,11 @@ pub struct Annotation {
     /// Blur radius or pixelation block side, measured in original image pixels.
     #[serde(default = "default_effect_size")]
     pub effect_size: u32,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::local_adjustments::Settings::is_default"
+    )]
+    pub local_adjustment: crate::local_adjustments::Settings,
     /// Displayed number of a step marker; independent of the object's layer order.
     #[serde(default = "default_step_number")]
     pub step_number: u32,
@@ -381,6 +391,14 @@ pub(crate) fn validate_annotations(annotations: &[Annotation]) -> Result<(), Str
 }
 
 pub(crate) fn validate_annotation(annotation: &Annotation) -> Result<(), String> {
+    if annotation.kind == AnnotationKind::LocalAdjust {
+        annotation.local_adjustment.validate()?;
+        if annotation.end.x <= annotation.start.x || annotation.end.y <= annotation.start.y {
+            return Err("A local adjustment requires positive selection bounds.".into());
+        }
+    } else if !annotation.local_adjustment.is_default() {
+        return Err("Local adjustment settings require a local adjustment layer.".into());
+    }
     if let Some(path) = &annotation.text_style.path {
         if annotation.kind != AnnotationKind::Text {
             return Err("Text paths require a Text annotation.".into());
@@ -623,9 +641,20 @@ fn write_contents(
     document: &Document,
     json: &[u8],
 ) -> Result<(), String> {
+    // Older builds can still read projects that use only existing edits.
+    let version = if document.geometry.page.is_some()
+        || document
+            .annotations
+            .iter()
+            .any(|a| a.kind == AnnotationKind::LocalAdjust)
+    {
+        VERSION
+    } else {
+        23
+    };
     writer.write_all(MAGIC).map_err(|error| error.to_string())?;
     writer
-        .write_all(&VERSION.to_le_bytes())
+        .write_all(&version.to_le_bytes())
         .map_err(|error| error.to_string())?;
     writer
         .write_all(&(json.len() as u32).to_le_bytes())
@@ -712,6 +741,14 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
         serde_json::from_slice(&json)
             .map_err(|error| format!("Cannot read project metadata: {error}"))?
     };
+    if version < 24
+        && metadata
+            .annotations
+            .iter()
+            .any(|a| a.kind == AnnotationKind::LocalAdjust || !a.local_adjustment.is_default())
+    {
+        return Err("Local adjustments require Bediz project version 24.".into());
+    }
     if version < 23
         && metadata.annotations.iter().any(|a| {
             a.text_style.path.is_some()
@@ -751,6 +788,9 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
     }
     if version < 18 && metadata.annotations.iter().any(|a| a.arrow.curve.is_some()) {
         return Err("Curved arrows require Bediz project version 18.".into());
+    }
+    if version < 24 && metadata.geometry.page.is_some() {
+        return Err("Page correction requires project version 24.".into());
     }
     if version < 17 && metadata.geometry.viewport.is_some() {
         return Err("Reversible canvas windows require Bediz project version 17.".into());
@@ -1057,6 +1097,7 @@ mod tests {
                 pixel_mask: None,
                 arrow: Default::default(),
                 studio: Default::default(),
+                local_adjustment: Default::default(),
                 points: Vec::new(),
             })
             .collect(),
@@ -1072,6 +1113,7 @@ mod tests {
         let mut original = sample_document();
         original.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,
@@ -1089,7 +1131,7 @@ mod tests {
         save_project(&original, &first).unwrap();
         assert_eq!(
             u32::from_le_bytes(fs::read(&first).unwrap()[8..12].try_into().unwrap()),
-            VERSION
+            23
         );
         fs::rename(first, &moved).unwrap();
         let mut reopened = load_project(&moved).unwrap();
@@ -1145,10 +1187,7 @@ mod tests {
         assert_eq!(loaded.annotations, original.annotations);
         save_project(&loaded, &path).unwrap();
         let bytes = fs::read(&path).unwrap();
-        assert_eq!(
-            u32::from_le_bytes(bytes[8..12].try_into().unwrap()),
-            VERSION
-        );
+        assert_eq!(u32::from_le_bytes(bytes[8..12].try_into().unwrap()), 23);
         assert_eq!(
             load_project(&path).unwrap().edit_state(),
             loaded.edit_state()
@@ -1203,7 +1242,7 @@ mod tests {
         save_project(&loaded, &path).unwrap();
         assert_eq!(
             u32::from_le_bytes(fs::read(&path).unwrap()[8..12].try_into().unwrap()),
-            VERSION
+            23
         );
     }
 
@@ -1298,7 +1337,7 @@ mod tests {
         save_project(&original, &path).unwrap();
         assert_eq!(
             u32::from_le_bytes(fs::read(&path).unwrap()[8..12].try_into().unwrap()),
-            VERSION
+            23
         );
         let mut loaded = load_project(&path).unwrap();
         assert_eq!(loaded.edit_state(), original.edit_state());
@@ -1362,7 +1401,7 @@ mod tests {
         save_project(&loaded, &path).unwrap();
         assert_eq!(
             u32::from_le_bytes(fs::read(&path).unwrap()[8..12].try_into().unwrap()),
-            VERSION
+            23
         );
     }
 
@@ -1511,7 +1550,7 @@ mod tests {
         save_project(&original, &path).unwrap();
         assert_eq!(
             u32::from_le_bytes(fs::read(&path).unwrap()[8..12].try_into().unwrap()),
-            VERSION
+            23
         );
         let mut loaded = load_project(&path).unwrap();
         assert_eq!(loaded.edit_state(), original.edit_state());

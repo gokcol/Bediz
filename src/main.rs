@@ -27,6 +27,7 @@ mod document;
 mod editor;
 mod export;
 mod export_panel;
+mod external_open;
 mod fill;
 mod geometry;
 mod heif;
@@ -37,10 +38,12 @@ mod image_loading;
 mod library;
 mod library_files;
 mod library_panel;
+mod local_adjustments;
 mod magnify_ui;
 mod ocr;
 mod onboarding;
 mod open_transition;
+mod page_correction;
 mod pdf_export;
 mod pointer_style;
 mod presets;
@@ -90,5 +93,26 @@ fn main() -> eframe::Result {
         env_logger::Env::default().default_filter_or("myimage=info,warn"),
     )
     .init();
-    runtime::run(std::env::args().any(|arg| arg == "--background"))
+    let args: Vec<_> = std::env::args_os().skip(1).collect();
+    let background = args.iter().any(|arg| arg == "--background");
+    let path = args
+        .windows(2)
+        .find(|pair| pair[0] == "--bediz-open")
+        .map(|pair| std::path::PathBuf::from(&pair[1]))
+        .or_else(|| {
+            // Windows Open With associations pass a single positional file.
+            let [arg] = args.as_slice() else {
+                return None;
+            };
+            (!arg.to_string_lossy().starts_with('-')).then(|| std::path::PathBuf::from(arg))
+        });
+    if args.iter().any(|arg| arg == "--demo") || std::env::var_os("MYIMAGE_DEMO").is_some() {
+        return runtime::run(background, None, path);
+    }
+    match external_open::start(path, background)
+        .map_err(|error| eframe::Error::AppCreation(error.into()))?
+    {
+        external_open::Startup::Forwarded => Ok(()),
+        external_open::Startup::Primary(inbox) => runtime::run(background, Some(inbox), None),
+    }
 }

@@ -28,7 +28,10 @@ pub fn fill_region(
             p.y -= bounds.y as f32;
         }
     }
-    source.geometry = Default::default();
+    source.geometry = ImageGeometry {
+        page: source.geometry.page,
+        ..Default::default()
+    };
     let pixels = crate::render::flatten(&source)?;
     crate::fill::build(&pixels, &annotation, seed, tolerance, global)
 }
@@ -41,17 +44,23 @@ pub fn prepare_image(
     geometry.validate(original)?;
     let bounds = geometry.canvas_rect(original);
     let crop = geometry.crop_rect(original);
-    let mut pixels = RgbaImage::new(bounds.width, bounds.height);
-    for y in crop.y..crop.y + crop.height {
-        for x in crop.x..crop.x + crop.width {
-            pixels.put_pixel(
-                (x as i32 - bounds.x) as u32,
-                (y as i32 - bounds.y) as u32,
-                *image.get_pixel(x, y),
-            );
+    let pixels = if let Some(page) = geometry.page {
+        page.render(image, bounds, [bounds.width, bounds.height], Some(crop))
+    } else {
+        let mut pixels = RgbaImage::new(bounds.width, bounds.height);
+        for y in crop.y..crop.y + crop.height {
+            for x in crop.x..crop.x + crop.width {
+                pixels.put_pixel(
+                    (x as i32 - bounds.x) as u32,
+                    (y as i32 - bounds.y) as u32,
+                    *image.get_pixel(x, y),
+                );
+            }
         }
-    }
+        pixels
+    };
     let mut transformed = geometry;
+    transformed.page = None;
     transformed.canvas = None;
     transformed.effects.shift(bounds.x, bounds.y);
     transformed.crop = geometry.viewport.map(|v| crate::geometry::CropRect {

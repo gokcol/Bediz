@@ -1,6 +1,104 @@
 use super::*;
-use crate::appearance::Icon as DialogIcon;
+use crate::appearance::{self, Icon as DialogIcon, TileTone};
 use crate::dialogs::{self, Dialog};
+
+fn toolbar_ink(ctx: &egui::Context, tool: Tool) -> Color32 {
+    let tone = match tool {
+        Tool::Select | Tool::Area | Tool::Crop | Tool::CutOut | Tool::Magnify => TileTone::Blue,
+        Tool::Arrow
+        | Tool::ConnectedArrow
+        | Tool::Callout
+        | Tool::Pen
+        | Tool::Fill
+        | Tool::StyleBrush => TileTone::Teal,
+        Tool::Stamp | Tool::Highlighter | Tool::Step => TileTone::Clay,
+        Tool::Text
+        | Tool::Rectangle
+        | Tool::Ellipse
+        | Tool::Shape(_)
+        | Tool::Wand
+        | Tool::ScreenshotText => TileTone::Violet,
+        Tool::Repair
+        | Tool::Redact
+        | Tool::Eraser
+        | Tool::Blur
+        | Tool::Pixelate
+        | Tool::Simplify
+        | Tool::Spotlight
+        | Tool::Measure
+        | Tool::ColorInspector => TileTone::Slate,
+    };
+    appearance::satin_ink(ctx, tone)
+}
+
+fn paint_toolbar_label(ui: &egui::Ui, rect: Rect, label: &str, selected: bool) {
+    let color = appearance::satin_label_color(ui.ctx(), selected);
+    let mut text = egui::text::LayoutJob::simple_singleline(
+        label.into(),
+        egui::FontId::proportional(10.5),
+        color,
+    );
+    text.wrap.max_width = rect.width() - 4.;
+    text.wrap.max_rows = 1;
+    let galley = ui.fonts_mut(|fonts| fonts.layout_job(text));
+    let center = rect.center() + Vec2::new(0., 11.);
+    ui.painter()
+        .galley(center - galley.size() * 0.5, galley, color);
+}
+
+fn tool_button(ui: &mut egui::Ui, tool: Tool, label: &str, selected: bool) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(44., 38.), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            ui.is_enabled(),
+            selected,
+            label,
+        )
+    });
+    if ui.is_rect_visible(rect) {
+        let ink =
+            appearance::satin_button(ui, rect, &response, selected, toolbar_ink(ui.ctx(), tool));
+        let nudge = if response.is_pointer_button_down_on() {
+            0.75
+        } else {
+            0.
+        };
+        paint_tool_icon_sized(
+            ui.painter(),
+            rect.center() + Vec2::new(0., -7. + nudge),
+            tool,
+            ink,
+            18.,
+        );
+        paint_toolbar_label(ui, rect, label, selected);
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn paint_menu_row(ui: &egui::Ui, rect: Rect, response: &egui::Response, selected: bool) {
+    let palette = appearance::palette(ui.ctx());
+    let painter = ui.painter();
+    if selected {
+        painter.rect(
+            rect,
+            7,
+            palette.accent.gamma_multiply(0.15),
+            Stroke::new(1.25, palette.accent),
+            StrokeKind::Inside,
+        );
+    } else if response.hovered() || response.is_pointer_button_down_on() {
+        painter.rect_filled(rect, 7, palette.cream);
+    }
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect.shrink(2.),
+            5,
+            Stroke::new(1., palette.ink),
+            StrokeKind::Inside,
+        );
+    }
+}
 
 impl EditorState {
     pub(super) fn tools(&self) -> Vec<(Tool, &'static str, &'static str)> {
@@ -272,30 +370,26 @@ impl EditorState {
         overflow.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "More tools")
         });
-        let palette = crate::appearance::palette(ui.ctx());
-        if overflow.hovered()
-            || overflow.has_focus()
-            || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&overflow))
-        {
-            ui.painter()
-                .rect_filled(rect.shrink2(egui::vec2(1., 5.)), 7, palette.cream);
-        }
-        let center = rect.center();
-        ui.painter().add(egui::Shape::line(
+        let popup_open =
+            egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&overflow));
+        let selected = hidden_active || popup_open;
+        let ink = appearance::satin_button(
+            ui,
+            rect,
+            &overflow,
+            selected,
+            appearance::satin_ink(ui.ctx(), TileTone::Slate),
+        );
+        let center = rect.center() - Vec2::new(0., 7.);
+        ui.painter().line(
             vec![
                 center + egui::vec2(-5., -2.5),
                 center + egui::vec2(0., 2.5),
                 center + egui::vec2(5., -2.5),
             ],
-            Stroke::new(
-                2.,
-                if hidden_active {
-                    palette.accent
-                } else {
-                    palette.ink
-                },
-            ),
-        ));
+            Stroke::new(1.7, ink),
+        );
+        paint_toolbar_label(ui, rect, "More", selected);
         let overflow = overflow
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .on_hover_text("More tools · Customize toolbar");
@@ -316,15 +410,13 @@ impl EditorState {
                         label,
                     )
                 });
-                if response.hovered() || self.tool == tool {
-                    ui.painter()
-                        .rect_filled(rect, 4., crate::appearance::palette(ui.ctx()).cream);
-                }
-                paint_tool_icon(
+                paint_menu_row(ui, rect, &response, self.tool == tool);
+                paint_tool_icon_sized(
                     ui.painter(),
                     rect.left_center() + egui::vec2(14., 0.),
                     tool,
-                    crate::appearance::palette(ui.ctx()).ink,
+                    toolbar_ink(ui.ctx(), tool),
+                    16.,
                 );
                 ui.painter().text(
                     rect.left_center() + egui::vec2(34., 0.),
@@ -402,11 +494,12 @@ impl EditorState {
                                     ui.set_min_width(226.);
                                     let (icon_rect, _) = ui
                                         .allocate_exact_size(egui::vec2(24., 25.), Sense::hover());
-                                    paint_tool_icon(
+                                    paint_tool_icon_sized(
                                         ui.painter(),
                                         icon_rect.center(),
                                         tool,
-                                        crate::appearance::palette(ui.ctx()).ink,
+                                        toolbar_ink(ui.ctx(), tool),
+                                        16.,
                                     );
                                     let mut pinned = self.toolbar_pins.iter().any(|p| p == label);
                                     if crate::appearance::checkbox(

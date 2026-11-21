@@ -572,6 +572,7 @@ pub fn annotation_bounds(annotation: &Annotation) -> Rect {
         | AnnotationKind::Stamp
         | AnnotationKind::Blur
         | AnnotationKind::Pixelate
+        | AnnotationKind::LocalAdjust
         | AnnotationKind::Spotlight
         | AnnotationKind::Simplify
         | AnnotationKind::MoveArea
@@ -689,6 +690,7 @@ pub fn paint_document_annotations(
     if !scale.is_finite()
         || scale <= 0.0
         || document.geometry.effects.active()
+        || document.geometry.page.is_some()
         || document.geometry.has_cutouts()
         || document.geometry.canvas.is_some()
         || document
@@ -822,6 +824,7 @@ fn annotation_shapes(
             AnnotationKind::Fill
             | AnnotationKind::Blur
             | AnnotationKind::Pixelate
+            | AnnotationKind::LocalAdjust
             | AnnotationKind::Magnify
             | AnnotationKind::Spotlight
             | AnnotationKind::Simplify
@@ -1046,10 +1049,18 @@ pub fn flatten(document: &Document) -> Result<RgbaImage, String> {
     if document.geometry.canvas.is_some() {
         return flatten(&crate::canvas::render_document(document)?);
     }
-    if document.annotations.is_empty() && !document.geometry.effects.active() {
+    if document.annotations.is_empty()
+        && !document.geometry.effects.active()
+        && document.geometry.page.is_none()
+    {
         return document.geometry.apply(&document.image);
     }
-    let mut output = (*document.image).clone();
+    let mut output = if let Some(page) = document.geometry.page {
+        let size = [document.image.width(), document.image.height()];
+        page.render(&document.image, source_bounds(size), size, None)
+    } else {
+        (*document.image).clone()
+    };
     composite_annotations(&mut output, &document.annotations, [1.0; 2])?;
     crate::image_effects::apply(&mut output, document.geometry.effects, [0.; 2], [1.; 2]);
     if document.geometry == Default::default() {
@@ -1060,6 +1071,15 @@ pub fn flatten(document: &Document) -> Result<RgbaImage, String> {
 }
 
 pub(crate) const MAX_INTERACTIVE_PREVIEW_SIDE: u32 = 4096;
+
+fn source_bounds([width, height]: [u32; 2]) -> crate::geometry::CanvasRect {
+    crate::geometry::CanvasRect {
+        x: 0,
+        y: 0,
+        width,
+        height,
+    }
+}
 
 /// Bounded composition at the requested sampling density. Transition frames use
 /// a small limit; active drags retain enough detail for their displayed size.
@@ -1073,38 +1093,38 @@ pub fn interactive_preview(document: &Document, max_side: u32) -> Result<RgbaIma
     let bounds = document
         .geometry
         .canvas
-        .unwrap_or(crate::geometry::CanvasRect {
-            x: 0,
-            y: 0,
-            width: original[0],
-            height: original[1],
-        });
+        .unwrap_or_else(|| source_bounds(original));
     let dimensions = fit_dimensions(
         [bounds.width, bounds.height],
         max_side.min(MAX_INTERACTIVE_PREVIEW_SIDE),
         max_side.min(MAX_INTERACTIVE_PREVIEW_SIDE),
     );
     let crop = document.geometry.crop_rect(original);
-    let mut output = RgbaImage::from_fn(dimensions[0], dimensions[1], |x, y| {
-        let sx = bounds.x as i64
-            + ((x as u64 * 2 + 1) * bounds.width as u64 / (dimensions[0] as u64 * 2)) as i64;
-        let sy = bounds.y as i64
-            + ((y as u64 * 2 + 1) * bounds.height as u64 / (dimensions[1] as u64 * 2)) as i64;
-        if sx < 0
-            || sy < 0
-            || sx >= original[0] as i64
-            || sy >= original[1] as i64
-            || (document.geometry.canvas.is_some()
-                && (sx < crop.x as i64
-                    || sy < crop.y as i64
-                    || sx >= (crop.x + crop.width) as i64
-                    || sy >= (crop.y + crop.height) as i64))
-        {
-            image::Rgba([0; 4])
-        } else {
-            *document.image.get_pixel(sx as u32, sy as u32)
-        }
-    });
+    let mut output = if let Some(page) = document.geometry.page {
+        let clip = document.geometry.canvas.map(|_| crop);
+        page.render(&document.image, bounds, dimensions, clip)
+    } else {
+        RgbaImage::from_fn(dimensions[0], dimensions[1], |x, y| {
+            let sx = bounds.x as i64
+                + ((x as u64 * 2 + 1) * bounds.width as u64 / (dimensions[0] as u64 * 2)) as i64;
+            let sy = bounds.y as i64
+                + ((y as u64 * 2 + 1) * bounds.height as u64 / (dimensions[1] as u64 * 2)) as i64;
+            if sx < 0
+                || sy < 0
+                || sx >= original[0] as i64
+                || sy >= original[1] as i64
+                || (document.geometry.canvas.is_some()
+                    && (sx < crop.x as i64
+                        || sy < crop.y as i64
+                        || sx >= (crop.x + crop.width) as i64
+                        || sy >= (crop.y + crop.height) as i64))
+            {
+                image::Rgba([0; 4])
+            } else {
+                *document.image.get_pixel(sx as u32, sy as u32)
+            }
+        })
+    };
     let mut annotations = document.annotations.clone();
     if document.geometry.canvas.is_some() {
         for a in &mut annotations {
@@ -1157,6 +1177,9 @@ pub fn interactive_preview(document: &Document, max_side: u32) -> Result<RgbaIma
 /// briefly expose unfiltered source pixels. Call on the preview worker.
 pub fn privacy_preview(document: &Document, max_side: u32) -> Result<RgbaImage, String> {
     crate::document::validate_document(document)?;
+    if document.geometry.page.is_some() {
+        return interactive_preview(document, max_side.min(4096));
+    }
     if document.geometry.canvas.is_some() {
         return privacy_preview(&crate::canvas::render_document(document)?, max_side);
     }
@@ -1211,6 +1234,8 @@ fn composite_annotations(
                 crate::studio::apply(output, annotation, scale)?;
             } else if annotation.kind == AnnotationKind::Fill {
                 crate::fill::apply(output, annotation, scale)?;
+            } else if annotation.kind == AnnotationKind::LocalAdjust {
+                crate::local_adjustments::apply(output, annotation, scale);
             } else if annotation.kind.is_area_edit() {
                 crate::area_pixels::apply(output, annotation, scale)?;
             } else if scale == [1.0; 2] {
@@ -1271,7 +1296,7 @@ fn composite_annotations(
 /// capture therefore never needs a second full-resolution image or overlay.
 pub fn thumbnail(document: &Document, width: u32, height: u32) -> Result<RgbaImage, String> {
     crate::document::validate_document(document)?;
-    if document.geometry.canvas.is_some() {
+    if document.geometry.canvas.is_some() && document.geometry.page.is_none() {
         return thumbnail(&crate::canvas::render_document(document)?, width, height);
     }
     if width == 0 || height == 0 {
@@ -1291,6 +1316,7 @@ pub fn thumbnail(document: &Document, width: u32, height: u32) -> Result<RgbaIma
         return Ok(pixels);
     }
     if document.geometry.effects.active()
+        || document.geometry.page.is_some()
         || document.geometry.has_cutouts()
         || document
             .annotations
@@ -1381,9 +1407,13 @@ fn privacy_thumbnail(document: &Document, width: u32, height: u32) -> Result<Rgb
     // beneath each filter. Failure propagates: never fall back to the original.
     let composite = privacy_preview(document, width.max(height).saturating_mul(4).min(4096))?;
     let original = [document.image.width(), document.image.height()];
-    if document.geometry.has_cutouts() {
+    if document.geometry.has_cutouts() || document.geometry.canvas.is_some() {
         let [w, h] = fit_dimensions(document.output_size(), width, height);
         let output = document.output_size();
+        let bounds = document
+            .geometry
+            .canvas
+            .unwrap_or_else(|| source_bounds(original));
         return Ok(RgbaImage::from_fn(w, h, |x, y| {
             let p = document.geometry.unwarped().inverse_point(
                 Point {
@@ -1393,10 +1423,10 @@ fn privacy_thumbnail(document: &Document, width: u32, height: u32) -> Result<Rgb
                 original,
             );
             *composite.get_pixel(
-                (p.x * composite.width() as f32 / original[0] as f32)
+                ((p.x - bounds.x as f32) * composite.width() as f32 / bounds.width as f32)
                     .floor()
                     .clamp(0., (composite.width() - 1) as f32) as u32,
-                (p.y * composite.height() as f32 / original[1] as f32)
+                ((p.y - bounds.y as f32) * composite.height() as f32 / bounds.height as f32)
                     .floor()
                     .clamp(0., (composite.height() - 1) as f32) as u32,
             )
@@ -1767,6 +1797,7 @@ fn paint_shape(overlay: &mut Pixmap, annotation: &Annotation, transform: Transfo
         | AnnotationKind::Text
         | AnnotationKind::Blur
         | AnnotationKind::Pixelate
+        | AnnotationKind::LocalAdjust
         | AnnotationKind::Magnify
         | AnnotationKind::Spotlight
         | AnnotationKind::Simplify
@@ -2235,6 +2266,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
             points: Vec::new(),
         }
     }
@@ -2524,6 +2556,7 @@ mod tests {
         let mut doc = document(vec![ink]);
         doc.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,
@@ -2598,6 +2631,7 @@ mod tests {
         assert_eq!(reduced.get_pixel(70, 25)[3], 0);
         doc.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,
@@ -2806,6 +2840,7 @@ mod tests {
         for turns in 0..4 {
             document.geometry = ImageGeometry {
                 effects: Default::default(),
+                page: None,
                 viewport: None,
                 flip_horizontal: false,
                 flip_vertical: false,
@@ -2884,6 +2919,7 @@ mod tests {
         let untransformed = flatten(&document).unwrap();
         document.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,
@@ -2916,6 +2952,7 @@ mod tests {
         }));
         document.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,
@@ -3005,6 +3042,7 @@ mod tests {
         assert_ne!(pixels.get_pixel(18, 35), doc.image.get_pixel(18, 35));
         doc.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,

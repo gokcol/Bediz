@@ -151,6 +151,8 @@ enum View {
 }
 
 pub struct MyImageApp {
+    external_open_inbox: Option<crate::external_open::Inbox>,
+    external_open_request: Option<crate::external_open::Request>,
     about_open: bool,
     updates: crate::updates::State,
     appearance_open: bool,
@@ -298,6 +300,8 @@ impl MyImageApp {
         );
         editor.set_toolbar_order(settings.editor_tool_order.clone());
         Self {
+            external_open_inbox: None,
+            external_open_request: None,
             about_open: false,
             updates: crate::updates::State::new(&settings.updates, settings.guide_version > 0),
             appearance_open: false,
@@ -856,6 +860,52 @@ impl MyImageApp {
             return;
         }
         self.begin_open(ctx, path, edit);
+    }
+
+    pub(crate) fn external_open(
+        &mut self,
+        inbox: Option<crate::external_open::Inbox>,
+        demo_path: Option<PathBuf>,
+        watcher_error: Option<String>,
+    ) {
+        self.external_open_inbox = inbox;
+        self.external_open_request = demo_path.map(crate::external_open::Request::Open);
+        if let Some(error) = watcher_error {
+            self.error = Some(format!("External file open unavailable: {error}"));
+        }
+    }
+
+    fn poll_external_open(&mut self, ctx: &egui::Context) {
+        use crate::external_open::Request;
+
+        let incoming = self
+            .external_open_inbox
+            .as_mut()
+            .and_then(crate::external_open::Inbox::take_latest);
+        let arrived = incoming.is_some();
+        if let Some(request) = incoming
+            && (!matches!(request, Request::Show) || self.external_open_request.is_none())
+        {
+            self.external_open_request = Some(request);
+        }
+        if self.external_open_request.is_none()
+            || self.pending_capture.is_some()
+            || self.selection.is_some()
+            || self.scroll_session.is_some()
+            || self.quitting
+            || self.quit_after_work
+        {
+            return;
+        }
+        if arrived || self.hidden.load(Ordering::Relaxed) {
+            self.show(ctx);
+        }
+        if self.busy || !self.workspace_unobscured() || self.editor.has_modal() {
+            return;
+        }
+        if let Some(Request::Open(path)) = self.external_open_request.take() {
+            self.open_path(ctx, path, true);
+        }
     }
 
     fn begin_open(&mut self, ctx: &egui::Context, path: PathBuf, _edit: bool) {
@@ -1748,6 +1798,7 @@ impl MyImageApp {
                     if let Some(document) = &self.document {
                         let painter = painter.with_clip_rect(rect.intersect(ui.clip_rect()));
                         if document.geometry.canvas.is_some()
+                            || document.geometry.page.is_some()
                             || (document.geometry.has_cutouts()
                                 || document.geometry.effects.active())
                             || document
@@ -1990,13 +2041,13 @@ impl MyImageApp {
                 .on_hover_text(hint)
                 .clicked()
             } else {
-                appearance::action_button(ui, label, icon, enabled, false)
+                appearance::toolbar_action_button(ui, label, icon, enabled, false)
                     .on_hover_text(hint)
                     .clicked()
             }
         };
         if matches!(view, View::Viewer | View::Editor) {
-            if appearance::action_button(ui, "Save project", Icon::Save, has_doc, true)
+            if appearance::toolbar_action_button(ui, "Save project", Icon::Save, has_doc, true)
                 .on_hover_text("Save the editable project · ⌘S / Ctrl+S")
                 .clicked()
             {
@@ -2299,6 +2350,7 @@ impl eframe::App for MyImageApp {
             }
         }
         self.handle_events(ctx);
+        self.poll_external_open(ctx);
         if let Some(desktop) = &mut self.desktop {
             desktop.set_capture_active(
                 self.pending_capture.is_some()
@@ -2600,12 +2652,11 @@ impl eframe::App for MyImageApp {
                 self.workspace_ui(ui, ctx);
             });
         if let Some(document) = &self.document {
-            let size = document.output_size();
             let has_privacy = document
                 .annotations
                 .iter()
                 .any(|a| a.visible() && a.kind.is_effect());
-            if self.save_as_panel.show(ctx, size, has_privacy) {
+            if self.save_as_panel.show(ctx, document, has_privacy) {
                 match self.save_as_panel.format {
                     SaveFormat::Project => {
                         self.save_as_panel.open = false;

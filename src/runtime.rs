@@ -11,7 +11,11 @@ use winit::{
     window::WindowId,
 };
 
-pub fn run(background: bool) -> eframe::Result {
+pub fn run(
+    background: bool,
+    mut inbox: Option<crate::external_open::Inbox>,
+    demo_path: Option<std::path::PathBuf>,
+) -> eframe::Result {
     let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let hidden = Arc::new(AtomicBool::new(false));
@@ -54,9 +58,12 @@ pub fn run(background: bool) -> eframe::Result {
                     cumulative_pass_nr,
                 });
             });
-            Ok(Box::new(crate::app::MyImageApp::new(
-                cc, background, app_hidden,
-            )))
+            let mut app = crate::app::MyImageApp::new(cc, background, app_hidden);
+            let watcher_error = inbox
+                .as_mut()
+                .and_then(|inbox| inbox.watch(&cc.egui_ctx).err());
+            app.external_open(inbox, demo_path, watcher_error);
+            Ok(Box::new(app))
         }),
         &event_loop,
     );

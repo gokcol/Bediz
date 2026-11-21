@@ -361,6 +361,7 @@ pub(crate) fn sample_annotation() -> Annotation {
         callout_style: Default::default(),
         pixel_mask: None,
         studio: Default::default(),
+        local_adjustment: Default::default(),
         arrow: Default::default(),
     }
 }

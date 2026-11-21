@@ -443,6 +443,7 @@ fn base_annotation(kind: AnnotationKind, start: Point, end: Point) -> Annotation
         callout_style: Default::default(),
         pixel_mask: None,
         studio: Default::default(),
+        local_adjustment: Default::default(),
         arrow: Default::default(),
     }
 }

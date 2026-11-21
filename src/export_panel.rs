@@ -3,10 +3,14 @@ use crate::appearance::Icon as DialogIcon;
 use crate::dialogs::{self, Dialog};
 use crate::{
     appearance,
+    capture_size::OutputSize,
+    document::Document,
     export::{ExportFormat, ExportOptions},
     pdf_export::PdfPageSize,
 };
 use eframe::egui;
+
+mod pixel_preview;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SaveFormat {
@@ -57,33 +61,39 @@ pub struct SaveAsPanel {
     pub format: SaveFormat,
     pub options: ExportOptions,
     pub error: Option<String>,
+    pixel_preview: pixel_preview::PixelPreview,
 }
 
 impl SaveAsPanel {
     pub fn begin(&mut self) {
         self.format = SaveFormat::Project;
         self.error = None;
+        self.options.output_size = OutputSize::Original;
+        self.options.crisp_text = false;
+        self.pixel_preview.close();
         self.open = true;
     }
 
     /// Returns true when the user is ready to choose a destination in the native picker.
-    pub fn show(&mut self, ctx: &egui::Context, size: [u32; 2], has_privacy: bool) -> bool {
+    pub fn show(&mut self, ctx: &egui::Context, document: &Document, has_privacy: bool) -> bool {
         if !self.open {
+            self.pixel_preview.close();
             return false;
         }
-        self.show_with_encoder(ctx, size, has_privacy, crate::heif::available())
+        self.show_with_encoder(ctx, document, has_privacy, crate::heif::available())
     }
 
     fn show_with_encoder(
         &mut self,
         ctx: &egui::Context,
-        size: [u32; 2],
+        document: &Document,
         has_privacy: bool,
         heif_available: bool,
     ) -> bool {
         if !self.open {
             return false;
         }
+        let size = document.output_size();
         let mut choose_destination = false;
         let modal = Dialog::new(
             "Save as",
@@ -111,6 +121,9 @@ impl SaveAsPanel {
                                 .changed()
                             {
                                 self.error = None;
+                                if format == SaveFormat::Project {
+                                    self.pixel_preview.close();
+                                }
                             }
                         }
                     });
@@ -172,7 +185,7 @@ impl SaveAsPanel {
                             }
                         }
                         ExportFormat::Tiff => {
-                            ui.label("Lossless TIFF preserves image detail at full resolution.");
+                            ui.label("Lossless TIFF preserves image detail.");
                             self.transparency(ui, false);
                         }
                         ExportFormat::WebP => {
@@ -180,7 +193,7 @@ impl SaveAsPanel {
                             self.transparency(ui, false);
                         }
                         ExportFormat::Pdf => {
-                            ui.label("A single-page PDF containing the finished image at full pixel resolution.");
+                            ui.label("A single-page PDF containing the finished image.");
                             self.transparency(ui, false);
                             ui.horizontal(|ui| {
                                 ui.label("Page size");
@@ -218,6 +231,8 @@ impl SaveAsPanel {
                         }
                     }
                     ui.add_space(4.);
+                    self.size_controls(ui, document, size);
+                    ui.add_space(4.);
                     ui.weak("Your editable .myimage project stays unchanged.");
                 }
             }
@@ -245,7 +260,66 @@ impl SaveAsPanel {
         if modal.should_close() {
             self.open = false;
         }
+        if !self.open || choose_destination {
+            self.pixel_preview.close();
+        }
         choose_destination && self.open
+    }
+
+    fn size_controls(&mut self, ui: &mut egui::Ui, document: &Document, size: [u32; 2]) {
+        let choice_label = |choice: OutputSize| {
+            if choice == OutputSize::Original {
+                "100% · Current size"
+            } else {
+                choice.label()
+            }
+        };
+        ui.horizontal(|ui| {
+            ui.label("Output size");
+            let sizes = egui::ComboBox::from_id_salt("save_as_size")
+                .selected_text(choice_label(self.options.output_size))
+                .width(134.)
+                .show_ui(ui, |ui| {
+                    for choice in OutputSize::ALL {
+                        if ui
+                            .selectable_value(
+                                &mut self.options.output_size,
+                                choice,
+                                choice_label(choice),
+                            )
+                            .changed()
+                        {
+                            self.error = None;
+                        }
+                    }
+                });
+            sizes.response.widget_info(|| {
+                let mut info =
+                    egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, "Output size");
+                info.current_text_value = Some(choice_label(self.options.output_size).into());
+                info
+            });
+            let (width, height) = self.options.output_size.dimensions(size[0], size[1]);
+            if (width, height) != (size[0], size[1]) {
+                ui.weak(format!("{width} × {height} px"));
+            }
+        });
+        if self.options.output_size.dimensions(size[0], size[1]) == (size[0], size[1]) {
+            self.pixel_preview.close();
+            self.options.crisp_text = false;
+            return;
+        }
+        ui.horizontal(|ui| {
+            appearance::checkbox(ui, &mut self.options.crisp_text, "Crisp text")
+                .on_hover_text("Sharpen fine edges after resizing the finished image.");
+            if ui
+                .selectable_label(self.pixel_preview.is_open(), "Preview at 100%")
+                .clicked()
+            {
+                self.pixel_preview.toggle();
+            }
+        });
+        self.pixel_preview.show(ui, document, self.options);
     }
 
     fn quality(&mut self, ui: &mut egui::Ui) {
@@ -308,6 +382,7 @@ mod tests {
 
     struct Workspace {
         ctx: egui::Context,
+        document: Document,
         panel: SaveAsPanel,
         heif_available: bool,
         time: f64,
@@ -323,6 +398,11 @@ mod tests {
             panel.begin();
             Self {
                 ctx,
+                document: Document {
+                    image: std::sync::Arc::new(image::RgbaImage::new(1600, 1000)),
+                    annotations: Vec::new(),
+                    geometry: Default::default(),
+                },
                 panel,
                 heif_available,
                 time: 0.,
@@ -344,9 +424,12 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |_ui| {});
-                    self.choose_destination =
-                        self.panel
-                            .show_with_encoder(ctx, [1600, 1000], true, self.heif_available);
+                    self.choose_destination = self.panel.show_with_encoder(
+                        ctx,
+                        &self.document,
+                        true,
+                        self.heif_available,
+                    );
                 },
             )
         }
@@ -522,5 +605,31 @@ mod tests {
         w.click(&SaveFormat::Image(ExportFormat::Png).menu_label());
         w.click("Save…");
         assert!(w.choose_destination);
+    }
+
+    #[test]
+    fn crisp_text_is_opt_in_for_smaller_copies_and_preview_keeps_save_reachable() {
+        let mut w = Workspace::new(true);
+        w.panel.format = SaveFormat::Image(ExportFormat::Pdf);
+        assert!(!w.labels().iter().any(|s| s == "Crisp text"));
+        w.click("Output size");
+        w.click("50%");
+        assert_eq!(w.panel.options.output_size, OutputSize::Half);
+        assert!(w.texts().iter().any(|s| s == "800 × 500 px"));
+        assert!(!w.panel.options.crisp_text);
+        w.click("Crisp text");
+        assert!(w.panel.options.crisp_text);
+        w.click("Preview at 100%");
+        assert!(w.panel.pixel_preview.is_open());
+        let nodes = w.settle().platform_output.accesskit_update.unwrap().nodes;
+        let save = nodes
+            .iter()
+            .find_map(|(_, node)| (node.label() == Some("Save…")).then_some(node))
+            .unwrap();
+        assert!(save.bounds().unwrap().y1 <= 640.);
+        w.click("Output size");
+        w.click("100% · Current size");
+        assert!(!w.panel.options.crisp_text);
+        assert!(!w.panel.pixel_preview.is_open());
     }
 }

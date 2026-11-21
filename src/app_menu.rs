@@ -2,6 +2,8 @@
 use super::*;
 use egui::{Align2, FontId, RichText, Sense};
 
+const INTERFACE_SIZE_LABEL: f32 = 10.5;
+
 pub(super) fn config(ctx: &egui::Context) -> egui::containers::menu::MenuConfig {
     let palette = appearance::palette(ctx);
     egui::containers::menu::MenuConfig::new()
@@ -83,6 +85,51 @@ pub(super) fn row(
         response.on_hover_cursor(egui::CursorIcon::PointingHand)
     })
     .inner
+}
+
+fn interface_size_choice(
+    ui: &mut egui::Ui,
+    width: f32,
+    label: &str,
+    selected: bool,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 27.), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::RadioButton,
+            ui.is_enabled(),
+            selected,
+            label,
+        )
+    });
+    let p = appearance::palette(ui.ctx());
+    let ink = if selected { Color32::WHITE } else { p.ink };
+    if selected {
+        ui.painter().rect_filled(rect, 4, p.accent);
+        ui.painter().rect_filled(
+            Rect::from_center_size(rect.center_bottom() - Vec2::new(0., 4.), Vec2::new(12., 2.)),
+            1,
+            ink,
+        );
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, 4, p.cream);
+    }
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect.shrink(1.5),
+            3,
+            Stroke::new(1., ink),
+            egui::StrokeKind::Inside,
+        );
+    }
+    ui.painter().text(
+        rect.center() - Vec2::new(0., 1.),
+        Align2::CENTER_CENTER,
+        label,
+        FontId::proportional(INTERFACE_SIZE_LABEL),
+        ink,
+    );
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 impl MyImageApp {
@@ -185,11 +232,22 @@ impl MyImageApp {
                     });
                     ui.add_space(4.);
                     ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 2.;
-                        let width = (ui.available_width() - 6.) / 4.;
-                        for size in storage::UiTextSize::ALL {
+                        let gap = 2.;
+                        ui.spacing_mut().item_spacing.x = gap;
+                        let sizes = storage::UiTextSize::ALL;
+                        let label_widths = sizes.map(|size| {
+                            ui.painter().layout_no_wrap(
+                                size.label().into(),
+                                FontId::proportional(INTERFACE_SIZE_LABEL),
+                                Color32::WHITE,
+                            ).size().x
+                        });
+                        let spare = ui.available_width() - gap * (sizes.len() - 1) as f32
+                            - label_widths.iter().sum::<f32>();
+                        let padding = (spare / sizes.len() as f32).max(4.);
+                        for (size, label_width) in sizes.into_iter().zip(label_widths) {
                             let selected = self.settings.ui_text_size == size;
-                            let response = ui.add_sized([width, 27.], egui::Button::new(RichText::new(size.label()).size(10.5).color(if selected { Color32::WHITE } else { crate::appearance::deep_text(ui.ctx()) })).fill(if selected { crate::appearance::palette(ui.ctx()).navy } else { Color32::TRANSPARENT }).stroke(Stroke::NONE).corner_radius(4));
+                            let response = interface_size_choice(ui, label_width + padding, size.label(), selected);
                             if response.clicked() {
                                 self.settings.ui_text_size = size;
                                 ctx.set_zoom_factor(size.factor());

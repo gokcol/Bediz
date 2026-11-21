@@ -1,8 +1,15 @@
 {
   "version": "3.1.0",
-  "build": 128,
+  "build": 134,
   "store_version": "3.1.4.0",
   "changes": [
+    "Medium is the default interface size and sits between Normal and Large.",
+    "Open Satin highlights the selected tool with a faint background tint and a stronger shade of its icon color.",
+    "The welcome guide uses sculpted tiles and keeps its tips, autosave note and shortcuts.",
+    "The App menu marks the active interface size with a high-contrast fill and underline in every finish.",
+    "Correct a photographed page with four corner handles and an optional Clean paper preview.",
+    "Adjust a selected area with shadow, highlight and feather controls that stay editable in the project.",
+    "Save smaller image or PDF copies with optional Crisp text sharpening and an actual-size preview.",
     "Capture selection keeps preparing in the background even when the editor is hidden and native redraws are delayed.",
     "Existing Recents thumbnails stay visible after capture. Only the new capture loads, avoiding the one-by-one strip redraw.",
     "Paste text on an open canvas to create an editable text box. Double-click to edit, or drag to move it.",
@@ -22,6 +29,8 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "Use Helvetica for clearer menu, toolbar and dialog text.",
+    "Open images directly from Seyir with Edit in Bediz.",
     "Restore the opaque editor title bar while retaining transparent capture overlays and smooth startup.",
     "Retain the smooth, undimmed capture startup and full menu-bar/Dock selection.",
     "Scrolling controls stay outside the captured image while the editor remains hidden."

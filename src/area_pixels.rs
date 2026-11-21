@@ -195,6 +195,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
         }
     }
     fn pixels() -> RgbaImage {

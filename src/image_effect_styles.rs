@@ -171,7 +171,7 @@ impl EffectStyles {
 }
 
 // Interpolate premultiplied channels to avoid dark fringes on transparent edges.
-fn sample(source: &RgbaImage, x: f32, y: f32) -> Rgba<u8> {
+pub(crate) fn sample(source: &RgbaImage, x: f32, y: f32) -> Rgba<u8> {
     if !x.is_finite()
         || !y.is_finite()
         || x < -1.

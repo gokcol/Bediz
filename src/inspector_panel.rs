@@ -183,8 +183,8 @@ pub(super) fn selector(ui: &mut egui::Ui, state: State) -> Option<(Panel, bool)>
             ui.painter(),
             styles.rect.left_center() + Vec2::new(15., 0.),
             crate::appearance::Icon::Settings,
-            palette.ink,
-            16.,
+            crate::appearance::satin_ink(ui.ctx(), crate::appearance::TileTone::Slate),
+            17.,
         );
         ui.painter().text(
             styles.rect.left_center() + Vec2::new(29., 0.),

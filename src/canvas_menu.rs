@@ -283,6 +283,18 @@ impl EditorState {
             });
         }
         self.quick_resize_menu(ui, document, history);
+        if item(
+            ui,
+            "Correct page…",
+            MenuIcon::Tool(Tool::Crop),
+            original_size(document).into_iter().all(|size| size >= 2),
+        )
+        .on_hover_text("Square up a photographed page using its four corners")
+        .clicked()
+        {
+            self.open_page_correction(document, history);
+            ui.close();
+        }
         ui.horizontal(|ui| {
             ui.label("Rotate:");
             if icon_item(ui, "Rotate left", MenuIcon::Rotate(false)).clicked() {
@@ -349,6 +361,18 @@ impl EditorState {
         }
         ui.separator();
         if self.area.is_some() || self.selected.is_some() {
+            if self.can_adjust_pixels()
+                && item(
+                    ui,
+                    "Adjust selected area",
+                    MenuIcon::App(DialogIcon::Effects),
+                    true,
+                )
+                .clicked()
+            {
+                self.start_local_adjustment(document, history);
+                ui.close();
+            }
             let pixels = self.area.is_some();
             let enabled = self.selected.is_none() || self.can_edit_selection(document);
             let label = if pixels {

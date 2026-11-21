@@ -7,7 +7,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{document::Document, pdf_export::PdfPageSize};
+use crate::{capture_size::OutputSize, document::Document, pdf_export::PdfPageSize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ExportFormat {
@@ -69,13 +69,15 @@ impl ExportFormat {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExportOptions {
     pub format: ExportFormat,
     pub jpeg_quality: u8,
     pub preserve_transparency: bool,
     pub jpeg_background: [u8; 3],
     pub pdf_page_size: PdfPageSize,
+    pub output_size: OutputSize,
+    pub crisp_text: bool,
 }
 
 impl Default for ExportOptions {
@@ -86,6 +88,8 @@ impl Default for ExportOptions {
             preserve_transparency: true,
             jpeg_background: [255; 3],
             pdf_page_size: PdfPageSize::Image,
+            output_size: OutputSize::Original,
+            crisp_text: false,
         }
     }
 }
@@ -126,6 +130,64 @@ pub fn checked_export_path(mut path: PathBuf, format: ExportFormat) -> Result<Pa
     Ok(path)
 }
 
+pub(super) fn resized_pixels(document: &Document, size: OutputSize) -> Result<RgbaImage, String> {
+    crate::render::flatten(document).map(|pixels| size.apply(pixels))
+}
+
+fn luma(rgba: [u8; 4]) -> i32 {
+    (54 * i32::from(rgba[0]) + 183 * i32::from(rgba[1]) + 19 * i32::from(rgba[2])) / 256
+}
+
+/// Apply a small luminance detail boost at the final pixel density. Weight the
+/// smoothing samples by coverage so transparent RGB never introduces a fringe.
+/// The preview and the encoder use the same neighborhood, even at tile edges.
+pub(super) fn crisp_pixel(image: &RgbaImage, x: u32, y: u32) -> image::Rgba<u8> {
+    let original = *image.get_pixel(x, y);
+    if original[3] == 0 {
+        return original;
+    }
+    let center_luma = luma(original.0);
+    let mut detail = 0;
+    let mut weight = 4 * i32::from(original[3]);
+    for (x, y) in [
+        (x.saturating_sub(1), y),
+        ((x + 1).min(image.width() - 1), y),
+        (x, y.saturating_sub(1)),
+        (x, (y + 1).min(image.height() - 1)),
+    ] {
+        let sample = image.get_pixel(x, y).0;
+        let alpha = i32::from(sample[3]);
+        detail += (center_luma - luma(sample)) * alpha;
+        weight += alpha;
+    }
+    let boost = (detail * 3 / (weight * 4)).clamp(-22, 22);
+    let mut sharpened = original;
+    for channel in &mut sharpened.0[..3] {
+        *channel = (i32::from(*channel) + boost).clamp(0, 255) as u8;
+    }
+    sharpened
+}
+
+fn crisp_text(image: &mut RgbaImage) {
+    let row_len = image.width() as usize * 4;
+    let mut previous = Vec::with_capacity(row_len);
+    let mut current = Vec::with_capacity(row_len);
+    for y in 0..image.height() {
+        // Read this row's immediate neighbors before overwriting the previous
+        // row, so a long scrolling capture needs only two extra scanlines.
+        current.extend((0..image.width()).flat_map(|x| crisp_pixel(image, x, y).0));
+        let offset = y as usize * row_len;
+        if y != 0 {
+            image.as_mut()[offset - row_len..offset].copy_from_slice(&previous);
+        }
+        std::mem::swap(&mut previous, &mut current);
+        current.clear();
+    }
+    if let Some(last) = image.as_mut().rchunks_mut(row_len).next() {
+        last.copy_from_slice(&previous);
+    }
+}
+
 /// Render a snapshot, then publish only a completely encoded and synced file.
 /// Call on an I/O worker: large captures and annotations can take time to encode.
 pub fn save(document: &Document, path: &Path, options: ExportOptions) -> Result<(), String> {
@@ -135,15 +197,18 @@ pub fn save(document: &Document, path: &Path, options: ExportOptions) -> Result<
     {
         return Err("Image quality must be between 1 and 100.".into());
     }
-    if options.format == ExportFormat::WebP
-        && document.output_size().into_iter().any(|side| side > 16_384)
-    {
+    let [width, height] = document.output_size();
+    let (output_width, output_height) = options.output_size.dimensions(width, height);
+    if options.format == ExportFormat::WebP && output_width.max(output_height) > 16_384 {
         return Err(
             "WebP supports images up to 16,384 pixels on each side. Choose PNG or TIFF for this image."
                 .into(),
         );
     }
-    let image = crate::render::flatten(document)?;
+    let mut image = resized_pixels(document, options.output_size)?;
+    if options.crisp_text && (width, height) != image.dimensions() {
+        crisp_text(&mut image);
+    }
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -242,6 +307,28 @@ fn matte_pixel(pixel: &image::Rgba<u8>, background: [u8; 3]) -> [u8; 3] {
             / 255) as u8
     })
 }
+
+pub(super) fn preview_pixel(
+    image: &RgbaImage,
+    options: ExportOptions,
+    x: u32,
+    y: u32,
+) -> image::Rgba<u8> {
+    let pixel = if options.crisp_text {
+        crisp_pixel(image, x, y)
+    } else {
+        *image.get_pixel(x, y)
+    };
+    if !options.preserve_transparency
+        || !options.format.supports_transparency()
+        || (options.format == ExportFormat::Gif && pixel[3] != 0)
+    {
+        let [r, g, b] = matte_pixel(&pixel, options.jpeg_background);
+        image::Rgba([r, g, b, 255])
+    } else {
+        pixel
+    }
+}
 fn opaque_rgba(image: &RgbaImage, background: [u8; 3]) -> RgbaImage {
     RgbaImage::from_fn(image.width(), image.height(), |x, y| {
         let p = matte_pixel(image.get_pixel(x, y), background);
@@ -307,6 +394,7 @@ mod tests {
                     pixel_mask: None,
                     arrow: Default::default(),
                     studio: Default::default(),
+                    local_adjustment: Default::default(),
                     points: Vec::new(),
                 },
                 Annotation {
@@ -334,6 +422,7 @@ mod tests {
                     pixel_mask: None,
                     arrow: Default::default(),
                     studio: Default::default(),
+                    local_adjustment: Default::default(),
                     points: Vec::new(),
                 },
             ],
@@ -385,6 +474,54 @@ mod tests {
                 .into_rgba8();
             assert_eq!(decoded, flattened, "{} lost RGBA data", format.label());
         }
+    }
+
+    #[test]
+    fn reduced_png_with_crisp_text_matches_its_preview_without_changing_the_project() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("reduced.png");
+        let document = sample_document();
+        let before = document.edit_state();
+        let mut settings = ExportOptions {
+            output_size: OutputSize::Half,
+            ..options(ExportFormat::Png)
+        };
+        let smaller = OutputSize::Half.apply(crate::render::flatten(&document).unwrap());
+        save(&document, &path, settings).unwrap();
+        assert_eq!(decode_copy(&path, ExportFormat::Png), smaller);
+
+        settings.crisp_text = true;
+        save(&document, &path, settings).unwrap();
+        let result = decode_copy(&path, ExportFormat::Png);
+        assert_eq!(result.dimensions(), (48, 32));
+        assert_ne!(result, smaller);
+        for (x, y, pixel) in result.enumerate_pixels() {
+            assert_eq!(*pixel, preview_pixel(&smaller, settings, x, y));
+            assert_eq!(pixel[3], smaller.get_pixel(x, y)[3]);
+        }
+
+        settings.output_size = OutputSize::Original;
+        save(&document, &path, settings).unwrap();
+        assert_eq!(
+            decode_copy(&path, ExportFormat::Png),
+            crate::render::flatten(&document).unwrap()
+        );
+        assert_eq!(document.edit_state(), before);
+    }
+
+    #[test]
+    fn transparent_neighborhood_does_not_change_color_or_coverage() {
+        let image = RgbaImage::from_fn(5, 4, |x, _| match x {
+            0 => Rgba([0, 255, 0, 0]),
+            1 => Rgba([200, 40, 90, 32]),
+            2 => Rgba([200, 40, 90, 186]),
+            3 => Rgba([200, 40, 90, 255]),
+            _ => Rgba([255, 255, 255, 0]),
+        });
+        let result = RgbaImage::from_fn(image.width(), image.height(), |x, y| {
+            crisp_pixel(&image, x, y)
+        });
+        assert_eq!(result, image);
     }
 
     #[test]
@@ -706,6 +843,7 @@ mod tests {
         let mut document = sample_document();
         document.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,
@@ -858,6 +996,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
             points: Vec::new(),
         });
         document
@@ -874,6 +1013,7 @@ mod tests {
         let mut document = review_document();
         document.geometry = ImageGeometry {
             effects: Default::default(),
+            page: None,
             viewport: None,
             flip_horizontal: false,
             flip_vertical: false,
@@ -945,6 +1085,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
             points: Vec::new(),
         };
         document.annotations = vec![
@@ -1000,6 +1141,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
             points: Vec::new(),
         };
         document.annotations = vec![
@@ -1056,6 +1198,7 @@ mod tests {
             pixel_mask: None,
             arrow: Default::default(),
             studio: Default::default(),
+            local_adjustment: Default::default(),
             points: Vec::new(),
         });
         let path = directory.path().join("privacy.myimage");

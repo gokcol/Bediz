@@ -44,6 +44,7 @@ pub(crate) fn object(kind: AnnotationKind, start: [f32; 2], end: [f32; 2]) -> An
         pixel_mask: None,
         arrow: Default::default(),
         studio: Default::default(),
+        local_adjustment: Default::default(),
         points: Vec::new(),
     }
 }

@@ -1253,7 +1253,7 @@ impl EditorState {
             return;
         };
         let kind = document.annotations[index].kind;
-        if kind.is_area_edit() {
+        if kind.is_area_edit() || kind == AnnotationKind::LocalAdjust {
             return;
         }
         let mut bounds = Rect::NOTHING;

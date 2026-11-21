@@ -930,6 +930,8 @@ mod tests {
             // away from its endpoint and middle bend handles.
             bounds.min + bounds.size() * egui::vec2(120. / 320., 100. / 240.)
         };
+        // Applying the startup UI zoom briefly uses the previous viewport size.
+        let _ = workspace_canvas(&mut app, &ctx, source.id(), vec![]);
         let initial = workspace_canvas(&mut app, &ctx, source.id(), vec![]);
         let select = shaft_point(&initial);
         // Select first: dragging an unselected object in Select mode creates a

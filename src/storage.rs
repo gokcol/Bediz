@@ -10,19 +10,27 @@ use std::{
 #[serde(rename_all = "snake_case")]
 pub enum UiTextSize {
     Small,
-    #[default]
     Normal,
+    #[default]
+    Medium,
     Large,
     VeryLarge,
 }
 
 impl UiTextSize {
-    pub const ALL: [Self; 4] = [Self::Small, Self::Normal, Self::Large, Self::VeryLarge];
+    pub const ALL: [Self; 5] = [
+        Self::Small,
+        Self::Normal,
+        Self::Medium,
+        Self::Large,
+        Self::VeryLarge,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Small => "Small",
             Self::Normal => "Normal",
+            Self::Medium => "Medium",
             Self::Large => "Large",
             Self::VeryLarge => "Very Large",
         }
@@ -32,6 +40,7 @@ impl UiTextSize {
         match self {
             Self::Small => 0.9,
             Self::Normal => 1.0,
+            Self::Medium => 1.075,
             Self::Large => 1.15,
             Self::VeryLarge => 1.3,
         }
@@ -126,7 +135,7 @@ impl Default for Settings {
         Self {
             updates: Default::default(),
             guide_version: 0,
-            ui_text_size: UiTextSize::Normal,
+            ui_text_size: UiTextSize::default(),
             gui_finish: Default::default(),
             capture_theme: Default::default(),
             icon_style: Default::default(),
@@ -461,8 +470,20 @@ mod tests {
     #[test]
     fn text_size_defaults_for_old_settings_and_survives_restart() {
         let legacy: Settings = serde_json::from_str(r#"{"include_pointer":true}"#).unwrap();
-        assert_eq!(legacy.ui_text_size, UiTextSize::Normal);
+        assert_eq!(Settings::default().ui_text_size, UiTextSize::Medium);
+        assert_eq!(legacy.ui_text_size, UiTextSize::Medium);
         assert!(legacy.include_pointer);
+        assert!(
+            (UiTextSize::Medium.factor()
+                - f32::midpoint(UiTextSize::Normal.factor(), UiTextSize::Large.factor()))
+            .abs()
+                <= f32::EPSILON
+        );
+        assert!(
+            UiTextSize::ALL
+                .windows(2)
+                .all(|pair| pair[0].factor() < pair[1].factor())
+        );
         for size in UiTextSize::ALL {
             let settings = Settings {
                 ui_text_size: size,

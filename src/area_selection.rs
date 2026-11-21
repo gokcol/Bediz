@@ -596,6 +596,7 @@ impl EditorState {
             kind,
             AnnotationKind::Blur
                 | AnnotationKind::Pixelate
+                | AnnotationKind::LocalAdjust
                 | AnnotationKind::DeleteArea
                 | AnnotationKind::Magnify
                 | AnnotationKind::Spotlight
@@ -606,6 +607,7 @@ impl EditorState {
         if self.selected.is_some() && !self.can_edit_selection(document) {
             return;
         }
+        self.finish_properties(document, history);
         self.finish_area_drag(document, history);
         let Some(rect) = self.selection_region(document) else {
             return;
@@ -624,6 +626,9 @@ impl EditorState {
                 self.restore_appearance(kind);
             }
             let mut a = self.new_annotation(kind, from_pos(rect.min));
+            if kind == AnnotationKind::LocalAdjust {
+                a.local_adjustment.feather = (rect.size().min_elem() / 6.).round().min(12.) as u8;
+            }
             a.end = from_pos(rect.max);
             a.area_mask = if self.selected.is_none() {
                 self.area_mask.clone()
@@ -1778,6 +1783,62 @@ mod tests {
         assert_eq!(d.annotations[0].area_mask.len(), 3);
         assert!(h.undo(&mut d));
         assert_eq!(d.edit_state(), before);
+    }
+
+    #[test]
+    fn local_adjustment_uses_lasso_and_roundtrips_with_original_pixels() {
+        let mut d = doc();
+        let original = std::sync::Arc::new(image::RgbaImage::from_fn(100, 100, |_, y| {
+            let value = if y < 40 { 32 } else { 222 };
+            image::Rgba([value, value, value, 190])
+        }));
+        d.image = original.clone();
+        let mut e = EditorState {
+            tool: Tool::Area,
+            area: Some(Rect::from_min_max(
+                egui::pos2(10., 10.),
+                egui::pos2(90., 90.),
+            )),
+            area_mask: vec![
+                Point { x: 0., y: 0. },
+                Point { x: 1., y: 0. },
+                Point { x: 0., y: 1. },
+            ],
+            ..Default::default()
+        };
+        let mut h = EditHistory::new(d.edit_state());
+        e.start_local_adjustment(&mut d, &mut h);
+        assert_eq!(e.selected, Some(0));
+        assert_eq!(d.annotations[0].area_mask, e.area_mask);
+        assert_eq!(crate::render::flatten(&d).unwrap(), *original);
+        let before = d.edit_state();
+        d.annotations[0].local_adjustment.shadows = 100;
+        d.annotations[0].local_adjustment.highlights = 100;
+        h.commit(before, &d);
+        let adjusted = crate::render::flatten(&d).unwrap();
+        let at = |x, y| adjusted.get_pixel(x, y)[0];
+        assert!(at(12, 30) > 32 && at(30, 30) > at(12, 30));
+        assert!(at(30, 45) < 222);
+        assert_eq!(at(70, 70), 222);
+        assert_eq!(adjusted.get_pixel(30, 30)[3], 190);
+        let preview = crate::render::privacy_preview(&d, 50).unwrap();
+        assert!(preview.get_pixel(15, 15)[0] > 32);
+        assert_eq!(
+            *preview.get_pixel(35, 35),
+            image::Rgba([222, 222, 222, 190])
+        );
+        assert!(h.undo(&mut d));
+        assert_eq!(crate::render::flatten(&d).unwrap(), *original);
+        assert!(h.redo(&mut d));
+        assert_eq!(crate::render::flatten(&d).unwrap(), adjusted);
+        assert!(std::sync::Arc::ptr_eq(&d.image, &original));
+        let dir = tempfile::tempdir().unwrap();
+        let project = dir.path().join("selection.myimage");
+        crate::document::save_project(&d, &project).unwrap();
+        let reopened = crate::document::load_project(&project).unwrap();
+        assert_eq!(reopened.edit_state(), d.edit_state());
+        assert_eq!(*reopened.image, *original);
+        assert_eq!(crate::render::flatten(&reopened).unwrap(), adjusted);
     }
 
     #[test]

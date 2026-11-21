@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 #[path = "image_effect_styles.rs"]
 mod styles;
+pub(crate) use styles::sample;
 pub use styles::{ColorFilter, EffectStyles};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

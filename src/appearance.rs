@@ -292,7 +292,7 @@ pub fn apply(ctx: &egui::Context) {
     // Use the platform UI face when present without redistributing OS fonts.
     // Annotation typography is rendered independently for portable projects.
     let font_path = if cfg!(target_os = "macos") {
-        std::path::PathBuf::from("/System/Library/Fonts/SFNS.ttf")
+        std::path::PathBuf::from("/System/Library/Fonts/Helvetica.ttc")
     } else {
         std::env::var_os("WINDIR")
             .map(std::path::PathBuf::from)
@@ -508,9 +508,14 @@ pub enum Icon {
     Up,
     Down,
     Capture,
+    Camera,
+    Scan,
     Library,
     View,
     Edit,
+    Pencil,
+    Layers,
+    Shield,
     Create,
     Open,
     OpenProject,
@@ -523,6 +528,142 @@ pub enum Icon {
     CalendarDay,
     Pin,
     Unpin,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum TileTone {
+    Blue,
+    Teal,
+    Clay,
+    Violet,
+    Slate,
+}
+
+impl TileTone {
+    fn colors(self) -> (Color32, Color32, Color32) {
+        let colors = match self {
+            Self::Blue => [0x5e88f5, 0x2850c8, 0xb8e7ff],
+            Self::Teal => [0x2ba88f, 0x006b5d, 0xc4f6ca],
+            Self::Clay => [0xdd8650, 0xa94730, 0xffe1a6],
+            Self::Violet => [0x9a76eb, 0x6740b7, 0xe5d7ff],
+            Self::Slate => [0x798fad, 0x455d7f, 0xd9e8ff],
+        };
+        let [top, bottom, badge] =
+            colors.map(|rgb| Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8));
+        (top, bottom, badge)
+    }
+}
+
+/// Colored relief for welcome glyphs and other compact actions.
+pub(crate) fn sculpted_tile(painter: &egui::Painter, center: Pos2, tone: TileTone, size: f32) {
+    let rect = Rect::from_center_size(center, Vec2::splat(size));
+    let radius = (size * 0.28).round();
+    let (top, bottom, _) = tone.colors();
+    let shadow = egui::Shadow {
+        offset: [0, (size * 0.055).round() as i8],
+        blur: (size * 0.11).round() as u8,
+        spread: 0,
+        color: Color32::from_black_alpha(if palette(painter.ctx()).is_dark() {
+            90
+        } else {
+            62
+        }),
+    };
+    painter.add(shadow.as_shape(rect, egui::CornerRadius::same(radius as u8)));
+    gradient(painter, rect, radius, top, bottom);
+    painter.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(1., Color32::from_white_alpha(65)),
+        egui::StrokeKind::Inside,
+    );
+}
+
+/// Use the existing tile color family as a freestanding glyph on the toolbar.
+pub(crate) fn satin_ink(ctx: &egui::Context, tone: TileTone) -> Color32 {
+    let (_, light_ink, dark_ink) = tone.colors();
+    if palette(ctx).is_dark() {
+        dark_ink
+    } else {
+        light_ink
+    }
+}
+
+pub(crate) fn satin_label_color(ctx: &egui::Context, selected: bool) -> Color32 {
+    let palette = palette(ctx);
+    if selected {
+        palette.ink
+    } else {
+        palette.muted.lerp_to_gamma(palette.ink, 0.18)
+    }
+}
+
+pub(crate) fn satin_button(
+    ui: &egui::Ui,
+    rect: Rect,
+    response: &egui::Response,
+    selected: bool,
+    ink: Color32,
+) -> Color32 {
+    let painter = ui.painter();
+    let tint = if selected {
+        0.09
+    } else if response.is_pointer_button_down_on() {
+        0.08
+    } else if response.hovered() {
+        0.06
+    } else {
+        0.
+    };
+    if tint > 0. {
+        painter.rect_filled(rect, 5, surface(ui.ctx()).lerp_to_gamma(ink, tint));
+    }
+    if response.has_focus() {
+        painter.rect_stroke(
+            rect.shrink(1.),
+            5,
+            Stroke::new(1., ink),
+            egui::StrokeKind::Inside,
+        );
+    }
+    if selected {
+        ink.lerp_to_gamma(palette(ui.ctx()).ink, 0.14)
+    } else {
+        ink
+    }
+}
+
+pub(crate) fn sculpted_icon(
+    painter: &egui::Painter,
+    center: Pos2,
+    kind: Icon,
+    tone: TileTone,
+    size: f32,
+    detail: Option<Icon>,
+) {
+    sculpted_tile(painter, center, tone, size);
+    let mark_center = center - Vec2::splat(if detail.is_some() { size * 0.05 } else { 0. });
+    icon(painter, mark_center, kind, Color32::WHITE, size * 0.56);
+    if let Some(detail) = detail {
+        let (_, _, badge) = tone.colors();
+        let badge_center = center + Vec2::splat(size * 0.37);
+        let rect = Rect::from_center_size(badge_center, Vec2::splat(size * 0.36));
+        let radius = (size * 0.11).round();
+        painter.rect(
+            rect,
+            radius,
+            badge,
+            Stroke::new(1., Color32::from_white_alpha(155)),
+            egui::StrokeKind::Inside,
+        );
+        icon(
+            painter,
+            badge_center,
+            detail,
+            Color32::from_rgb(23, 34, 57),
+            size * 0.22,
+        );
+    }
 }
 
 pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f32) {
@@ -549,7 +690,95 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
     let color = icon_style::color(p.ctx(), color, family);
     let s = Stroke::new(icon_style::current(p.ctx()).width(), color);
     let r = Rect::from_center_size(center, Vec2::splat(size));
+    let point = |x, y| r.min + Vec2::new(x * size, y * size);
     match kind {
+        Icon::Camera => {
+            p.line(
+                vec![
+                    point(0.13, 0.29),
+                    point(0.28, 0.29),
+                    point(0.37, 0.14),
+                    point(0.63, 0.14),
+                    point(0.72, 0.29),
+                    point(0.87, 0.29),
+                    point(0.93, 0.35),
+                    point(0.93, 0.81),
+                    point(0.87, 0.87),
+                    point(0.13, 0.87),
+                    point(0.07, 0.81),
+                    point(0.07, 0.35),
+                    point(0.13, 0.29),
+                ],
+                s,
+            );
+            p.circle_stroke(point(0.50, 0.56), size * 0.17, s);
+        }
+        Icon::Scan => {
+            for (corner, x, y) in [
+                (r.left_top(), 1., 1.),
+                (r.right_top(), -1., 1.),
+                (r.right_bottom(), -1., -1.),
+                (r.left_bottom(), 1., -1.),
+            ] {
+                p.line(
+                    vec![
+                        corner + Vec2::new(x * size * 0.27, 0.),
+                        corner,
+                        corner + Vec2::new(0., y * size * 0.27),
+                    ],
+                    s,
+                );
+            }
+        }
+        Icon::Pencil => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    point(0.08, 0.92),
+                    point(0.16, 0.62),
+                    point(0.68, 0.08),
+                    point(0.91, 0.30),
+                    point(0.38, 0.84),
+                ],
+                s,
+            ));
+            p.line_segment([point(0.57, 0.19), point(0.80, 0.41)], s);
+        }
+        Icon::Layers => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    point(0.08, 0.33),
+                    point(0.50, 0.12),
+                    point(0.92, 0.33),
+                    point(0.50, 0.53),
+                ],
+                s,
+            ));
+            for y in [0.53, 0.72] {
+                p.line(
+                    vec![point(0.08, y), point(0.50, y + 0.20), point(0.92, y)],
+                    s,
+                );
+            }
+        }
+        Icon::Shield => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    point(0.50, 0.09),
+                    point(0.84, 0.23),
+                    point(0.82, 0.61),
+                    point(0.71, 0.79),
+                    point(0.50, 0.92),
+                    point(0.29, 0.79),
+                    point(0.18, 0.61),
+                    point(0.16, 0.23),
+                ],
+                s,
+            ));
+            p.line(
+                vec![point(0.32, 0.51), point(0.45, 0.63), point(0.68, 0.39)],
+                s,
+            );
+        }
         Icon::Print => {
             p.rect_stroke(
                 Rect::from_min_max(
@@ -1096,38 +1325,34 @@ pub fn nav_button(ui: &mut egui::Ui, label: &str, kind: Icon, selected: bool) ->
             label,
         )
     });
-    let color = if selected {
-        Color32::WHITE
-    } else {
-        palette(ui.ctx()).muted
-    };
-    if selected || response.hovered() {
-        if selected {
-            satin(
-                ui.painter(),
-                rect,
-                10.,
-                true,
-                response.is_pointer_button_down_on(),
-            );
+    if ui.is_rect_visible(rect) {
+        let tone = match kind {
+            Icon::Edit => TileTone::Teal,
+            Icon::Library => TileTone::Clay,
+            Icon::Create => TileTone::Violet,
+            _ => TileTone::Blue,
+        };
+        let ink = satin_button(ui, rect, &response, selected, satin_ink(ui.ctx(), tone));
+        let nudge = if response.is_pointer_button_down_on() {
+            0.75
         } else {
-            ui.painter().rect_filled(rect, 10, palette(ui.ctx()).cream);
-        }
+            0.
+        };
+        icon(
+            ui.painter(),
+            rect.center() + Vec2::new(0., -7. + nudge),
+            kind,
+            ink,
+            18.,
+        );
+        ui.painter().text(
+            rect.center() + Vec2::new(0., 11.),
+            egui::Align2::CENTER_CENTER,
+            label,
+            egui::FontId::proportional(10.5),
+            satin_label_color(ui.ctx(), selected),
+        );
     }
-    icon(
-        ui.painter(),
-        rect.center_top() + Vec2::new(0.0, 12.0),
-        kind,
-        color,
-        18.0,
-    );
-    ui.painter().text(
-        rect.center_top() + Vec2::new(0.0, 32.0),
-        egui::Align2::CENTER_CENTER,
-        label,
-        egui::FontId::proportional(10.5),
-        color,
-    );
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
@@ -1586,18 +1811,32 @@ pub fn document_icon_button(ui: &mut egui::Ui, label: &str, kind: Icon) -> egui:
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
-    if response.hovered() || response.has_focus() || response.is_pointer_button_down_on() {
-        ui.painter()
-            .rect_filled(rect, 6, ui.style().interact(&response).bg_fill);
+    if let Some(tone) = document_tone(kind) {
+        let ink = satin_button(ui, rect, &response, false, satin_ink(ui.ctx(), tone));
+        icon(ui.painter(), rect.center(), kind, ink, 18.);
+    } else {
+        if response.hovered() || response.has_focus() || response.is_pointer_button_down_on() {
+            ui.painter()
+                .rect_filled(rect, 6, ui.style().interact(&response).bg_fill);
+        }
+        icon(
+            ui.painter(),
+            rect.center(),
+            kind,
+            palette(ui.ctx()).ink,
+            18.,
+        );
     }
-    icon(
-        ui.painter(),
-        rect.center(),
-        kind,
-        palette(ui.ctx()).ink,
-        18.,
-    );
     response.on_hover_text(label)
+}
+
+fn document_tone(kind: Icon) -> Option<TileTone> {
+    match kind {
+        Icon::Open => Some(TileTone::Blue),
+        Icon::OpenProject | Icon::Save | Icon::SaveAs => Some(TileTone::Clay),
+        Icon::Print => Some(TileTone::Slate),
+        _ => None,
+    }
 }
 
 /// Block interaction during background work without flashing the surrounding UI.
@@ -1628,6 +1867,27 @@ pub fn action_button(
     enabled: bool,
     primary: bool,
 ) -> egui::Response {
+    action_button_with_tone(ui, label, kind, enabled, primary, None)
+}
+
+pub fn toolbar_action_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    kind: Icon,
+    enabled: bool,
+    primary: bool,
+) -> egui::Response {
+    action_button_with_tone(ui, label, kind, enabled, primary, document_tone(kind))
+}
+
+fn action_button_with_tone(
+    ui: &mut egui::Ui,
+    label: &str,
+    kind: Icon,
+    enabled: bool,
+    primary: bool,
+    tone: Option<TileTone>,
+) -> egui::Response {
     ui.add_enabled_ui(enabled, |ui| {
         let text = ui.painter().layout_no_wrap(
             label.into(),
@@ -1639,45 +1899,53 @@ pub fn action_button(
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
         });
-        let color = if primary {
+        let toolbar_ink = tone.map(|tone| satin_ink(ui.ctx(), tone));
+        let color = if toolbar_ink.is_some() {
+            satin_label_color(ui.ctx(), primary || response.hovered())
+        } else if primary {
             Color32::WHITE
         } else {
             palette(ui.ctx()).ink
         };
-        let visuals = ui.style().interact(&response);
-        ui.painter().rect(
-            rect,
-            6,
-            if primary {
-                palette(ui.ctx()).accent
-            } else if response.hovered() {
-                visuals.bg_fill
+        let center = rect.left_center() + Vec2::new(15., 0.);
+        if let Some(ink) = toolbar_ink {
+            let ink = satin_button(ui, rect, &response, false, ink);
+            let kind = if matches!(kind, Icon::Save) {
+                Icon::Layers
             } else {
-                Color32::TRANSPARENT
-            },
-            if primary || response.hovered() || response.has_focus() {
-                visuals.bg_stroke
-            } else {
-                Stroke::NONE
-            },
-            egui::StrokeKind::Inside,
-        );
-        if primary {
-            satin(
-                ui.painter(),
+                kind
+            };
+            icon(ui.painter(), center, kind, ink, 17.);
+        } else {
+            let visuals = ui.style().interact(&response);
+            ui.painter().rect(
                 rect,
-                6.,
-                true,
-                response.is_pointer_button_down_on(),
+                6,
+                if primary {
+                    palette(ui.ctx()).accent
+                } else if response.hovered() {
+                    visuals.bg_fill
+                } else {
+                    Color32::TRANSPARENT
+                },
+                if primary || response.hovered() || response.has_focus() {
+                    visuals.bg_stroke
+                } else {
+                    Stroke::NONE
+                },
+                egui::StrokeKind::Inside,
             );
+            if primary {
+                satin(
+                    ui.painter(),
+                    rect,
+                    6.,
+                    true,
+                    response.is_pointer_button_down_on(),
+                );
+            }
+            icon(ui.painter(), center, kind, color, 14.);
         }
-        icon(
-            ui.painter(),
-            rect.left_center() + Vec2::new(15., 0.),
-            kind,
-            color,
-            14.,
-        );
         ui.painter().text(
             rect.left_center() + Vec2::new(29., 0.),
             egui::Align2::LEFT_CENTER,

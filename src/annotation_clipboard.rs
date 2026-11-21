@@ -1497,6 +1497,7 @@ mod tests {
             let mut d = blank();
             d.geometry = ImageGeometry {
                 effects: Default::default(),
+                page: None,
                 viewport: None,
                 flip_horizontal: false,
                 flip_vertical: false,

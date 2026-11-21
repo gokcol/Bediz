@@ -88,6 +88,7 @@ impl LayerTarget {
                     AnnotationKind::Simplify => "Simplify",
                     AnnotationKind::Blur => "Blur",
                     AnnotationKind::Pixelate => "Pixelate",
+                    AnnotationKind::LocalAdjust => "Local adjustment",
                     AnnotationKind::Step => "Step",
                     AnnotationKind::Callout => "Callout",
                     AnnotationKind::Highlighter => "Highlight",

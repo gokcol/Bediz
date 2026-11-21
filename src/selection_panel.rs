@@ -48,6 +48,84 @@ impl EditorState {
                 }
             });
         });
+        ui.add_enabled_ui(self.can_adjust_pixels(), |ui| {
+            if crate::appearance::action_button(
+                ui,
+                "Adjust selected area",
+                crate::appearance::Icon::Effects,
+                true,
+                false,
+            )
+            .on_hover_text("Lift shadows or reduce highlights with a feathered edge")
+            .clicked()
+            {
+                self.start_local_adjustment(document, history);
+            }
+        });
+    }
+
+    pub(super) fn can_adjust_pixels(&self) -> bool {
+        self.selected.is_none() && self.area.is_some()
+    }
+
+    pub(super) fn start_local_adjustment(
+        &mut self,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
+        if self.can_adjust_pixels() {
+            self.apply_area_action(AnnotationKind::LocalAdjust, document, history);
+            self.inspector.show(InspectorPanel::Styles);
+        }
+    }
+
+    pub(super) fn local_adjustment_panel(
+        &mut self,
+        ui: &mut egui::Ui,
+        document: &mut Document,
+        history: &mut EditHistory,
+        index: usize,
+    ) {
+        ui.label(egui::RichText::new("Local adjustment").size(16.).strong());
+        let editable = self.can_edit_selection(document);
+        ui.add_enabled_ui(editable, |ui| {
+            let mut settings = document.annotations[index].local_adjustment;
+            let mut changed = false;
+            for (label, value, max, unit) in [
+                ("Lift shadows", &mut settings.shadows, 100, "%"),
+                ("Reduce highlights", &mut settings.highlights, 100, "%"),
+                (
+                    "Feather edge",
+                    &mut settings.feather,
+                    crate::local_adjustments::MAX_FEATHER,
+                    " px",
+                ),
+            ] {
+                ui.small(label);
+                changed |= appearance::value_slider(ui, value, 0..=max, label, unit).changed();
+            }
+            if changed {
+                let before = document.edit_state();
+                document.annotations[index].local_adjustment = settings;
+                self.record_properties(before, document, history);
+            }
+            ui.separator();
+            if appearance::action_button(
+                ui,
+                "Remove adjustment",
+                appearance::Icon::Trash,
+                true,
+                false,
+            )
+            .clicked()
+            {
+                self.finish_properties(document, history);
+                self.delete(document, history);
+            }
+        });
+        if !editable {
+            ui.small("Unlock this layer in Layers to adjust it.");
+        }
     }
 
     pub(super) fn area_inspector(
