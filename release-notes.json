@@ -1,9 +1,12 @@
 {
-  "version": "3.1.0",
-  "build": 142,
+  "version": "3.2.0",
+  "build": 143,
   "store_version": "3.1.9.0",
   "changes": [
-    "Hover over the Layer order icon on a selected object to move it one position or send it to either end of the stack.",
+    "Canvas Info lists editable objects with their icons, and the Recents guide illustrates its keyboard and mouse shortcuts.",
+    "The floating Layer order menu stays open while you reorder an object and shows its current stack position.",
+    "Right-click overlapping artwork and choose Layers at this point to select or reorder a covered object.",
+    "Layer visibility and lock controls are easier to distinguish in the Layers panel.",
     "Blur is pinned on the default editor toolbar. Custom toolbar layouts keep their saved tools.",
     "Open, save and print from File at the right end of the toolbar. The Image menu next to Styles contains the crop, resize and canvas tools.",
     "Use the up and down arrows in Customize toolbar to change tool order.",
@@ -36,6 +39,7 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "Use system symbol fonts to display arrow keys and shortcut symbols in interface labels.",
     "Dismiss capture with Esc and return to the editor without resizing its window. Open completed captures as soon as their project is saved.",
     "Show capture guides immediately over full-screen apps while keeping the current app active.",
     "Show the capture overlay on the current desktop when a shortcut is pressed from another app or full-screen Space.",

@@ -20,7 +20,6 @@ pub(super) enum Glyph {
     Remove,
     Help,
     App(appearance::Icon),
-    Visible(bool),
     Stack,
     Group(bool),
     Order { front: bool, extreme: bool },
@@ -38,18 +37,13 @@ pub(super) fn tile(
     response.widget_info(|| {
         if matches!(
             glyph,
-            Glyph::Rectangle
-                | Glyph::Lasso
-                | Glyph::Boundary
-                | Glyph::Pixels
-                | Glyph::Lock(_)
-                | Glyph::Visible(_)
+            Glyph::Rectangle | Glyph::Lasso | Glyph::Boundary | Glyph::Pixels | Glyph::Lock(_)
         ) {
             egui::WidgetInfo::selected(
                 egui::WidgetType::Button,
                 ui.is_enabled(),
                 match glyph {
-                    Glyph::Lock(value) | Glyph::Visible(value) => value,
+                    Glyph::Lock(value) => value,
                     _ => selected,
                 },
                 label,
@@ -229,12 +223,6 @@ pub(super) fn paint_glyph(p: &egui::Painter, c: Pos2, glyph: Glyph, color: Color
         Glyph::Remove => appearance::icon(p, c, appearance::Icon::Remove, color, size),
         Glyph::Help => appearance::icon(p, c, appearance::Icon::Info, color, size),
         Glyph::App(kind) => appearance::icon(p, c, kind, color, size),
-        Glyph::Visible(visible) => {
-            appearance::icon(p, c, appearance::Icon::Eye, color, size);
-            if !visible {
-                p.line_segment([r.left_bottom(), r.right_top()], s);
-            }
-        }
         Glyph::Stack => {
             for dy in [0.2, 0., -0.2] {
                 p.line(

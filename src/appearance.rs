@@ -291,27 +291,46 @@ pub fn apply(ctx: &egui::Context) {
     ctx.set_theme(egui::Theme::Light);
     // Use the platform UI face when present without redistributing OS fonts.
     // Annotation typography is rendered independently for portable projects.
-    let font_path = if cfg!(target_os = "macos") {
-        std::path::PathBuf::from("/System/Library/Fonts/Helvetica.ttc")
+    let (font_dir, ui_face, symbols_face) = if cfg!(target_os = "macos") {
+        (
+            std::path::PathBuf::from("/System/Library/Fonts"),
+            "Helvetica.ttc",
+            "Apple Symbols.ttf",
+        )
     } else {
-        std::env::var_os("WINDIR")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
-            .join("Fonts")
-            .join("segoeui.ttf")
+        (
+            std::env::var_os("WINDIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"))
+                .join("Fonts"),
+            "segoeui.ttf",
+            "seguisym.ttf",
+        )
     };
-    if let Ok(bytes) = std::fs::read(font_path) {
-        let mut fonts = egui::FontDefinitions::default();
+    let mut fonts = egui::FontDefinitions::default();
+    let proportional = fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default();
+    if let Ok(bytes) = std::fs::read(font_dir.join(ui_face)) {
         fonts
             .font_data
             .insert("system-ui".into(), egui::FontData::from_owned(bytes).into());
-        fonts
-            .families
-            .entry(egui::FontFamily::Proportional)
-            .or_default()
-            .insert(0, "system-ui".into());
-        ctx.set_fonts(fonts);
+        proportional.insert(0, "system-ui".into());
     }
+    if let Ok(bytes) = std::fs::read(font_dir.join(symbols_face)) {
+        fonts.font_data.insert(
+            "system-symbols".into(),
+            egui::FontData::from_owned(bytes).into(),
+        );
+        proportional.push("system-symbols".into());
+    }
+    // Egui ships Hack for monospace. Its arrows make a portable fallback for
+    // proportional labels even when the system symbol font is unavailable.
+    if fonts.font_data.contains_key("Hack") {
+        proportional.push("Hack".into());
+    }
+    ctx.set_fonts(fonts);
     let mut style = (*ctx.style()).clone();
     style.visuals = egui::Visuals::light();
     style.visuals.override_text_color = Some(palette(ctx).ink);
@@ -1805,6 +1824,36 @@ pub fn icon_button(ui: &mut egui::Ui, label: &str, kind: Icon) -> egui::Response
     response.on_hover_text(label)
 }
 
+pub(crate) fn info_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    kind: Icon,
+    tone: TileTone,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(28., 24.), egui::Sense::click());
+    let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), open, label)
+    });
+    satin_button(ui, rect, &response, open, satin_ink(ui.ctx(), tone));
+    sculpted_icon(
+        ui.painter(),
+        rect.center(),
+        kind,
+        tone,
+        19.,
+        Some(Icon::Info),
+    );
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(label)
+}
+
+pub(crate) fn info_badge(ui: &mut egui::Ui, kind: Icon, tone: TileTone, size: f32) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::splat(size), egui::Sense::hover());
+    sculpted_icon(ui.painter(), rect.center(), kind, tone, size - 2., None);
+}
+
 /// Icon-only document action, aligned with the neighboring 30-point actions.
 pub fn document_icon_button(ui: &mut egui::Ui, label: &str, kind: Icon) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::splat(30.), egui::Sense::click());
@@ -1962,6 +2011,22 @@ fn action_button_with_tone(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn proportional_ui_font_renders_arrow_keys_and_menu_symbols() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            let font = egui::FontId::proportional(13.);
+            ctx.fonts_mut(|fonts| {
+                for symbol in "←→↑↓▾›⏵⌘⇧".chars() {
+                    assert!(fonts.has_glyph(&font, symbol), "missing UI symbol {symbol}");
+                }
+                #[cfg(target_os = "macos")]
+                assert!(fonts.has_glyph(&font, '⌃'), "missing Mac Control symbol");
+            });
+        });
+    }
 
     #[test]
     fn finishes_are_context_local_and_preserve_control_geometry() {

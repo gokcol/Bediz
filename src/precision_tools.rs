@@ -6,7 +6,6 @@ use std::sync::{Arc, mpsc};
 #[derive(Default)]
 pub(super) struct State {
     brush: Option<Brush>,
-    pub context_source: Option<usize>,
     measurement: Option<[Point; 2]>,
     pub measure_dragging: bool,
     axis: Axis,

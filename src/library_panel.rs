@@ -319,30 +319,80 @@ impl LibraryPanel {
         ui.horizontal(|ui| {
             ui.spacing_mut().button_padding = Vec2::new(5., 2.);
             ui.spacing_mut().interact_size.y = 22.;
-            let label = if *open { "Hide recents" } else { "Show recents" };
-            let toggle = ui.add_sized([28., 24.], egui::Button::new("")
-                .fill(if *open { crate::appearance::palette(ui.ctx()).navy } else { appearance::palette(ui.ctx()).paper })
-                .stroke(Stroke::new(1., if *open { crate::appearance::palette(ui.ctx()).navy } else { appearance::palette(ui.ctx()).border }))
-                .corner_radius(5));
-            toggle.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), *open, label));
+            let label = if *open {
+                "Hide recents"
+            } else {
+                "Show recents"
+            };
+            let toggle = ui.add_sized(
+                [28., 24.],
+                egui::Button::new("")
+                    .fill(if *open {
+                        crate::appearance::palette(ui.ctx()).navy
+                    } else {
+                        appearance::palette(ui.ctx()).paper
+                    })
+                    .stroke(Stroke::new(
+                        1.,
+                        if *open {
+                            crate::appearance::palette(ui.ctx()).navy
+                        } else {
+                            appearance::palette(ui.ctx()).border
+                        },
+                    ))
+                    .corner_radius(5),
+            );
+            toggle.widget_info(|| {
+                egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), *open, label)
+            });
             let center = toggle.rect.center();
             let points = if *open {
-                [center + Vec2::new(-4., -2.), center + Vec2::new(0., 2.), center + Vec2::new(4., -2.)]
+                [
+                    center + Vec2::new(-4., -2.),
+                    center + Vec2::new(0., 2.),
+                    center + Vec2::new(4., -2.),
+                ]
             } else {
-                [center + Vec2::new(-2., -4.), center + Vec2::new(2., 0.), center + Vec2::new(-2., 4.)]
+                [
+                    center + Vec2::new(-2., -4.),
+                    center + Vec2::new(2., 0.),
+                    center + Vec2::new(-2., 4.),
+                ]
             };
-            ui.painter().add(egui::Shape::line(points.to_vec(), Stroke::new(1.8, if *open { appearance::palette(ui.ctx()).ginger } else { appearance::palette(ui.ctx()).ink })));
-            if toggle.on_hover_text(label).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+            ui.painter().add(egui::Shape::line(
+                points.to_vec(),
+                Stroke::new(
+                    1.8,
+                    if *open {
+                        appearance::palette(ui.ctx()).ginger
+                    } else {
+                        appearance::palette(ui.ctx()).ink
+                    },
+                ),
+            ));
+            if toggle
+                .on_hover_text(label)
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .clicked()
+            {
                 *open = !*open;
             }
             let count = self.recent_selection.paths.len();
             if *open && count > 0 {
                 ui.small(format!("{count} selected"));
                 appearance::input_scope(ui, enabled, keep_appearance, |ui| {
-                    if appearance::icon_button(ui, "Move selected files to Trash…", appearance::Icon::Trash).clicked() {
+                    if appearance::icon_button(
+                        ui,
+                        "Move selected files to Trash…",
+                        appearance::Icon::Trash,
+                    )
+                    .clicked()
+                    {
                         chosen = Some(LibraryAction::Trash(self.recent_selection.list()));
                     }
-                    if appearance::icon_button(ui, "Clear selection", appearance::Icon::Close).clicked() {
+                    if appearance::icon_button(ui, "Clear selection", appearance::Icon::Close)
+                        .clicked()
+                    {
                         self.recent_selection.clear();
                     }
                 });
@@ -350,16 +400,61 @@ impl LibraryPanel {
             ui.add_space(10.);
             image_controls(ui);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if appearance::icon_button(ui, "Refresh recents", appearance::Icon::Refresh).clicked() {
+                if appearance::icon_button(ui, "Refresh recents", appearance::Icon::Refresh)
+                    .clicked()
+                {
                     self.refresh();
                 }
-                let help = appearance::icon_button(ui, "Recent projects", appearance::Icon::Info);
+                let help = appearance::info_button(
+                    ui,
+                    "Recents guide",
+                    appearance::Icon::Library,
+                    appearance::TileTone::Clay,
+                );
                 egui::Popup::menu(&help).show(|ui| {
-                    ui.set_max_width(260.);
-                    ui.label("Click a thumbnail to open it. Opening keeps its position; editing or saving moves it to the front.");
-                    ui.label("Ctrl/⌘-click to select several, or Shift-click for a range. Right-click for file actions.");
-                    ui.small("Use ← / → to open the previous or next project. Selected annotations and editing controls keep their arrow keys.");
-                    ui.small("Scroll sideways for more. Hover a thumbnail for its full name and path.");
+                    use appearance::{Icon, TileTone};
+                    ui.set_width(267.);
+                    ui.spacing_mut().item_spacing.y = 5.;
+                    ui.label(RichText::new("Recent projects").size(15.).strong());
+                    for (icon, tone, title, detail) in [
+                        (
+                            Icon::OpenProject,
+                            TileTone::Blue,
+                            "Open a thumbnail",
+                            "Only editing or saving moves it to the front.",
+                        ),
+                        (
+                            Icon::Check,
+                            TileTone::Teal,
+                            "Select several",
+                            "Ctrl/⌘-click to add or remove. Shift-click for a range.",
+                        ),
+                        (
+                            Icon::Forward,
+                            TileTone::Violet,
+                            "Browse projects",
+                            "Scroll sideways, or use Left and Right Arrow with no selection.",
+                        ),
+                        (
+                            Icon::List,
+                            TileTone::Slate,
+                            "See file details",
+                            "Hover for the name and path. Right-click for file actions.",
+                        ),
+                    ] {
+                        ui.horizontal(|ui| {
+                            appearance::info_badge(ui, icon, tone, 31.);
+                            ui.vertical(|ui| {
+                                ui.spacing_mut().item_spacing.y = 1.;
+                                ui.label(RichText::new(title).size(12.).strong());
+                                ui.label(
+                                    RichText::new(detail)
+                                        .size(11.)
+                                        .color(appearance::palette(ui.ctx()).muted),
+                                );
+                            });
+                        });
+                    }
                 });
             });
         });

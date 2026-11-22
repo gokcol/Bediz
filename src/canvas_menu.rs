@@ -340,23 +340,110 @@ impl EditorState {
         }
     }
 
+    fn layers_at_point_menu(
+        &mut self,
+        ui: &mut egui::Ui,
+        document: &mut Document,
+        history: &mut EditHistory,
+        at: Point,
+        scale: f32,
+    ) {
+        use annotation_layers::{LayerTarget, layer_order_actions};
+        use egui::containers::menu::SubMenu;
+        use inspector_widgets::Glyph;
+
+        let mut hits = visible_annotation_hits(document, at, scale, true).peekable();
+        if hits.peek().is_none() {
+            return;
+        }
+        let result = ui.menu_button("Layers at this point", |ui| {
+            let indices: Vec<_> = hits.collect();
+            let mut action = None;
+            egui::ScrollArea::vertical().max_height(228.).show_rows(
+                ui,
+                24.,
+                indices.len(),
+                |ui, rows| {
+                    for &index in &indices[rows] {
+                        let locked = document.annotations[index].locked();
+                        let label = LayerTarget::Annotation(index).label(document);
+                        ui.push_id(index, |ui| {
+                            ui.horizontal(|ui| {
+                                if ui
+                                    .add_sized(
+                                        [154., 24.],
+                                        egui::Button::new((&label, egui::Atom::grow())).truncate(),
+                                    )
+                                    .on_hover_text(&label)
+                                    .clicked()
+                                {
+                                    action = Some((index, None));
+                                    ui.close();
+                                }
+                                if locked {
+                                    ui.add_enabled_ui(false, |ui| {
+                                        icon_item(
+                                            ui,
+                                            "Layer is locked",
+                                            MenuIcon::Glyph(Glyph::Lock(true)),
+                                        )
+                                        .on_disabled_hover_text("Layer is locked");
+                                    });
+                                } else {
+                                    let order =
+                                        icon_item(ui, "Layer order", MenuIcon::Glyph(Glyph::Stack));
+                                    if let Some(order) = SubMenu::new()
+                                        .show(ui, &order, |ui| {
+                                            layer_order_actions(
+                                                ui,
+                                                Some(index),
+                                                document.annotations.len(),
+                                            )
+                                        })
+                                        .and_then(|popup| popup.inner)
+                                    {
+                                        action = Some((index, Some(order)));
+                                    }
+                                }
+                            });
+                        });
+                    }
+                },
+            );
+            action
+        });
+        if let Some((index, order)) = result.inner.flatten() {
+            self.choose_tool(Tool::Select, document, history);
+            self.deselect_pixels();
+            self.choose_annotation(Some(index), false, true, document);
+            if let Some((front, extreme)) = order {
+                self.reorder_layer(document, history, front, extreme);
+            }
+            self.layer_target = self.selected.map(LayerTarget::Annotation);
+        }
+        ui.separator();
+    }
+
     pub(super) fn canvas_menu(
         &mut self,
         ui: &mut egui::Ui,
         document: &mut Document,
         history: &mut EditHistory,
+        at: Option<(Point, f32)>,
     ) {
+        if let Some((point, scale)) = at {
+            self.layers_at_point_menu(ui, document, history, point, scale);
+        }
         if item(ui, "Style Brush", MenuIcon::Tool(Tool::StyleBrush), true)
             .on_hover_text(
                 "Copy an annotation’s appearance, then click compatible artwork to apply it",
             )
             .clicked()
         {
-            self.start_style_brush(
-                document,
-                history,
-                self.precision.context_source.or(self.selected),
-            );
+            let source = at
+                .and_then(|(point, scale)| hit_document_annotation(document, point, scale))
+                .or(self.selected);
+            self.start_style_brush(document, history, source);
             ui.close();
         }
         ui.separator();

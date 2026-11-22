@@ -818,6 +818,72 @@ mod tests {
     }
 
     #[test]
+    fn recents_header_opens_both_information_panels_and_lists_objects() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        crate::appearance::apply(&ctx);
+        crate::appearance::set_finish(&ctx, crate::appearance::GuiFinish::GraphiteNight);
+        let mut library = crate::library_panel::LibraryPanel::default();
+        let mut editor = EditorState::default();
+        let mut document = fixture();
+        document.annotations[0].layer.name = "Review arrow".into();
+        document.annotations[2].layer.name = "Hidden markup".into();
+        document.annotations[2].layer.hidden = true;
+        let mut history = EditHistory::new(document.edit_state());
+        let mut open = true;
+        let mut frame = |events| {
+            ctx.run(ribbon_input(events), |ctx| {
+                egui::TopBottomPanel::bottom("test-recents").show(ctx, |ui| {
+                    library.recents_header(ui, &mut open, true, true, |ui| {
+                        editor.image_controls(ui, &mut document, &mut history);
+                    });
+                });
+            })
+        };
+        for (trigger, labels) in [
+            (
+                "Canvas information",
+                [
+                    "Objects · 3",
+                    "Review arrow",
+                    "Hidden markup",
+                    "Open Layers",
+                ],
+            ),
+            (
+                "Recents guide",
+                [
+                    "Open a thumbnail",
+                    "Select several",
+                    "Browse projects",
+                    "See file details",
+                ],
+            ),
+        ] {
+            frame(vec![]);
+            let button = label_position(&frame(vec![]), trigger).unwrap();
+            for pressed in [true, false] {
+                frame(vec![
+                    egui::Event::PointerMoved(button),
+                    egui::Event::PointerButton {
+                        pos: button,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ]);
+            }
+            let menu = frame(vec![]);
+            for label in labels {
+                assert!(
+                    label_position(&menu, label).is_some(),
+                    "{trigger} is missing {label}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn layer_order_hover_menu_reorders_shapes_drawings_and_text() {
         for kind in [
             AnnotationKind::Arrow,
@@ -875,12 +941,37 @@ mod tests {
                         "{kind:?} menu closed on the way to {action}"
                     );
                 }
+                if action == "Move forward" {
+                    click_label("Layer order", &mut e, &mut d, &mut h, &ctx, &texture);
+                    let mut away =
+                        ribbon_input(vec![egui::Event::PointerMoved(Pos2::new(12., 12.))]);
+                    away.time = Some(ctx.input(|input| input.time) + 1.);
+                    let pinned = ui_frame(&mut e, &mut d, &mut h, &ctx, &texture, away);
+                    assert!(
+                        label_position(&pinned, action).is_some(),
+                        "click should pin the menu"
+                    );
+                }
                 click_label(action, &mut e, &mut d, &mut h, &ctx, &texture);
                 let mut expected = before.annotations.clone();
                 expected.remove(2);
                 expected.insert(index, selected.clone());
                 assert_eq!(d.annotations, expected, "{kind:?} · {action}");
                 assert_eq!(e.selected, Some(index));
+                let after = ui_frame(&mut e, &mut d, &mut h, &ctx, &texture, ribbon_input(vec![]));
+                assert!(
+                    label_position(&after, action).is_some(),
+                    "layer order should support repeated steps"
+                );
+                let escape = ribbon_input(vec![egui::Event::Key {
+                    key: Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Modifiers::NONE,
+                }]);
+                ui_frame(&mut e, &mut d, &mut h, &ctx, &texture, escape);
+                assert!(!egui::Popup::is_any_open(&ctx));
                 assert!(h.undo(&mut d));
                 assert_eq!(d.edit_state(), before);
                 assert!(!h.can_undo());

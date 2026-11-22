@@ -304,6 +304,7 @@ pub struct EditorState {
     additional: Vec<usize>,
     focus_canvas: bool,
     canvas_focus_ids: Option<[egui::Id; 2]>,
+    canvas_context_point: Option<(Point, f32)>,
     snapping: bool,
     snap_guides: Vec<annotation_layout::SnapGuide>,
     color: [u8; 4],
@@ -379,6 +380,7 @@ impl Default for EditorState {
             additional: Vec::new(),
             focus_canvas: false,
             canvas_focus_ids: None,
+            canvas_context_point: None,
             snapping: true,
             snap_guides: Vec::new(),
             color: [230, 66, 55, 255],
@@ -904,10 +906,7 @@ impl EditorState {
             appearance::icon_button(ui, "Image tools · crop, resize, rotate", Icon::Settings);
         egui::Popup::menu(&actions)
             .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .show(|ui| {
-                self.precision.context_source = None;
-                self.canvas_menu(ui, document, history);
-            });
+            .show(|ui| self.canvas_menu(ui, document, history, None));
         self.history_controls(ui, document, history);
         if appearance::icon_button(ui, "Fit canvas to window", Icon::Fit).clicked() {
             self.fit = true;
@@ -951,12 +950,13 @@ impl EditorState {
                 .color(appearance::palette(ui.ctx()).muted),
         )
         .on_hover_text("Image dimensions · Use the image tools menu to resize");
-        let scope = self.copy_scope(document);
-        let copy_info = appearance::icon_button(ui, &scope, Icon::Info);
-        egui::Popup::menu(&copy_info).show(|ui| {
-            ui.strong(&scope);
-            ui.label("Copy includes visible edits. Select all: Command/Ctrl+A. Deselect: Escape.");
-        });
+        let info = appearance::info_button(
+            ui,
+            "Canvas information",
+            Icon::View,
+            appearance::TileTone::Blue,
+        );
+        egui::Popup::menu(&info).show(|ui| self.image_info(ui, document));
         if let Some(error) = &self.image_error {
             ui.add(
                 egui::Label::new(
@@ -971,6 +971,128 @@ impl EditorState {
             ui.add(egui::Label::new(egui::RichText::new(status).small()).truncate())
                 .on_hover_text(status);
         }
+    }
+
+    fn image_info(&mut self, ui: &mut egui::Ui, document: &Document) {
+        use crate::appearance::{self, Icon, TileTone};
+        use annotation_layers::{LayerTarget, paint_layer_badge};
+        use inspector_widgets::{Glyph, paint_glyph};
+
+        let palette = appearance::palette(ui.ctx());
+        let [width, height] = document.output_size();
+        ui.set_width(252.);
+        ui.spacing_mut().item_spacing.y = 5.;
+        ui.horizontal(|ui| {
+            appearance::info_badge(ui, Icon::View, TileTone::Blue, 36.);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 1.;
+                ui.label(egui::RichText::new("Canvas").size(11.).color(palette.muted));
+                ui.label(
+                    egui::RichText::new(format!("{width} × {height} px"))
+                        .size(17.)
+                        .strong(),
+                );
+            });
+        });
+        ui.separator();
+        let count = document.annotations.len();
+        ui.label(
+            egui::RichText::new(format!("Objects · {count}"))
+                .size(12.)
+                .strong(),
+        );
+        if count > 0 {
+            let selected = self.selected_indices(document);
+            egui::ScrollArea::vertical()
+                .max_height(150.)
+                .show_rows(ui, 24., count, |ui, rows| {
+                    for row in rows {
+                        let index = count - 1 - row;
+                        let annotation = &document.annotations[index];
+                        let active = selected.binary_search(&index).is_ok();
+                        let label = LayerTarget::Annotation(index).label(document);
+                        ui.horizontal(|ui| {
+                            let (badge, _) =
+                                ui.allocate_exact_size(Vec2::splat(24.), Sense::hover());
+                            ui.painter().rect_filled(
+                                badge,
+                                5.,
+                                if active {
+                                    palette.cream
+                                } else {
+                                    appearance::surface(ui.ctx())
+                                },
+                            );
+                            paint_layer_badge(ui, badge, annotation);
+                            ui.add_sized(
+                                [158., 24.],
+                                egui::Label::new(egui::RichText::new(&label).size(12.).color(
+                                    if annotation.visible() {
+                                        palette.ink
+                                    } else {
+                                        palette.muted
+                                    },
+                                ))
+                                .truncate(),
+                            )
+                            .on_hover_text(&label);
+                            if !annotation.visible() {
+                                let (rect, response) =
+                                    ui.allocate_exact_size(Vec2::splat(15.), Sense::hover());
+                                appearance::icon(
+                                    ui.painter(),
+                                    rect.center(),
+                                    Icon::Eye,
+                                    palette.muted,
+                                    12.,
+                                );
+                                ui.painter().line_segment(
+                                    [rect.left_bottom(), rect.right_top()],
+                                    Stroke::new(1., palette.muted),
+                                );
+                                response.on_hover_text("Hidden layer");
+                            }
+                            if annotation.locked() {
+                                let (rect, response) =
+                                    ui.allocate_exact_size(Vec2::splat(15.), Sense::hover());
+                                paint_glyph(
+                                    ui.painter(),
+                                    rect.center(),
+                                    Glyph::Lock(true),
+                                    palette.muted,
+                                    12.,
+                                );
+                                response.on_hover_text("Locked layer");
+                            }
+                        });
+                    }
+                });
+            if appearance::toolbar_action_button(ui, "Open Layers", Icon::Layers, true, false)
+                .clicked()
+            {
+                self.inspector.show(InspectorPanel::Layers);
+                ui.close();
+            }
+            ui.separator();
+        }
+        ui.horizontal(|ui| {
+            appearance::info_badge(ui, Icon::Copy, TileTone::Teal, 28.);
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 1.;
+                ui.label(
+                    egui::RichText::new(self.copy_scope(document))
+                        .size(12.)
+                        .strong(),
+                );
+                ui.label(
+                    egui::RichText::new("Includes visible edits")
+                        .size(11.)
+                        .color(palette.muted),
+                );
+            });
+        })
+        .response
+        .on_hover_text("Select all with Command/Ctrl+A. Deselect with Escape.");
     }
 
     fn apply_geometry(
@@ -1996,19 +2118,16 @@ impl EditorState {
                 }
                 self.paint_precision_overlay(ui, rect, scale, document);
                 if response.secondary_clicked() {
-                    self.precision.context_source =
-                        response.interact_pointer_pos().and_then(|pos| {
-                            hit_document_annotation(
-                                document,
-                                object_point(pos, rect, scale, document),
-                                scale,
-                            )
-                        });
+                    self.canvas_context_point = response
+                        .interact_pointer_pos()
+                        .map(|pos| (object_point(pos, rect, scale, document), scale));
                 }
                 if !canvas_resizing {
                     egui::Popup::context_menu(&response)
                         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                        .show(|ui| self.canvas_menu(ui, document, history));
+                        .show(|ui| {
+                            self.canvas_menu(ui, document, history, self.canvas_context_point);
+                        });
                     self.floating_properties(
                         ui,
                         document,
@@ -2727,17 +2846,26 @@ fn hit_document_handle(
 }
 
 fn hit_document_annotation(document: &Document, at: Point, scale: f32) -> Option<usize> {
+    visible_annotation_hits(document, at, scale, false).next()
+}
+
+fn visible_annotation_hits(
+    document: &Document,
+    at: Point,
+    scale: f32,
+    include_locked: bool,
+) -> impl Iterator<Item = usize> + '_ {
     document
         .annotations
         .iter()
         .enumerate()
         .rev()
-        .find(|(_, annotation)| {
-            annotation.visible()
-                && !annotation.locked()
-                && hits_transformed(annotation, at, scale, document)
+        .filter_map(move |(index, annotation)| {
+            (annotation.visible()
+                && (include_locked || !annotation.locked())
+                && hits_transformed(annotation, at, scale, document))
+            .then_some(index)
         })
-        .map(|(index, _)| index)
 }
 
 fn hits_transformed(annotation: &Annotation, at: Point, scale: f32, document: &Document) -> bool {
@@ -3119,19 +3247,18 @@ fn paint_tool_icon_sized(
                 painter.circle_stroke(at(dx, 0.), 3. * scale, stroke);
             }
         }
-        Tool::Repair | Tool::ScreenshotText | Tool::Redact => {
-            let glyph = match tool {
-                Tool::Repair => "✦",
-                Tool::ScreenshotText => "T",
-                _ => "▰",
-            };
+        Tool::Repair => crate::appearance::icon(painter, center, DialogIcon::Effects, color, size),
+        Tool::ScreenshotText => {
             painter.text(
                 center,
                 egui::Align2::CENTER_CENTER,
-                glyph,
+                "T",
                 egui::FontId::proportional(20. * scale),
                 color,
             );
+        }
+        Tool::Redact => {
+            painter.rect_filled(Rect::from_min_max(at(-8., -3.), at(8., 3.)), 2., color);
         }
         Tool::StyleBrush | Tool::Measure | Tool::ColorInspector => {
             precision_tools::paint_icon(painter, center, tool, color, stroke, scale);

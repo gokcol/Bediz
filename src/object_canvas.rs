@@ -178,6 +178,106 @@ mod tests {
         )
     }
 
+    #[test]
+    fn canvas_context_layers_select_and_reorder_the_object_at_the_original_click() {
+        let ctx = egui::Context::default();
+        ctx.enable_accesskit();
+        let mut editor = EditorState::default();
+        let mut document = document();
+        for name in ["Lower artwork", "Locked artwork", "Hidden artwork", "Away"] {
+            let (start, end) = if name == "Away" {
+                ([160., 95.], [190., 130.])
+            } else {
+                ([5., 5.], [150., 85.])
+            };
+            let mut annotation = crate::markup_tests::object(AnnotationKind::Rectangle, start, end);
+            annotation.layer.name = name.into();
+            document.annotations.push(annotation);
+        }
+        document.annotations[0].group_id = Some(1);
+        document.annotations[3].group_id = Some(1);
+        document.annotations[1].layer.locked = true;
+        document.annotations[2].layer.hidden = true;
+        let before = document.edit_state();
+        let mut history = EditHistory::new(before.clone());
+        let texture = ctx.load_texture(
+            "context menu fixture",
+            egui::ColorImage::new([1, 1], vec![Color32::BLUE]),
+            Default::default(),
+        );
+        let mut preview = crate::privacy_preview::PrivacyPreview::default();
+        let control = |output: &egui::FullOutput, label: &str| {
+            output
+                .platform_output
+                .accesskit_update
+                .as_ref()?
+                .nodes
+                .iter()
+                .find_map(|(_, node)| {
+                    (node.label() == Some(label))
+                        .then(|| node.bounds())
+                        .flatten()
+                        .map(|r| {
+                            egui::pos2(((r.x0 + r.x1) * 0.5) as f32, ((r.y0 + r.y1) * 0.5) as f32)
+                        })
+                })
+        };
+        let menu_point = egui::pos2(550., 420.);
+
+        for reorder in [false, true] {
+            let mut run = |events| {
+                persistent_frame(
+                    &ctx,
+                    &mut editor,
+                    &mut document,
+                    &mut history,
+                    &texture,
+                    &mut preview,
+                    events,
+                )
+            };
+            run(vec![egui::Event::PointerMoved(menu_point)]);
+            for pressed in [true, false] {
+                run(vec![egui::Event::PointerButton {
+                    pos: menu_point,
+                    button: PointerButton::Secondary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                }]);
+            }
+            let root = control(&run(vec![]), "Layers at this point ⏵").unwrap();
+            run(vec![egui::Event::PointerMoved(root)]);
+            let rows = run(vec![]);
+            let lower = control(&rows, "Lower artwork").unwrap();
+            let locked = control(&rows, "Locked artwork").unwrap();
+            assert!(locked.y < lower.y);
+            assert!(control(&rows, "Layer is locked").is_some());
+            assert!(control(&rows, "Hidden artwork").is_none());
+            assert!(control(&rows, "Away").is_none());
+            let target = if reorder {
+                let order = control(&rows, "Layer order").unwrap();
+                run(vec![egui::Event::PointerMoved(order)]);
+                control(&run(vec![]), "Bring to front").unwrap()
+            } else {
+                lower
+            };
+            run(vec![egui::Event::PointerMoved(target)]);
+            run(vec![button(target, true)]);
+            run(vec![button(target, false)]);
+            assert_eq!(editor.tool, Tool::Select);
+            assert_eq!(
+                editor.selected_indices(&document),
+                vec![if reorder { 3 } else { 0 }]
+            );
+            assert_eq!(history.can_undo(), reorder);
+        }
+
+        assert_eq!(document.annotations[3].layer.name, "Lower artwork");
+        assert!(history.undo(&mut document));
+        assert_eq!(document.edit_state(), before);
+        assert!(!history.can_undo());
+    }
+
     // Keep both caches alive across frames: rebuilding the fixture texture or
     // preview every frame would hide a source/composition/source transition.
     fn persistent_frame(

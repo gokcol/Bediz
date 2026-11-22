@@ -1,16 +1,205 @@
 //! Layer controls share the document's annotation stack and undo history.
 use super::*;
-use crate::appearance::Icon as DialogIcon;
+use crate::appearance::{self, Icon as DialogIcon, TileTone};
 use crate::dialogs::{self, Dialog};
 use crate::document::LayerSettings;
 use std::collections::BTreeSet;
 
-pub(super) const STACK_ORDER_ACTIONS: [(&str, bool, bool); 4] = [
+const STACK_ORDER_ACTIONS: [(&str, bool, bool); 4] = [
     ("Send to back", false, true),
     ("Move backward", false, false),
     ("Move forward", true, false),
     ("Bring to front", true, true),
 ];
+
+pub(super) fn layer_order_actions(
+    ui: &mut egui::Ui,
+    index: Option<usize>,
+    count: usize,
+) -> Option<(bool, bool)> {
+    ui.horizontal(|ui| {
+        let mut action = None;
+        for (label, front, extreme) in STACK_ORDER_ACTIONS {
+            let enabled =
+                index.is_some_and(|index| if front { index + 1 < count } else { index > 0 });
+            if ui
+                .add_enabled_ui(enabled, |ui| {
+                    object_properties::quick_glyph(
+                        ui,
+                        label,
+                        inspector_widgets::Glyph::Order { front, extreme },
+                    )
+                })
+                .inner
+                .clicked()
+            {
+                ui.close();
+                action = Some((front, extreme));
+            }
+        }
+        action
+    })
+    .inner
+}
+
+pub(super) fn layer_order_grid(
+    ui: &mut egui::Ui,
+    index: usize,
+    count: usize,
+) -> Option<(bool, bool)> {
+    use inspector_widgets::{Glyph, tile};
+    let mut action = None;
+    for front in [true, false] {
+        let enabled = if front { index + 1 < count } else { index > 0 };
+        ui.horizontal(|ui| {
+            for (label, _, extreme) in STACK_ORDER_ACTIONS.into_iter().filter(|row| row.1 == front)
+            {
+                let response = ui
+                    .add_enabled_ui(enabled, |ui| {
+                        tile(
+                            ui,
+                            label,
+                            Glyph::Order { front, extreme },
+                            Vec2::new(98., 44.),
+                            false,
+                            true,
+                        )
+                    })
+                    .inner;
+                if response
+                    .on_disabled_hover_text(if front {
+                        "Already at the front"
+                    } else {
+                        "Already at the back"
+                    })
+                    .clicked()
+                {
+                    action = Some((front, extreme));
+                }
+            }
+        });
+    }
+    action
+}
+
+pub(super) fn paint_layer_badge(ui: &egui::Ui, badge: Rect, annotation: &Annotation) {
+    let palette = appearance::palette(ui.ctx());
+    let color = if annotation.visible() {
+        let original = Color32::from_rgb(
+            annotation.color[0],
+            annotation.color[1],
+            annotation.color[2],
+        );
+        let background = egui::Rgba::from(palette.surface).intensity() + 0.05;
+        let foreground = egui::Rgba::from(original).intensity() + 0.05;
+        if background.max(foreground) / background.min(foreground) >= 3. {
+            original
+        } else {
+            palette.ink
+        }
+    } else {
+        palette.muted
+    };
+    if annotation.kind.is_shape() {
+        ui.painter().add(egui::Shape::closed_line(
+            crate::shapes::outline(annotation.kind, badge.shrink(3.)),
+            Stroke::new(1.5, color),
+        ));
+        return;
+    }
+    if matches!(
+        annotation.stamp,
+        Some(crate::stamps::StampSource::Raster { .. })
+    ) {
+        let ink = if annotation.visible() {
+            appearance::satin_ink(ui.ctx(), TileTone::Blue)
+        } else {
+            color
+        };
+        appearance::icon(ui.painter(), badge.center(), DialogIcon::View, ink, 17.);
+        return;
+    }
+    let tool = match annotation.kind {
+        AnnotationKind::Text => Tool::Text,
+        AnnotationKind::Arrow => Tool::Arrow,
+        AnnotationKind::Callout => Tool::Callout,
+        AnnotationKind::Step => Tool::Step,
+        AnnotationKind::Stamp => Tool::Stamp,
+        AnnotationKind::Fill => Tool::Fill,
+        AnnotationKind::Freehand => Tool::Pen,
+        AnnotationKind::Highlighter => Tool::Highlighter,
+        AnnotationKind::Blur => Tool::Blur,
+        AnnotationKind::Pixelate => Tool::Pixelate,
+        AnnotationKind::Magnify => Tool::Magnify,
+        AnnotationKind::Spotlight => Tool::Spotlight,
+        AnnotationKind::Simplify => Tool::Simplify,
+        _ => Tool::Area,
+    };
+    paint_tool_icon(ui.painter(), badge.center(), tool, color);
+}
+
+#[derive(Clone, Copy)]
+enum LayerToggle {
+    Visibility(bool),
+    Lock(bool),
+}
+
+fn layer_toggle(ui: &mut egui::Ui, label: &str, toggle: LayerToggle) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::splat(24.), Sense::click());
+    let palette = appearance::palette(ui.ctx());
+    let (checked, ink) = match toggle {
+        LayerToggle::Visibility(true) => (true, appearance::satin_ink(ui.ctx(), TileTone::Teal)),
+        LayerToggle::Lock(true) => (true, appearance::satin_ink(ui.ctx(), TileTone::Clay)),
+        LayerToggle::Visibility(false) | LayerToggle::Lock(false) => (false, palette.muted),
+    };
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), checked, label)
+    });
+    let ink = appearance::satin_button(ui, rect, &response, checked, ink);
+    let painter = ui.painter();
+    let center = rect.center();
+    let at = |x, y| center + Vec2::new(x, y);
+    let stroke = Stroke::new(1.5, ink);
+    let curve = |points| {
+        painter.add(egui::epaint::CubicBezierShape::from_points_stroke(
+            points,
+            false,
+            Color32::TRANSPARENT,
+            stroke,
+        ));
+    };
+    match toggle {
+        LayerToggle::Visibility(visible) => {
+            for y in [-6.1, 6.1] {
+                curve([at(-8., 0.), at(-3.3, y), at(3.3, y), at(8., 0.)]);
+            }
+            if visible {
+                painter.circle_filled(center, 2.65, ink);
+                painter.circle_filled(at(-0.8, -0.8), 0.8, palette.surface);
+            } else {
+                painter.line_segment([at(-6.7, 6.1), at(6.7, -6.1)], Stroke::new(1.8, ink));
+            }
+        }
+        LayerToggle::Lock(locked) => {
+            let body = Rect::from_min_max(at(-5.4, -0.5), at(5.4, 7.1));
+            painter.rect(
+                body,
+                2,
+                ink.gamma_multiply(if locked { 0.16 } else { 0.04 }),
+                stroke,
+                StrokeKind::Inside,
+            );
+            curve([at(-3.5, -3.7), at(-3.5, -8.6), at(3.5, -8.6), at(3.5, -3.7)]);
+            painter.line_segment([at(-3.5, -3.7), at(-3.5, -0.5)], stroke);
+            if locked {
+                painter.line_segment([at(3.5, -3.7), at(3.5, -0.5)], stroke);
+            }
+            painter.circle_filled(at(0., 2.5), 1.0, ink);
+            painter.line_segment([at(0., 2.5), at(0., 4.8)], Stroke::new(1.15, ink));
+        }
+    }
+    response.on_hover_cursor(CursorIcon::PointingHand)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum LayerTarget {
@@ -56,7 +245,7 @@ impl LayerTarget {
         })
     }
 
-    fn label(self, document: &Document) -> String {
+    pub(super) fn label(self, document: &Document) -> String {
         if let Some(settings) = self.settings(document)
             && !settings.name.is_empty()
         {
@@ -320,7 +509,7 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
-        use inspector_widgets::{Glyph, tile};
+        use inspector_widgets::Glyph;
         let indices = target.indices(document);
         let selection = self.selected_indices(document);
         let selected = !indices.is_empty() && indices.iter().all(|i| selection.contains(i));
@@ -360,33 +549,7 @@ impl EditorState {
                                 19.,
                             ),
                             LayerTarget::Annotation(i) => {
-                                let a = &document.annotations[i];
-                                let color = if visible {
-                                    Color32::from_rgb(a.color[0], a.color[1], a.color[2])
-                                } else {
-                                    crate::appearance::palette(ui.ctx()).muted
-                                };
-                                if a.kind.is_shape() {
-                                    ui.painter().add(egui::Shape::closed_line(
-                                        crate::shapes::outline(a.kind, badge.shrink(3.)),
-                                        Stroke::new(1.5, color),
-                                    ));
-                                } else {
-                                    let tool = match a.kind {
-                                        AnnotationKind::Text => Tool::Text,
-                                        AnnotationKind::Arrow => Tool::Arrow,
-                                        AnnotationKind::Callout => Tool::Callout,
-                                        AnnotationKind::Step => Tool::Step,
-                                        AnnotationKind::Stamp => Tool::Stamp,
-                                        AnnotationKind::Fill => Tool::Fill,
-                                        AnnotationKind::Freehand => Tool::Pen,
-                                        AnnotationKind::Highlighter => Tool::Highlighter,
-                                        AnnotationKind::Blur => Tool::Blur,
-                                        AnnotationKind::Pixelate => Tool::Pixelate,
-                                        _ => Tool::Area,
-                                    };
-                                    paint_tool_icon(ui.painter(), badge.center(), tool, color);
-                                }
+                                paint_layer_badge(ui, badge, &document.annotations[i])
                             }
                         }
                         let response = ui.add_sized(
@@ -435,21 +598,13 @@ impl EditorState {
                             });
                         }
                         ui.add_enabled_ui(!parent_hidden, |ui| {
-                            if tile(
+                            if layer_toggle(
                                 ui,
                                 &format!("Show {label}"),
-                                Glyph::Visible(visible),
-                                Vec2::splat(24.),
-                                false,
-                                false,
+                                LayerToggle::Visibility(visible),
                             )
-                            .on_hover_text(if parent_hidden {
-                                "Hidden by its group"
-                            } else if visible {
-                                "Hide layer"
-                            } else {
-                                "Show layer"
-                            })
+                            .on_hover_text(if visible { "Hide layer" } else { "Show layer" })
+                            .on_disabled_hover_text("Hidden by its group")
                             .clicked()
                             {
                                 settings.hidden = !settings.hidden;
@@ -457,22 +612,10 @@ impl EditorState {
                             }
                         });
                         ui.add_enabled_ui(!parent_locked, |ui| {
-                            if tile(
-                                ui,
-                                &format!("Lock {label}"),
-                                Glyph::Lock(locked),
-                                Vec2::splat(24.),
-                                locked,
-                                false,
-                            )
-                            .on_hover_text(if parent_locked {
-                                "Locked by its group"
-                            } else if locked {
-                                "Unlock layer"
-                            } else {
-                                "Lock layer"
-                            })
-                            .clicked()
+                            if layer_toggle(ui, &format!("Lock {label}"), LayerToggle::Lock(locked))
+                                .on_hover_text(if locked { "Unlock layer" } else { "Lock layer" })
+                                .on_disabled_hover_text("Locked by its group")
+                                .clicked()
                             {
                                 settings.locked = !settings.locked;
                                 self.change_layer(target, settings.clone(), document, history);

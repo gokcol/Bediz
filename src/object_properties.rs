@@ -776,19 +776,34 @@ impl QuickProperties {
             }
             data.get_temp::<Pos2>(id).unwrap_or(position)
         });
-        popup
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-            .at_position(position)
-            .align(egui::emath::RectAlign::BOTTOM_START)
-            .align_alternatives(&[])
-            .width(size.x)
-            .layout(egui::Layout::top_down(egui::Align::Min))
-            .frame(quick_frame(ui))
-            .show(popup_input(ui.is_enabled(), ui.opacity(), |ui| {
-                ui.spacing_mut().item_spacing = Vec2::splat(3.);
-                content(ui);
-            }));
+        show_quick_popup(
+            ui,
+            popup.close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+            position,
+            size.x,
+            content,
+        );
     }
+}
+
+fn show_quick_popup(
+    ui: &egui::Ui,
+    popup: egui::Popup<'_>,
+    position: Pos2,
+    width: f32,
+    content: impl FnOnce(&mut egui::Ui),
+) {
+    popup
+        .at_position(position)
+        .align(egui::emath::RectAlign::BOTTOM_START)
+        .align_alternatives(&[])
+        .width(width)
+        .layout(egui::Layout::top_down(egui::Align::Min))
+        .frame(quick_frame(ui))
+        .show(popup_input(ui.is_enabled(), ui.opacity(), |ui| {
+            ui.spacing_mut().item_spacing = Vec2::splat(3.);
+            content(ui);
+        }));
 }
 
 fn overlap_area(a: Rect, b: Rect) -> f32 {
@@ -848,6 +863,33 @@ fn quick_popup_position(
         .min
 }
 
+fn layer_order_position(anchor: Rect, placement: QuickProperties, size: Vec2) -> Pos2 {
+    let viewport = placement.viewport.shrink(6.);
+    let x = anchor.center().x - size.x * 0.5;
+    [
+        placement.bar.top() - size.y - 3.,
+        placement.bar.bottom() + 3.,
+    ]
+    .into_iter()
+    .filter(|&y| y >= viewport.top() && y + size.y <= viewport.bottom())
+    .map(|y| fitted_rect(Pos2::new(x, y), size, viewport))
+    .min_by(|a, b| {
+        overlap_area(*a, placement.selection).total_cmp(&overlap_area(*b, placement.selection))
+    })
+    .map_or_else(
+        || {
+            quick_popup_position(
+                anchor,
+                placement.bar,
+                placement.selection,
+                placement.viewport,
+                size,
+            )
+        },
+        |rect| rect.min,
+    )
+}
+
 impl EditorState {
     fn layer_order_button(
         &mut self,
@@ -863,63 +905,70 @@ impl EditorState {
         let pointer = ui.ctx().pointer_hover_pos();
         let hovered =
             (open || response.hovered()) && pointer.is_some_and(|p| response.rect.contains(p));
-        let clicked_open = response.clicked() && !open;
-        let hover_state = response.id.with("layer-order-hover");
-        let (entered, pinned) = ui.ctx().data_mut(|data| {
-            let (last_hovered, last_pinned) = data
-                .get_temp::<(bool, bool)>(hover_state)
-                .unwrap_or_default();
-            let pinned = clicked_open || (open && last_pinned);
-            data.insert_temp(hover_state, (hovered, pinned));
-            (hovered && !last_hovered, pinned)
-        });
-        // Keep the menu open across the gap to its buttons, but let the user
-        // move sideways onto another control on the floating toolbar.
-        let within_menu_path = open
+        let clicked = response.clicked();
+        let time = ui.input(|i| i.time);
+        let near_menu = open
             && pointer.is_some_and(|p| {
                 ui.ctx()
                     .memory(|memory| memory.area_rect(popup.get_id()))
-                    .is_some_and(|menu| {
-                        menu.contains(p)
-                            || (!placement.bar.contains(p) && menu.union(response.rect).contains(p))
-                    })
+                    .is_some_and(|menu| menu.union(response.rect).expand(5.).contains(p))
             });
-        let command = if !response.enabled() {
-            Some(false)
-        } else if clicked_open || entered {
-            Some(true)
-        } else if open && !pinned && !hovered && !within_menu_path {
-            Some(false)
+        let hover_state = response.id.with("layer-order-hover");
+        let (entered, clicked_closed, pinned, hover_deadline) = ui.ctx().data_mut(|data| {
+            let (last_hovered, last_pinned, last_deadline) = data
+                .get_temp::<(bool, bool, f64)>(hover_state)
+                .unwrap_or_default();
+            let clicked_closed = open && last_pinned && clicked;
+            let pinned = !clicked_closed && (clicked || (open && last_pinned));
+            let deadline = if hovered || near_menu {
+                time + 0.25
+            } else {
+                last_deadline
+            };
+            data.insert_temp(hover_state, (hovered, pinned, deadline));
+            (hovered && !last_hovered, clicked_closed, pinned, deadline)
+        });
+        let pointer_left = open && !pinned && !hovered && !near_menu;
+        // Allow a brief detour between the trigger and the larger targets.
+        if pointer_left && time < hover_deadline {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs_f64(hover_deadline - time));
+        }
+        let command =
+            if !response.enabled() || clicked_closed || (pointer_left && time >= hover_deadline) {
+                Some(false)
+            } else if clicked || entered {
+                Some(true)
+            } else {
+                None
+            };
+        let size = Vec2::new(207., 116.);
+        let close_behavior = if clicked {
+            egui::PopupCloseBehavior::IgnoreClicks
         } else {
-            None
+            egui::PopupCloseBehavior::CloseOnClickOutside
         };
-        placement.show_popup(
+        // Place the list immediately above or below its own trigger, using the
+        // toolbar's stable position while this popup is active.
+        show_quick_popup(
             ui,
-            &response,
-            popup.open_memory(command.map(egui::SetOpenCommand::Bool)),
-            Vec2::new(138., 38.),
+            popup
+                .open_memory(command.map(egui::SetOpenCommand::Bool))
+                .close_behavior(close_behavior),
+            layer_order_position(response.rect, placement, size),
+            size.x,
             |ui| {
-                ui.horizontal(|ui| {
-                    for (label, front, extreme) in annotation_layers::STACK_ORDER_ACTIONS {
-                        let can_move = self.selected.is_some_and(|index| {
-                            if front {
-                                index + 1 < document.annotations.len()
-                            } else {
-                                index > 0
-                            }
-                        });
-                        if ui
-                            .add_enabled_ui(can_move, |ui| {
-                                quick_glyph(ui, label, Glyph::Order { front, extreme })
-                            })
-                            .inner
-                            .clicked()
-                        {
-                            self.reorder_layer(document, history, front, extreme);
-                            ui.close();
-                        }
+                if let Some(index) = self.selected {
+                    let count = document.annotations.len();
+                    if let Some((front, extreme)) =
+                        annotation_layers::layer_order_grid(ui, index, count)
+                    {
+                        self.reorder_layer(document, history, front, extreme);
                     }
-                });
+                    if let Some(position) = self.selected {
+                        ui.small(format!("{} of {count} from front", count - position));
+                    }
+                }
             },
         );
     }

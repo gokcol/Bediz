@@ -405,11 +405,27 @@ impl EditorState {
                                     }
                                 });
                             egui::Popup::menu(&more).show(|ui| {
-                                if ui.button("✓  Finish editing     ⌘/Ctrl+Enter").clicked() {
+                                if canvas_menu::item(
+                                    ui,
+                                    "Finish editing",
+                                    canvas_menu::MenuIcon::App(DialogIcon::Check),
+                                    true,
+                                )
+                                .on_hover_text("Command/Ctrl+Enter")
+                                .clicked()
+                                {
                                     apply = true;
                                     ui.close();
                                 }
-                                if ui.button("×  Cancel editing     Esc").clicked() {
+                                if canvas_menu::item(
+                                    ui,
+                                    "Cancel editing",
+                                    canvas_menu::MenuIcon::App(DialogIcon::Close),
+                                    true,
+                                )
+                                .on_hover_text("Esc")
+                                .clicked()
+                                {
                                     cancel = true;
                                     ui.close();
                                 }
