@@ -2,9 +2,9 @@ DRAFT — not a live or certified Store listing.
 Use the exact reserved app name from MyImage's Partner Center product.
 Developer: Orhan Gökçöl
 Suggested category: Photo & video
-Privacy: https://github.com/gokcol/MyImage/blob/main/PRIVACY.md
+Privacy: https://github.com/gokcol/Bediz/blob/main/PRIVACY.md
 Support: mailto:orhan.gokcol@hotmail.com
-Website: https://github.com/gokcol/MyImage
+Website: https://github.com/gokcol/Bediz
 
 Before submission:
 - Configure the MSIX identity variables and generate a real-identity package.

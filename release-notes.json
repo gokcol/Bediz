@@ -1,10 +1,10 @@
 {
   "version": "4.0.0",
-  "build": 153,
-  "store_version": "3.2.1.0",
+  "build": 154,
+  "store_version": "3.2.3.0",
   "changes": [
     "Use Select to click objects or drag a rectangular pixel region. A region drag can start in the workspace margin.",
-    "Open the floating region layer checklist to apply Move, Delete, Copy or Cut to the visible image, an active layer or checked layers.",
+    "Open the floating layer checklist to apply Move, Delete, Copy or Cut to the visible image, an active layer or checked layers. Each row shows its layer icon.",
     "Annotation line-width controls reach 96 px.",
     "Bediz runs under its current name in Windows Task Manager and macOS Activity Monitor.",
     "Extract Text prepares selected pixels with fewer copies while preserving the current recognition settings.",
@@ -67,6 +67,9 @@
     "Scrolling controls stay outside the captured image while the editor remains hidden."
   ],
   "windows": [
+    "The first Region drag works after opening capture with a global shortcut. The selection overlay opens without the Windows window animation.",
+    "Bediz now runs as Bediz.exe in Task Manager. Seyir 1.0.3 can open images in both new and older Bediz installations.",
+    "The first Region drag works after opening capture with a global shortcut. The selection overlay opens without the Windows window animation.",
     "Store, Setup, and portable copies reuse the running Bediz instance when all copies use build 147 or later.",
     "The compact capture controls and automatic region scrolling are shared with Mac.",
     "Store-installed copies continue to check Microsoft Store for updates."

@@ -96,7 +96,7 @@ review the `runFullTrust` explanation. Support: orhan.gokcol@hotmail.com.
 5. Upload the real-identity MSIX to Partner Center and submit for certification.
    Microsoft signing and a live Store download are confirmed only afterwards.
 
-Privacy policy: https://github.com/gokcol/MyImage/blob/main/PRIVACY.md
+Privacy policy: https://github.com/gokcol/Bediz/blob/main/PRIVACY.md
 
 References:
 [MSIX signing](https://learn.microsoft.com/en-us/windows/msix/package/signing-package-overview),

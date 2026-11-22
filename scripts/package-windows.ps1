@@ -77,7 +77,7 @@ to a folder and run with Bediz.exe; remove that folder to remove that copy.
 
 Packaging/install/uninstall are checked in CI. Interactive Windows capture,
 clipboard, pen/touch, scaling and tray behavior still require device testing.
-Source and releases: https://github.com/gokcol/MyImage
+Source and releases: https://github.com/gokcol/Bediz
 "@ | Set-Content -Encoding utf8 (Join-Path $layout 'READ-ME-WINDOWS.txt')
         & $iscc "/DAppVersion=$version" "/DBuildNumber=$build" "/DSource=$layout" "/O$work" "/F$name-Setup" (Join-Path $toolsRoot 'packaging/windows/MyImage.iss')
         if ($LASTEXITCODE -ne 0) { throw 'Inno Setup compilation failed.' }

@@ -1157,10 +1157,10 @@ impl MyImageApp {
                         painter.circle_stroke(p, 4., Stroke::new(1., appearance::palette(ui.ctx()).accent));
                     }
                     #[cfg(target_os = "macos")]
-                    if mode == CaptureMode::Video && chosen.is_some() && !selection.drag.active {
-                        if let Some(frame) = video_frame(selection.window_id) {
-                            selection.webcam.paint(painter, frame);
-                        }
+                    if mode == CaptureMode::Video && chosen.is_some() && !selection.drag.active
+                        && let Some(frame) = video_frame(selection.window_id)
+                    {
+                        selection.webcam.paint(painter, frame);
                     }
                     let label = if target_mode == CaptureMode::Window || chosen.is_none() {
                         selection

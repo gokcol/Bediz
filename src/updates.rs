@@ -12,7 +12,7 @@ mod github;
 #[path = "updates/windows.rs"]
 mod windows;
 
-pub const RELEASES_URL: &str = "https://github.com/gokcol/MyImage/releases";
+pub const RELEASES_URL: &str = "https://github.com/gokcol/Bediz/releases";
 pub const STORE_URL: &str = "https://apps.microsoft.com/detail/9PL3HWB23J38";
 pub const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const DAY: u64 = 24 * 60 * 60;

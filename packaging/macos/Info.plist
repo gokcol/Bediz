@@ -19,11 +19,11 @@
     <key>CFBundleShortVersionString</key>
     <string>4.0.0</string>
     <key>CFBundleVersion</key>
-    <string>153</string>
+    <string>154</string>
     <key>BedizOpenProtocol</key>
     <string>1</string>
     <key>NSCameraUsageDescription</key>
-    <string>Bediz uses the camera when you enable the webcam for a screen recording.</string>
+    <string>Bediz uses the camera for the live preview and video when you enable the camera overlay.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>Bediz uses the microphone when you choose it as the audio source for a screen recording.</string>
     <key>LSMinimumSystemVersion</key>

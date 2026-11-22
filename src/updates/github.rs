@@ -61,7 +61,7 @@ fn evaluate(json: &str, installed: &str, architecture: &str) -> Result<Outcome, 
     };
     let filename = format!("MyImage-{}-macos-{arch}.dmg", &release.tag_name[1..]);
     let url = format!(
-        "https://github.com/gokcol/MyImage/releases/download/{}/{filename}",
+        "https://github.com/gokcol/Bediz/releases/download/{}/{filename}",
         release.tag_name
     );
     // Remote text is plain text; only an exact repository/asset URL can become an action.
@@ -98,7 +98,7 @@ pub(super) fn check() -> Result<Outcome, String> {
             .build(),
     );
     let response = agent
-        .get("https://api.github.com/repos/gokcol/MyImage/releases/latest")
+        .get("https://api.github.com/repos/gokcol/Bediz/releases/latest")
         .header("User-Agent", "MyImage-update-check")
         .header("Accept", "application/vnd.github+json")
         .call();
@@ -126,7 +126,7 @@ mod tests {
     use super::*;
     fn release(tag: &str) -> serde_json::Value {
         let name = format!("MyImage-{}-macos-arm64.dmg", &tag[1..]);
-        serde_json::json!({"tag_name":tag, "draft":false, "prerelease":false, "body":"Useful changes", "assets":[{"name":name,"browser_download_url":format!("https://github.com/gokcol/MyImage/releases/download/{tag}/{name}"),"state":"uploaded","size":123}]})
+        serde_json::json!({"tag_name":tag, "draft":false, "prerelease":false, "body":"Useful changes", "assets":[{"name":name,"browser_download_url":format!("https://github.com/gokcol/Bediz/releases/download/{tag}/{name}"),"state":"uploaded","size":123}]})
     }
     #[test]
     fn numeric_versions_include_build_and_reject_bad_tags() {

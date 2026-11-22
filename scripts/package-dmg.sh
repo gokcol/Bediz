@@ -52,7 +52,7 @@ When upgrading from SkyImage.app or MyImage.app, quit it and move the old
 application bundle out of Applications after installing Bediz.app, so only one
 copy remains.
 Your projects, captures, settings and recovery data are kept separately.
-Requires macOS 14 or later. Source: https://github.com/gokcol/MyImage
+Requires macOS 14 or later. Source: https://github.com/gokcol/Bediz
 TEXT
 hdiutil create -volname "Bediz $version" -srcfolder "$work/layout" -format UDZO "$work/$name"
 codesign --force --timestamp --sign "$identity" "$work/$name"

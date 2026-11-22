@@ -108,9 +108,9 @@ impl MyImageApp {
                     });
                 ui.add_space(10.);
                 ui.horizontal(|ui| {
-                    ui.hyperlink_to("GitHub", "https://github.com/gokcol/MyImage");
+                    ui.hyperlink_to("GitHub", "https://github.com/gokcol/Bediz");
                     ui.hyperlink_to("Support", "mailto:orhan.gokcol@hotmail.com");
-                    ui.hyperlink_to("Privacy", "https://github.com/gokcol/MyImage/blob/main/PRIVACY.md");
+                    ui.hyperlink_to("Privacy", "https://github.com/gokcol/Bediz/blob/main/PRIVACY.md");
                     ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                         close = dialogs::primary(ui, "Close", Icon::Close).clicked();
                     });

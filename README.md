@@ -2,7 +2,7 @@
 
 A native Rust screen-capture application for **macOS 14 or later and Windows**, built with egui, winit, and wgpu. It does not use a WebView.
 
-[Download Bediz for Mac and Windows](https://github.com/gokcol/MyImage/releases/latest). Downloads include a Developer ID signed and notarized DMG or ZIP for Mac Apple Silicon and a Setup installer or portable ZIP for Windows x64.
+[Download Bediz for Mac and Windows](https://github.com/gokcol/Bediz/releases/latest). Downloads include a Developer ID signed and notarized DMG or ZIP for Mac Apple Silicon and a Setup installer or portable ZIP for Windows x64.
 
 [Get Bediz from Microsoft Store](https://apps.microsoft.com/detail/9PL3HWB23J38). The same Store product carries forward existing installations, projects and settings from MyImage and SkyImage.
 
@@ -552,7 +552,7 @@ Open the bottom-right calico App menu and choose **Play with Calico** for a five
 
 ## Releases, installation and updates
 
-Get official packages from [GitHub Releases](https://github.com/gokcol/MyImage/releases), also linked in the calico App menu. The releases include an Apple Silicon macOS build and a Windows x64 build labeled **UNTESTED**. Windows artifacts are not code-signed and have not had interactive capture/clipboard/installer testing.
+Get official packages from [GitHub Releases](https://github.com/gokcol/Bediz/releases), also linked in the calico App menu. The releases include an Apple Silicon macOS build and a Windows x64 build labeled **UNTESTED**. Windows artifacts are not code-signed and have not had interactive capture/clipboard/installer testing.
 
 On Mac, save your work and quit Bediz or the previous SkyImage/MyImage app, open the disk image, and drag Bediz into Applications. When upgrading from a previous name, open `/Applications/Bediz.app` and verify your projects and settings, then move the old SkyImage.app or MyImage.app to Trash so only the current app remains. The bundle identifier and data folders are unchanged. To uninstall, quit the menu-bar app and move `/Applications/Bediz.app` to Trash; captures, projects and local preferences/recovery remain intact. Login startup is opt-in in Settings. **Quick Start & Hotkeys** in the App menu reopens the guide.
 
