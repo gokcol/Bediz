@@ -716,7 +716,7 @@ pub(super) fn quick_glyph(
     })
 }
 
-fn quick_frame(ui: &egui::Ui) -> egui::Frame {
+pub(super) fn quick_frame(ui: &egui::Ui) -> egui::Frame {
     egui::Frame::popup(ui.style())
         .fill(crate::appearance::palette(ui.ctx()).paper)
         .corner_radius(9)

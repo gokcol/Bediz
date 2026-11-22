@@ -759,6 +759,7 @@ mod tests {
             name: "Review notes".into(),
             hidden: true,
             locked: true,
+            ..Default::default()
         };
         e.change_layer(target, settings.clone(), &mut d, &mut h);
         assert!(

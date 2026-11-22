@@ -979,6 +979,7 @@ mod tests {
             tool: Tool::Select,
             ..Default::default()
         };
+        e.select(Some(0), &d);
         let mut frame = |events| {
             ctx.run(
                 egui::RawInput {

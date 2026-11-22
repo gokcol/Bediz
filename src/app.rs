@@ -409,6 +409,21 @@ impl MyImageApp {
             self.begin_open(ctx, path, true);
         }
     }
+
+    #[cfg(target_os = "macos")]
+    fn open_video(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_title("Open video")
+            .add_filter("MP4 video", &["mp4"])
+            .pick_file()
+        {
+            match video_session::play(&path) {
+                Ok(()) => self.remember_recent(path),
+                Err(error) => self.error = Some(error),
+            }
+        }
+    }
+
     fn create_image(&mut self, ctx: &egui::Context, spec: crate::templates::Spec) {
         if self.busy
             || self.editor.has_modal()
@@ -839,7 +854,8 @@ impl MyImageApp {
         }
         #[cfg(target_os = "macos")]
         if selection.mode == capture::CaptureMode::Video {
-            self.start_recording(ctx, &selection, rect, None);
+            let mut selection = selection;
+            self.start_recording(ctx, &mut selection, rect, None);
             return;
         }
         let shape = self.shape;
@@ -1816,6 +1832,7 @@ impl MyImageApp {
                     rect,
                     Rect::from_min_size(rect.min + visible.min.to_vec2(), visible.size())
                         .intersect(ui.clip_rect()),
+                    None,
                 );
                 let painter = ui.painter();
                 let cell = 16.0;
@@ -2096,6 +2113,11 @@ impl MyImageApp {
                 if app_menu::row(ui, "Open Project…", Icon::OpenProject, true, "").clicked() {
                     ui.close();
                     self.open_project(ctx);
+                }
+                #[cfg(target_os = "macos")]
+                if app_menu::row(ui, "Open Video…", Icon::Video, true, "").clicked() {
+                    ui.close();
+                    self.open_video();
                 }
                 ui.separator();
                 if app_menu::row(

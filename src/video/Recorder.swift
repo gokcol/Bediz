@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import CoreImage
 import Foundation
@@ -12,10 +13,223 @@ private struct RecorderError: LocalizedError {
     }
 }
 
-// Screen frames, camera frames, control changes and the writer all run on the
-// same serial queue. The UI polls a separate status snapshot without blocking.
+// Share a single camera between the live preview and the recording encoder.
+private final class WebcamSource: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+    private static let queue = DispatchQueue(label: "com.myimage.app.webcam")
+    let session = AVCaptureSession()
+    private let lock = NSLock()
+    private var frame: CIImage?
+    private var failure: String?
+
+    override init() {
+        super.init()
+        Task { [weak self] in
+            let allowed: Bool
+            switch AVCaptureDevice.authorizationStatus(for: .video) {
+            case .authorized: allowed = true
+            case .notDetermined: allowed = await AVCaptureDevice.requestAccess(for: .video)
+            default: allowed = false
+            }
+            if allowed {
+                Self.queue.async { [weak self] in self?.configure() }
+            } else {
+                self?.fail("Camera access is off. Enable Bediz in Privacy & Security → Camera, or choose Webcam off.")
+            }
+        }
+    }
+
+    deinit {
+        let capture = session
+        Self.queue.async { if capture.isRunning { capture.stopRunning() } }
+    }
+
+    private func configure() {
+        do {
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
+                    ?? AVCaptureDevice.default(for: .video) else {
+                throw RecorderError("No webcam is available. Choose Webcam off to record the screen.")
+            }
+            if session.canSetSessionPreset(.medium) { session.sessionPreset = .medium }
+            let input = try AVCaptureDeviceInput(device: device)
+            let output = AVCaptureVideoDataOutput()
+            output.alwaysDiscardsLateVideoFrames = true
+            output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+            guard session.canAddInput(input), session.canAddOutput(output) else {
+                throw RecorderError("The webcam could not be started.")
+            }
+            session.addInput(input)
+            session.addOutput(output)
+            output.setSampleBufferDelegate(self, queue: Self.queue)
+            session.startRunning()
+            if !session.isRunning { throw RecorderError("The webcam is unavailable.") }
+        } catch {
+            fail(error.localizedDescription)
+        }
+    }
+
+    private func fail(_ message: String) {
+        lock.lock()
+        failure = message
+        lock.unlock()
+    }
+
+    func snapshot() -> (frame: CIImage?, failure: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (frame, failure)
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sample: CMSampleBuffer, from connection: AVCaptureConnection) {
+        guard let buffer = sample.imageBuffer else { return }
+        let image = CIImage(cvPixelBuffer: buffer)
+        lock.lock()
+        frame = image
+        lock.unlock()
+    }
+}
+
+@MainActor
+private final class WebcamPreview {
+    private static weak var activeSource: WebcamSource?
+    let source: WebcamSource
+    private var panel: NSPanel?
+    private var layer: AVCaptureVideoPreviewLayer?
+
+    init() {
+        source = Self.activeSource ?? WebcamSource()
+        Self.activeSource = source
+    }
+
+    func show(target: CGRect, position: CGPoint, windowID: CGWindowID) {
+        guard source.snapshot().frame != nil else { return }
+        var bounds = target
+        if windowID != 0 {
+            guard let window = CGWindowListCopyWindowInfo(.optionIncludingWindow, windowID)
+                    as? [[String: Any]],
+                  let info = window.first, info[kCGWindowIsOnscreen as String] as? Bool == true,
+                  let rect = info[kCGWindowBounds as String] as? [String: Any],
+                  let frame = CGRect(dictionaryRepresentation: rect as CFDictionary) else {
+                hide()
+                return
+            }
+            bounds = frame
+        }
+        guard let primary = NSScreen.screens.first else { return }
+        let bubble = webcamBounds(in: bounds, at: position)
+        let frame = CGRect(x: bubble.minX, y: primary.frame.maxY - bubble.maxY,
+                           width: bubble.width, height: bubble.height)
+        if panel == nil { makePanel(frame: frame) }
+        guard let panel, let layer, let view = panel.contentView else { return }
+        if panel.frame != frame {
+            panel.setFrame(frame, display: false)
+            view.layer?.cornerRadius = frame.width / 2
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.frame = view.bounds
+            CATransaction.commit()
+        }
+        if !panel.isVisible { panel.orderFrontRegardless() }
+    }
+
+    private func makePanel(frame: CGRect) {
+        let panel = NSPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel],
+                            backing: .buffered, defer: false)
+        panel.title = "Bediz Webcam Preview"
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.hidesOnDeactivate = false
+        panel.ignoresMouseEvents = true
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.overlayWindow)) + 1)
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
+        if #available(macOS 13.0, *) { panel.collectionBehavior.insert(.canJoinAllApplications) }
+        let view = NSView(frame: CGRect(origin: .zero, size: frame.size))
+        view.wantsLayer = true
+        view.layer?.masksToBounds = true
+        view.layer?.cornerRadius = frame.width / 2
+        view.layer?.borderWidth = 1.4
+        view.layer?.borderColor = NSColor.white.withAlphaComponent(0.75).cgColor
+        let layer = AVCaptureVideoPreviewLayer(session: source.session)
+        layer.videoGravity = .resizeAspectFill
+        if let connection = layer.connection, connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = false
+        }
+        layer.frame = view.bounds
+        view.layer?.addSublayer(layer)
+        panel.contentView = view
+        self.panel = panel
+        self.layer = layer
+    }
+
+    func hide() { panel?.orderOut(nil) }
+
+    func close() {
+        layer?.session = nil
+        panel?.close()
+        layer = nil
+        panel = nil
+    }
+}
+
+private func webcamBounds(in bounds: CGRect, at position: CGPoint) -> CGRect {
+    let size = min(bounds.width, bounds.height)
+    let diameter = size * 0.22
+    let inset = size * 0.035
+    return CGRect(
+        x: bounds.minX + inset + position.x * (bounds.width - diameter - 2 * inset),
+        y: bounds.minY + inset + position.y * (bounds.height - diameter - 2 * inset),
+        width: diameter, height: diameter
+    )
+}
+
+@_cdecl("bediz_webcam_create")
+@MainActor
+public func bediz_webcam_create() -> UnsafeMutableRawPointer {
+    Unmanaged.passRetained(WebcamPreview()).toOpaque()
+}
+
+@_cdecl("bediz_webcam_show")
+@MainActor
+public func bediz_webcam_show(
+    _ handle: UnsafeRawPointer, _ x: Double, _ y: Double, _ width: Double, _ height: Double,
+    _ cameraX: Double, _ cameraY: Double, _ window: UInt32
+) {
+    let preview = Unmanaged<WebcamPreview>.fromOpaque(handle).takeUnretainedValue()
+    if width > 0 && height > 0 {
+        preview.show(target: CGRect(x: x, y: y, width: width, height: height),
+                     position: CGPoint(x: cameraX, y: cameraY), windowID: window)
+    } else {
+        preview.hide()
+    }
+}
+
+@_cdecl("bediz_webcam_status")
+@MainActor
+public func bediz_webcam_status(
+    _ handle: UnsafeRawPointer, _ output: UnsafeMutablePointer<CChar>, _ capacity: Int
+) -> Int32 {
+    let preview = Unmanaged<WebcamPreview>.fromOpaque(handle).takeUnretainedValue()
+    let (frame, failure) = preview.source.snapshot()
+    if let failure {
+        _ = failure.withCString { strlcpy(output, $0, capacity) }
+        return -1
+    }
+    return frame == nil ? 0 : 1
+}
+
+@_cdecl("bediz_webcam_release")
+@MainActor
+public func bediz_webcam_release(_ handle: UnsafeRawPointer) {
+    Unmanaged<WebcamPreview>.fromOpaque(handle).takeRetainedValue().close()
+}
+
+// Screen frames, controls and the writer run on one serial queue.
+// The UI reads the current status without blocking that queue.
 private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
-    AVCaptureVideoDataOutputSampleBufferDelegate, AVCaptureAudioDataOutputSampleBufferDelegate,
+    AVCaptureAudioDataOutputSampleBufferDelegate,
     @unchecked Sendable
 {
     private let queue = DispatchQueue(label: "com.myimage.app.recording")
@@ -24,6 +238,7 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private var statusText = ""
     private let destination: URL
     private let cameraPosition: CGPoint?
+    private var webcam: WebcamSource?
     private let maxNanoseconds: UInt64
     private let diskReserve: UInt64
     private let audioSource: AudioSource
@@ -39,7 +254,6 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private var stream: SCStream?
     private var deviceSession: AVCaptureSession?
     private var screenFrame: CVPixelBuffer?
-    private var cameraFrame: CIImage?
     private var timer: DispatchSourceTimer?
     private var writer: AVAssetWriter?
     private var input: AVAssetWriterInput?
@@ -56,11 +270,12 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         case off, system, microphone
     }
 
-    init(destination: URL, cameraPosition: CGPoint?, maxSeconds: UInt32, diskReserve: UInt64,
+    init(destination: URL, cameraPosition: CGPoint?, webcam: WebcamSource?, maxSeconds: UInt32, diskReserve: UInt64,
          audioSource: AudioSource, audioBitsPerSecond: Int,
          voiceProcessing: Bool, countdownSeconds: UInt32) {
         self.destination = destination
         self.cameraPosition = cameraPosition
+        self.webcam = webcam
         self.maxNanoseconds = UInt64(maxSeconds) * 1_000_000_000
         self.diskReserve = diskReserve
         self.audioSource = audioSource
@@ -82,23 +297,12 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         statusLock.unlock()
     }
 
-    func start(displayID: CGDirectDisplayID, windowID: CGWindowID, selection: CGRect, cursor: Bool,
+    func start(displayID: CGDirectDisplayID, windowID: CGWindowID, cursor: Bool,
                width: Int, height: Int, bitsPerSecond: Int) {
         // Permission and ScreenCaptureKit setup are asynchronous. In
         // particular, a camera consent prompt must never block AppKit.
         Task { [self] in
             do {
-                if cameraPosition != nil {
-                    let allowed: Bool
-                    switch AVCaptureDevice.authorizationStatus(for: .video) {
-                    case .authorized: allowed = true
-                    case .notDetermined: allowed = await AVCaptureDevice.requestAccess(for: .video)
-                    default: allowed = false
-                    }
-                    guard allowed else {
-                        throw RecorderError("Camera access is off. Enable Bediz in Privacy & Security → Camera, or record with the webcam off.")
-                    }
-                }
                 if audioSource == .microphone {
                     let allowed: Bool
                     switch AVCaptureDevice.authorizationStatus(for: .audio) {
@@ -129,11 +333,6 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
                         $0.processID == ProcessInfo.processInfo.processIdentifier
                     }
                     filter = SCContentFilter(display: display, excludingApplications: applications, exceptingWindows: [])
-                    let extent = filter.contentRect.size
-                    config.sourceRect = CGRect(
-                        x: selection.minX * extent.width, y: selection.minY * extent.height,
-                        width: selection.width * extent.width, height: selection.height * extent.height
-                    )
                 }
                 config.width = width
                 config.height = height
@@ -153,8 +352,9 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
                     guard !self.finishing else { return }
                     do {
                         try self.configureWriter(width: width, height: height, bitsPerSecond: bitsPerSecond)
-                        if self.cameraPosition != nil || (self.audioSource == .microphone && !self.voiceProcessing) {
-                            try self.configureDevices()
+                        if self.webcam != nil { self.compositor = CIContext() }
+                        if self.audioSource == .microphone && !self.voiceProcessing {
+                            try self.configureMicrophone()
                         }
                         if self.audioSource == .microphone && self.voiceProcessing {
                             try self.configureProcessedMicrophone()
@@ -234,43 +434,22 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         self.pixels = adaptor
     }
 
-    private func configureDevices() throws {
+    private func configureMicrophone() throws {
         let session = AVCaptureSession()
-        if cameraPosition != nil {
-            guard let device = AVCaptureDevice.default(for: .video) else {
-                throw RecorderError("No webcam is available. Choose Webcam off to record the screen.")
-            }
-            if session.canSetSessionPreset(.medium) {
-                session.sessionPreset = .medium
-            }
-            let camera = try AVCaptureDeviceInput(device: device)
-            let video = AVCaptureVideoDataOutput()
-            video.alwaysDiscardsLateVideoFrames = true
-            video.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-            guard session.canAddInput(camera), session.canAddOutput(video) else {
-                throw RecorderError("The webcam could not be started.")
-            }
-            session.addInput(camera)
-            session.addOutput(video)
-            video.setSampleBufferDelegate(self, queue: queue)
-            compositor = CIContext()
+        guard let device = AVCaptureDevice.default(for: .audio) else {
+            throw RecorderError("No microphone is available.")
         }
-        if audioSource == .microphone && !voiceProcessing {
-            guard let device = AVCaptureDevice.default(for: .audio) else {
-                throw RecorderError("No microphone is available.")
-            }
-            let microphone = try AVCaptureDeviceInput(device: device)
-            let audio = AVCaptureAudioDataOutput()
-            guard session.canAddInput(microphone), session.canAddOutput(audio) else {
-                throw RecorderError("The microphone could not be started.")
-            }
-            session.addInput(microphone)
-            session.addOutput(audio)
-            audio.setSampleBufferDelegate(self, queue: queue)
+        let microphone = try AVCaptureDeviceInput(device: device)
+        let audio = AVCaptureAudioDataOutput()
+        guard session.canAddInput(microphone), session.canAddOutput(audio) else {
+            throw RecorderError("The microphone could not be started.")
         }
+        session.addInput(microphone)
+        session.addOutput(audio)
+        audio.setSampleBufferDelegate(self, queue: queue)
         session.startRunning()
         guard session.isRunning else {
-            throw RecorderError("The webcam or microphone is unavailable. Check the device and try again.")
+            throw RecorderError("The microphone is unavailable. Check the device and try again.")
         }
         deviceSession = session
     }
@@ -347,11 +526,7 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        if output is AVCaptureAudioDataOutput {
-            appendAudio(sampleBuffer)
-        } else if !finishing, let frame = sampleBuffer.imageBuffer {
-            cameraFrame = CIImage(cvPixelBuffer: frame)
-        }
+        appendAudio(sampleBuffer)
     }
 
     private func appendAudio(_ sample: CMSampleBuffer) {
@@ -409,6 +584,12 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     }
 
     private func tick() {
+        let camera = webcam?.snapshot()
+        let cameraFrame = camera?.frame
+        if let failure = camera?.failure {
+            fail(RecorderError(failure))
+            return
+        }
         guard let screenFrame, cameraPosition == nil || cameraFrame != nil else {
             if lastFrameIndex == -1 {
                 startupTicks += 1
@@ -482,13 +663,10 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private func renderCamera(_ camera: CIImage, at position: CGPoint,
                               over frame: CVPixelBuffer, into target: CVPixelBuffer, using context: CIContext) {
         let screen = CIImage(cvPixelBuffer: frame)
-        let size = min(screen.extent.width, screen.extent.height)
-        let diameter = size * 0.22
-        let inset = size * 0.035
-        let left = inset + position.x * (screen.extent.width - diameter - 2 * inset)
-        let bottom = inset + (1 - position.y) * (screen.extent.height - diameter - 2 * inset)
-        let center = CGPoint(x: left + diameter / 2, y: bottom + diameter / 2)
-        let box = CGRect(x: left, y: bottom, width: diameter, height: diameter)
+        // Core Image's origin is at the bottom left of the captured frame.
+        let box = webcamBounds(in: screen.extent, at: CGPoint(x: position.x, y: 1 - position.y))
+        let diameter = box.width
+        let center = CGPoint(x: box.midX, y: box.midY)
         let scale = diameter / min(camera.extent.width, camera.extent.height)
         let transform = CGAffineTransform(
             a: scale, b: 0, c: 0, d: scale,
@@ -546,7 +724,7 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
             self.audioEngine = nil
         }
         screenFrame = nil
-        cameraFrame = nil
+        webcam = nil
     }
 
     private func fail(_ error: Error) {
@@ -590,22 +768,23 @@ private func recorder(_ handle: UnsafeRawPointer) -> Recorder {
 }
 
 @_cdecl("bediz_record_start")
+@MainActor
 public func bediz_record_start(
     _ path: UnsafePointer<CChar>, _ display: UInt32, _ window: UInt32,
-    _ x: Double, _ y: Double, _ width: Double, _ height: Double,
-    _ cursor: Int32, _ cameraX: Double, _ cameraY: Double,
+    _ cursor: Int32, _ webcamPreview: UnsafeRawPointer?, _ cameraX: Double, _ cameraY: Double,
     _ outputWidth: UInt32, _ outputHeight: UInt32, _ bitsPerSecond: UInt32,
     _ maxSeconds: UInt32, _ diskReserve: UInt64, _ audioSource: UInt32, _ audioBitsPerSecond: UInt32,
     _ voiceProcessing: Int32, _ countdownSeconds: UInt32
 ) -> UnsafeMutableRawPointer {
     let destination = URL(fileURLWithPath: String(cString: path))
-    let position = cameraX < 0 ? nil : CGPoint(x: cameraX, y: cameraY)
-    let job = Recorder(destination: destination, cameraPosition: position, maxSeconds: maxSeconds,
+    let webcam = webcamPreview.map { Unmanaged<WebcamPreview>.fromOpaque($0).takeUnretainedValue().source }
+    let position = webcam.map { _ in CGPoint(x: cameraX, y: cameraY) }
+    let job = Recorder(destination: destination, cameraPosition: position, webcam: webcam, maxSeconds: maxSeconds,
                        diskReserve: diskReserve, audioSource: Recorder.AudioSource(rawValue: audioSource) ?? .off,
                        audioBitsPerSecond: Int(audioBitsPerSecond),
                        voiceProcessing: voiceProcessing != 0, countdownSeconds: countdownSeconds)
-    job.start(displayID: display, windowID: window, selection: CGRect(x: x, y: y, width: width, height: height),
-              cursor: cursor != 0, width: Int(outputWidth), height: Int(outputHeight), bitsPerSecond: Int(bitsPerSecond))
+    job.start(displayID: display, windowID: window, cursor: cursor != 0,
+              width: Int(outputWidth), height: Int(outputHeight), bitsPerSecond: Int(bitsPerSecond))
     return Unmanaged.passRetained(job).toOpaque()
 }
 

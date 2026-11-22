@@ -4,8 +4,10 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
-    let source = "src/video/Recorder.swift";
-    println!("cargo:rerun-if-changed={source}");
+    let sources = ["src/video/Recorder.swift", "src/video/Player.swift"];
+    for source in sources {
+        println!("cargo:rerun-if-changed={source}");
+    }
     println!("cargo:rerun-if-env-changed=DEVELOPER_DIR");
     println!("cargo:rerun-if-env-changed=SDKROOT");
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
@@ -30,6 +32,7 @@ fn main() {
             "5",
             "-parse-as-library",
             "-O",
+            "-whole-module-optimization",
             "-emit-object",
             "-module-name",
             "BedizRecorder",
@@ -40,7 +43,7 @@ fn main() {
         .arg(out.join("swift-module-cache"))
         .arg("-o")
         .arg(&object)
-        .arg(source)
+        .args(sources)
         .status()
         .expect("Run the Swift compiler");
     assert!(result.success(), "Compile the native macOS recorder");

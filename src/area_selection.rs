@@ -13,6 +13,8 @@ pub(super) struct AreaDrag {
     pixel_mask: Option<crate::fill::FillRegion>,
     handle: Option<AreaHandle>,
     moves_pixels: bool,
+    scoped: Option<Vec<region_scope::RegionLayer>>,
+    scoped_indices: Vec<usize>,
     area_before: Option<Rect>,
     selection_before: Vec<usize>,
     move_pixels_before: bool,
@@ -116,6 +118,8 @@ impl EditorState {
     }
 
     pub(super) fn deselect_pixels(&mut self) {
+        self.region_scope = Default::default();
+        self.select_press = None;
         self.move_pixels = true;
         self.area_aspect_ratio = None;
         self.area = None;
@@ -150,7 +154,7 @@ impl EditorState {
         self.area_handle(at, document).is_some()
     }
 
-    fn inside_area(&self, at: Point, document: &Document) -> bool {
+    pub(super) fn inside_area(&self, at: Point, document: &Document) -> bool {
         self.area_bounds(document).is_some_and(|r| {
             let p = (point(at) - r.min) / r.size();
             let annotation = self.selected.and_then(|i| document.annotations.get(i));
@@ -243,6 +247,17 @@ impl EditorState {
         {
             return;
         }
+        let scoped = if moving && handle.is_none() && self.move_pixels {
+            match self.scoped_layers(document) {
+                Ok(layers) => layers,
+                Err(error) => {
+                    self.image_error = Some(error);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let area_before = self.area;
         let selection_before = self.selected_indices(document);
         let move_pixels_before = self.move_pixels;
@@ -267,6 +282,8 @@ impl EditorState {
             pixel_mask,
             handle,
             moves_pixels: self.move_pixels,
+            scoped,
+            scoped_indices: Vec::new(),
             area_before,
             selection_before,
             move_pixels_before,
@@ -296,11 +313,14 @@ impl EditorState {
         else {
             return Ok(None);
         };
-        let Some(index) = drag.index else {
-            return Ok(None);
+        let index = drag.index.into_iter().collect::<Vec<_>>();
+        let indices = if drag.scoped.is_some() {
+            &drag.scoped_indices
+        } else {
+            &index
         };
         let mut expanded = document.clone();
-        if !crate::canvas::extend_for_annotations(&mut expanded, &[index])? {
+        if !crate::canvas::extend_for_annotations(&mut expanded, indices)? {
             return Ok(None);
         }
         let bounds = expanded.geometry.view_rect(original_size(document));
@@ -375,6 +395,9 @@ impl EditorState {
         scale: f32,
         document: &Document,
     ) -> Point {
+        if self.area_drag.as_ref().is_some_and(|drag| !drag.moving) {
+            return object_point(position, rect, scale, document);
+        }
         if self.moving_area_pixels(document) {
             document.geometry.inverse_point(
                 Point {
@@ -419,6 +442,29 @@ impl EditorState {
                         document,
                     )
                 };
+                if let Some(layers) = &drag.scoped {
+                    if self.area != Some(target) {
+                        let mut candidate = document.clone();
+                        candidate.annotations.clone_from(&drag.before.annotations);
+                        let delta = target.min - initial.min;
+                        let result = if delta == Vec2::ZERO {
+                            Ok(Vec::new())
+                        } else {
+                            self.edit_region_layers(&mut candidate, layers, initial, Some(delta))
+                        };
+                        match result {
+                            Ok(indices) => {
+                                self.image_error = None;
+                                drag.scoped_indices = indices;
+                                document.annotations = candidate.annotations;
+                                self.area = Some(target);
+                            }
+                            Err(error) => self.image_error = Some(error),
+                        }
+                    }
+                    self.area_drag = Some(drag);
+                    return;
+                }
                 if drag.moves_pixels
                     && drag.index.is_none()
                     && drag.handle.is_none()
@@ -508,6 +554,21 @@ impl EditorState {
         let Some(drag) = self.area_drag.take() else {
             return;
         };
+        if drag.scoped.is_some() {
+            if !drag.scoped_indices.is_empty() {
+                if let Err(error) =
+                    crate::canvas::extend_for_annotations(document, &drag.scoped_indices)
+                {
+                    document.annotations = drag.before.annotations;
+                    document.geometry = drag.before.geometry;
+                    self.area = drag.area_before;
+                    self.image_error = Some(error);
+                } else {
+                    history.commit(drag.before, document);
+                }
+            }
+            return;
+        }
         if !drag.travelled {
             if !drag.moving {
                 self.deselect_pixels();
@@ -605,6 +666,28 @@ impl EditorState {
             return;
         };
         let before = document.edit_state();
+        if kind == AnnotationKind::DeleteArea {
+            match self.scoped_layers(document) {
+                Ok(Some(layers)) => {
+                    let mut candidate = document.clone();
+                    match self.edit_region_layers(&mut candidate, &layers, rect, None) {
+                        Ok(_) => {
+                            document.annotations = candidate.annotations;
+                            history.commit(before, document);
+                            self.deselect_pixels();
+                            self.focus_canvas = true;
+                        }
+                        Err(error) => self.image_error = Some(error),
+                    }
+                    return;
+                }
+                Err(error) => {
+                    self.image_error = Some(error);
+                    return;
+                }
+                Ok(None) => {}
+            }
+        }
         let reuse = self.selected.filter(|&i| {
             self.additional.is_empty()
                 && ((document.annotations[i].kind.is_effect() && kind.is_effect())

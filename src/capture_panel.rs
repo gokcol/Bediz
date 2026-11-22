@@ -380,7 +380,7 @@ pub fn ui(
                         ui.label(egui::RichText::new(if cfg!(target_os="macos") { "Also ⌃⇧. / ⌘⇧." } else { "Also Ctrl + Shift + ." }).size(12.).color(look.palette.muted));
                         ui.visuals_mut().widgets.noninteractive.bg_stroke.color = look.palette.border;
                         ui.separator();
-                        ui.label(egui::RichText::new(if settings.capture_mode == CaptureMode::Text { "Text is copied directly. Your editor and Library stay unchanged." } else if settings.capture_mode == CaptureMode::Video { "Choose your webcam position after selecting the area." } else { settings.capture_destination.hint() }).size(12.).color(look.palette.muted));
+                        ui.label(egui::RichText::new(if settings.capture_mode == CaptureMode::Text { "Text is copied directly. Your editor and Library stay unchanged." } else if settings.capture_mode == CaptureMode::Video { "Position the webcam inside the chosen window or display." } else { settings.capture_destination.hint() }).size(12.).color(look.palette.muted));
                         });
                     });
                 });

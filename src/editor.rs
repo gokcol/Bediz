@@ -50,8 +50,12 @@ mod page_correction_ui;
 mod precision_tools;
 #[path = "quick_styles.rs"]
 mod quick_styles;
+#[path = "region_scope.rs"]
+mod region_scope;
 #[path = "retouch_tools.rs"]
 mod retouch_tools;
+#[path = "select_input.rs"]
+mod select_input;
 #[path = "selection_panel.rs"]
 mod selection_panel;
 #[path = "selection_size.rs"]
@@ -283,6 +287,8 @@ pub struct EditorState {
     shape_kind: AnnotationKind,
     shapes_3d: bool,
     area: Option<Rect>,
+    select_press: Option<select_input::SelectPress>,
+    region_scope: region_scope::RegionScope,
     area_mask: Vec<Point>,
     pixel_mask: Option<crate::fill::FillRegion>,
     studio: crate::studio::Options,
@@ -357,6 +363,8 @@ impl Default for EditorState {
             shape_kind: AnnotationKind::Rectangle,
             shapes_3d: false,
             area: None,
+            select_press: None,
+            region_scope: Default::default(),
             area_mask: Vec::new(),
             pixel_mask: None,
             arrow: Default::default(),
@@ -465,6 +473,7 @@ impl EditorState {
     /// Complete annotation gestures and discard unapplied image-tool previews
     /// before saving, hiding, exporting, or switching to another workspace.
     pub fn finish_gesture(&mut self, document: &mut Document, history: &mut EditHistory) {
+        self.select_press = None;
         self.finish_canvas_resize(document, history);
         self.finish_properties(document, history);
         self.finish_text_editor(document, history, true);
@@ -1509,6 +1518,7 @@ impl EditorState {
                     rect,
                     Rect::from_min_size(space.min + visible.min.to_vec2(), visible.size())
                         .intersect(ui.clip_rect()),
+                    Some(region_scope::bar_id()),
                 );
                 let (canvas_resizing, painted_resize) = if self.precision_active() {
                     (false, false)
@@ -1620,20 +1630,20 @@ impl EditorState {
                             crop.drag_start = Some(point);
                             crop.rect = crop_between(point, point, document);
                         }
-                    } else if matches!(self.tool, Tool::Area | Tool::CutOut) {
+                    } else if self.tool == Tool::CutOut {
                         self.begin_area_drag(point, document);
-                    } else if self.tool == Tool::Select {
+                    } else if matches!(self.tool, Tool::Area | Tool::Select) {
                         let modifiers = ui.input(|i| i.modifiers);
-                        self.begin_selection_gesture(
-                            point,
-                            scale,
-                            document,
-                            modifiers.shift,
-                            modifiers.alt,
-                        );
+                        self.press_select(position, point, scale, modifiers, document);
                     } else {
                         self.begin_tool_gesture(point, document);
                     }
+                }
+
+                if ui.is_enabled() && !canvas_resizing {
+                    self.settle_select_press(ui, scale, document);
+                } else {
+                    self.select_press = None;
                 }
 
                 // Keep every pointer sample, including a complete quick scribble
@@ -1908,7 +1918,7 @@ impl EditorState {
                     || paint_document
                         .annotations
                         .iter()
-                        .any(|annotation| annotation.visible() && annotation.kind.needs_composite())
+                        .any(|annotation| annotation.visible() && annotation.needs_composite())
                 {
                     let image = if self.moving_area_pixels(document) || self.gesture.is_some() {
                         let frame_size = stable_frame
@@ -2138,6 +2148,7 @@ impl EditorState {
                         .show(|ui| {
                             self.canvas_menu(ui, document, history, self.canvas_context_point);
                         });
+                    self.region_scope_bar(ui, document, rect.min, scale);
                     self.floating_properties(
                         ui,
                         document,
@@ -2878,7 +2889,25 @@ fn visible_annotation_hits(
         })
 }
 
-fn hits_transformed(annotation: &Annotation, at: Point, scale: f32, document: &Document) -> bool {
+fn hits_transformed(
+    annotation: &Annotation,
+    mut at: Point,
+    scale: f32,
+    document: &Document,
+) -> bool {
+    for edit in annotation.layer.region_edits.iter().rev() {
+        let source = edit.bounds(annotation.start);
+        if let Some([dx, dy]) = edit.offset
+            && source
+                .translate(egui::vec2(dx as f32, dy as f32))
+                .contains(point(at))
+        {
+            at.x -= dx as f32;
+            at.y -= dy as f32;
+        } else if source.contains(point(at)) {
+            return false;
+        }
+    }
     if annotation.kind == AnnotationKind::Freehand {
         let source = point(at);
         let output = output_point(at, document);
@@ -4420,8 +4449,8 @@ mod tests {
                             events,
                         );
                         assert!(
-                            editor.area_drag.is_some(),
-                            "press in margin must start selection"
+                            editor.select_press.is_some(),
+                            "press in margin must register a possible selection"
                         );
                         events = vec![];
                     }
@@ -4679,7 +4708,7 @@ mod tests {
     }
 
     #[test]
-    fn region_and_objects_have_separate_selection_and_delete_gestures() {
+    fn select_drag_over_an_unselected_object_edits_pixels_and_click_selects_the_object() {
         let ctx = egui::Context::default();
         let texture = ctx.load_texture(
             "selection modes",
@@ -4713,8 +4742,6 @@ mod tests {
         for events in [
             vec![],
             vec![egui::Event::PointerMoved(start), button_event(start, true)],
-            vec![button_event(start, false)],
-            vec![button_event(start, true)],
             vec![egui::Event::PointerMoved(end), button_event(end, false)],
         ] {
             canvas_frame(
@@ -4740,7 +4767,6 @@ mod tests {
         assert_eq!(document.annotations[1].kind, AnnotationKind::DeleteArea);
         assert!(history.undo(&mut document));
 
-        editor.choose_tool(Tool::Select, &mut document, &mut history);
         for events in [
             vec![egui::Event::PointerMoved(start), button_event(start, true)],
             vec![button_event(start, false)],

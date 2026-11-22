@@ -1,5 +1,5 @@
 //! Reversible area operations sample the composition below them.
-use crate::document::{Annotation, AnnotationKind, Point};
+use crate::document::{Annotation, AnnotationKind, LayerRegionEdit, Point};
 use image::{Rgba, RgbaImage};
 
 fn bounds(a: Point, b: Point, scale: [f32; 2]) -> [i64; 4] {
@@ -138,6 +138,71 @@ pub fn apply(image: &mut RgbaImage, edit: &Annotation, scale: [f32; 2]) -> Resul
         }
     }
     Ok(())
+}
+
+impl LayerRegionEdit {
+    pub(crate) fn bounds(&self, origin: Point) -> eframe::egui::Rect {
+        let [left, top, right, bottom] = self.source;
+        eframe::egui::Rect::from_min_max(
+            eframe::egui::pos2(
+                origin.x.round() + left as f32,
+                origin.y.round() + top as f32,
+            ),
+            eframe::egui::pos2(
+                origin.x.round() + right as f32,
+                origin.y.round() + bottom as f32,
+            ),
+        )
+    }
+}
+
+/// Apply to an isolated, premultiplied layer buffer. The bytes remain
+/// premultiplied throughout: only pixel locations and alpha coverage change.
+pub(crate) fn edit_isolated_layer(image: &mut RgbaImage, annotation: &Annotation, scale: [f32; 2]) {
+    for edit in &annotation.layer.region_edits {
+        let rect = edit.bounds(annotation.start);
+        let source = bounds(
+            Point {
+                x: rect.left(),
+                y: rect.top(),
+            },
+            Point {
+                x: rect.right(),
+                y: rect.bottom(),
+            },
+            scale,
+        );
+        let [x, y, right, bottom] = clipped(source, image);
+        let patch = edit
+            .offset
+            .filter(|_| right > x && bottom > y)
+            .map(|offset| {
+                let delta = [
+                    (offset[0] as f32 * scale[0]).round() as i64,
+                    (offset[1] as f32 * scale[1]).round() as i64,
+                ];
+                (
+                    image::imageops::crop_imm(image, x, y, right - x, bottom - y).to_image(),
+                    delta,
+                )
+            });
+        for py in y..bottom {
+            for px in x..right {
+                image.put_pixel(px, py, Rgba([0; 4]));
+            }
+        }
+        if let Some((pixels, [dx, dy])) = patch {
+            for (px, py, pixel) in pixels.enumerate_pixels() {
+                let tx = i64::from(x + px) + dx;
+                let ty = i64::from(y + py) + dy;
+                if (0..i64::from(image.width())).contains(&tx)
+                    && (0..i64::from(image.height())).contains(&ty)
+                {
+                    image.put_pixel(tx as u32, ty as u32, *pixel);
+                }
+            }
+        }
+    }
 }
 pub fn apply_filter(image: &mut RgbaImage, edit: &Annotation) -> Result<(), String> {
     if edit.area_mask.is_empty() && edit.pixel_mask.is_none() {

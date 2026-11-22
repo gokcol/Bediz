@@ -15,7 +15,8 @@ pub(super) struct ClipboardJob {
 pub(super) struct CutPlan {
     image: std::sync::Arc<image::RgbaImage>,
     before: EditState,
-    removal: Annotation,
+    after: Vec<Annotation>,
+    scoped: bool,
 }
 pub(super) enum ClipboardResult {
     Copied(u32, u32),
@@ -230,17 +231,31 @@ impl EditorState {
             self.image_error = Some("This selection is locked. Unlock it before cutting.".into());
             return;
         }
-        let mut removal = self.new_annotation(AnnotationKind::DeleteArea, from_pos(rect.min));
-        removal.end = from_pos(rect.max);
-        removal.area_mask = mask;
-        removal.pixel_mask = self
-            .selected
-            .and_then(|i| document.annotations.get(i))
-            .map(|a| a.pixel_mask.clone())
-            .unwrap_or_else(|| self.pixel_mask.clone());
-        removal.layer.name = "Cut area".into();
+        let scope = match self.scoped_layers(document) {
+            Ok(scope) => scope,
+            Err(error) => {
+                self.image_error = Some(error);
+                return;
+            }
+        };
         let mut candidate = document.clone();
-        candidate.annotations.push(removal.clone());
+        if let Some(layers) = &scope {
+            if let Err(error) = self.edit_region_layers(&mut candidate, layers, rect, None) {
+                self.image_error = Some(error);
+                return;
+            }
+        } else {
+            let mut removal = self.new_annotation(AnnotationKind::DeleteArea, from_pos(rect.min));
+            removal.end = from_pos(rect.max);
+            removal.area_mask = mask;
+            removal.pixel_mask = self
+                .selected
+                .and_then(|i| document.annotations.get(i))
+                .map(|a| a.pixel_mask.clone())
+                .unwrap_or_else(|| self.pixel_mask.clone());
+            removal.layer.name = "Cut area".into();
+            candidate.annotations.push(removal);
+        }
         if let Err(error) = crate::document::validate_document(&candidate) {
             self.image_error = Some(error);
             return;
@@ -248,7 +263,8 @@ impl EditorState {
         let plan = CutPlan {
             image: document.image.clone(),
             before: document.edit_state(),
-            removal,
+            after: candidate.annotations,
+            scoped: scope.is_some(),
         };
         self.start_image_copy(ctx, document, false, Some(Box::new(plan)));
     }
@@ -276,6 +292,17 @@ impl EditorState {
                 .map(|a| a.pixel_mask.clone())
                 .unwrap_or_else(|| self.pixel_mask.clone())
         };
+        let scope = if area.is_some() {
+            match self.scoped_layers(document) {
+                Ok(scope) => scope,
+                Err(error) => {
+                    self.image_error = Some(error);
+                    return;
+                }
+            }
+        } else {
+            None
+        };
         let document = document.clone();
         let ctx = ctx.clone();
         let (tx, rx) = std::sync::mpsc::channel();
@@ -287,6 +314,10 @@ impl EditorState {
         self.image_error = None;
         self.clipboard_status = Some("Copying image…".into());
         std::thread::spawn(move || {
+            let document = match scope {
+                Some(layers) => region_scope::copy_source(document, &layers),
+                None => document,
+            };
             // Unit tests inspect the raster route without modifying the OS clipboard.
             #[cfg_attr(test, allow(clippy::bind_instead_of_map))]
             let result = crate::image_clipboard::copy_pixels_masked(&document, area, pixel_mask)
@@ -361,13 +392,18 @@ impl EditorState {
                 if !std::sync::Arc::ptr_eq(&plan.image, &document.image) || plan.before != document.edit_state() {
                     return Err("Copied to clipboard, but the image changed before Cut finished. Nothing was removed; select the area and try again.".into());
                 }
-                document.annotations.push(plan.removal);
+                document.annotations = plan.after;
                 history.commit(plan.before, document);
                 let focus = self.focus_canvas;
                 self.deselect_pixels();
                 self.focus_canvas = focus;
-                self.confirm_copy(format!("{w} × {h} px · Cut to transparency"));
-                Ok(format!("Copied to clipboard · {w} × {h} px. Cut area is transparent. Undo restores it."))
+                if plan.scoped {
+                    self.confirm_copy(format!("{w} × {h} px · Cut from selected layers"));
+                    Ok(format!("Copied to clipboard · {w} × {h} px. Undo restores the cut."))
+                } else {
+                    self.confirm_copy(format!("{w} × {h} px · Cut to transparency"));
+                    Ok(format!("Copied to clipboard · {w} × {h} px. Cut area is transparent. Undo restores it."))
+                }
             },
             ClipboardResult::Pasted(source,rect,before) => {
                 if !std::sync::Arc::ptr_eq(&before.image, &document.image) || before.edit_state() != document.edit_state() {

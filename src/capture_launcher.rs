@@ -588,7 +588,7 @@ fn launcher_content(
                 CaptureMode::FullScreen => "Capture a whole display",
                 CaptureMode::Scrolling => "Scroll a window to capture all of it",
                 CaptureMode::Text => "Copy the text in a region",
-                CaptureMode::Video => "Record a region, window, or display to MP4",
+                CaptureMode::Video => "Record a window or a full display to MP4",
             },
         );
         if tile.clicked() {
@@ -774,7 +774,7 @@ fn launcher_content(
                     if settings.capture_mode == CaptureMode::Text {
                         "Select region to copy text"
                     } else if settings.capture_mode == CaptureMode::Video {
-                        "Select area to record"
+                        "Set up video"
                     } else {
                         "Capture now"
                     },

@@ -98,7 +98,7 @@ impl CaptureMode {
                 "Click a window or select part of it. Scroll down, then finish. Sections are collected automatically."
             }
             Self::Video => {
-                "Record a region, a window, or a full display. Adjust video, webcam, and audio options before recording."
+                "Record a window or a full display. Adjust video, webcam, and audio options before recording."
             }
             Self::Text => {
                 "Select a screen region and copy its text. No image or project is created."

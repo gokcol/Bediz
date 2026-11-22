@@ -27,7 +27,7 @@ use std::{
 };
 
 const MAGIC: &[u8; 8] = b"MYIMAGE\0";
-const VERSION: u32 = 24;
+const VERSION: u32 = 25;
 const HEADER_BYTES: u64 = 24;
 const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
 pub(crate) const MAX_METADATA_BYTES: usize = 48 * 1024 * 1024;
@@ -157,6 +157,14 @@ const fn default_text_color() -> [u8; 4] {
 
 pub const MAX_LAYER_NAME_BYTES: usize = 256;
 
+/// Rectangle and optional translation in the layer's local pixel coordinates.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LayerRegionEdit {
+    pub source: [i32; 4],
+    pub offset: Option<[i32; 2]>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LayerSettings {
@@ -165,6 +173,11 @@ pub struct LayerSettings {
     pub name: String,
     pub hidden: bool,
     pub locked: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) region_edits: Vec<LayerRegionEdit>,
+    // Bottom-of-stack edit on the original image, independent of object layers.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) base_only: bool,
 }
 
 impl LayerSettings {
@@ -253,6 +266,12 @@ impl Annotation {
     }
     pub fn locked(&self) -> bool {
         self.layer.locked || self.group_layer.locked
+    }
+    pub(crate) fn needs_composite(&self) -> bool {
+        self.kind.needs_composite() || !self.layer.region_edits.is_empty()
+    }
+    pub(crate) fn supports_region_edits(&self) -> bool {
+        !self.kind.needs_composite()
     }
 }
 
@@ -394,6 +413,25 @@ pub(crate) fn validate_annotations(annotations: &[Annotation]) -> Result<(), Str
 }
 
 pub(crate) fn validate_annotation(annotation: &Annotation) -> Result<(), String> {
+    let edits = &annotation.layer.region_edits;
+    if annotation.group_layer.base_only
+        || !annotation.group_layer.region_edits.is_empty()
+        || (annotation.layer.base_only && !annotation.kind.is_area_edit())
+        || (!edits.is_empty() && !annotation.supports_region_edits())
+        || edits.len() > 256
+        || edits.iter().any(|edit| {
+            let [x, y, right, bottom] = edit.source;
+            right <= x
+                || bottom <= y
+                || edit
+                    .source
+                    .iter()
+                    .chain(edit.offset.iter().flatten())
+                    .any(|v| v.unsigned_abs() > 2_000_000)
+        })
+    {
+        return Err("Invalid layer region edit or layer edit limit reached.".into());
+    }
     if annotation.kind == AnnotationKind::LocalAdjust {
         annotation.local_adjustment.validate()?;
         if annotation.end.x <= annotation.start.x || annotation.end.y <= annotation.start.y {
@@ -651,13 +689,19 @@ fn write_contents(
     json: &[u8],
 ) -> Result<(), String> {
     // Older builds can still read projects that use only existing edits.
-    let version = if document.geometry.page.is_some()
+    let version = if document
+        .annotations
+        .iter()
+        .any(|a| a.layer.base_only || !a.layer.region_edits.is_empty())
+    {
+        VERSION
+    } else if document.geometry.page.is_some()
         || document
             .annotations
             .iter()
             .any(|a| a.kind == AnnotationKind::LocalAdjust)
     {
-        VERSION
+        24
     } else {
         23
     };
@@ -750,6 +794,14 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
         serde_json::from_slice(&json)
             .map_err(|error| format!("Cannot read project metadata: {error}"))?
     };
+    if version < 25
+        && metadata
+            .annotations
+            .iter()
+            .any(|a| a.layer.base_only || !a.layer.region_edits.is_empty())
+    {
+        return Err("Layer region edits require Bediz project version 25.".into());
+    }
     if version < 24
         && metadata
             .annotations
@@ -1044,6 +1096,8 @@ pub(crate) fn state_bytes(state: &EditState) -> usize {
                 annotation.text.capacity()
                     + annotation.layer.name.capacity()
                     + annotation.group_layer.name.capacity()
+                    + annotation.layer.region_edits.capacity()
+                        * std::mem::size_of::<LayerRegionEdit>()
                     + annotation.stamp.as_ref().map_or(0, |s| s.stored_bytes())
                     + annotation
                         .fill_region
@@ -1868,6 +1922,7 @@ mod tests {
             name: "Başlık ✨".into(),
             hidden: true,
             locked: true,
+            ..Default::default()
         };
         for a in &mut d.annotations[1..] {
             a.group_id = Some(5);
@@ -1876,6 +1931,7 @@ mod tests {
                 name: "Review".into(),
                 hidden: false,
                 locked: true,
+                ..Default::default()
             };
         }
         save_project(&d, &path).unwrap();

@@ -623,7 +623,8 @@ impl MyImageApp {
                 SelectionAction::Window(request) => {
                     #[cfg(target_os = "macos")]
                     if screen.mode == CaptureMode::Video {
-                        self.start_window_recording(ctx, &screen, request.id);
+                        let mut screen = screen;
+                        self.start_window_recording(ctx, &mut screen, request.id);
                         return;
                     }
                     self.capture_selected_window(ctx, screen, request)
@@ -753,34 +754,26 @@ impl MyImageApp {
                             ui.spacing_mut().interact_size.y = 30.;
                             ui.set_max_width((ctx.content_rect().width() - 48.).max(240.));
                             ui.horizontal_wrapped(|ui| {
-                                let mode_menu = ui.menu_button("     ▾", |ui| {
-                                    for choice in CaptureMode::ALL {
-                                        if ui.selectable_value(&mut mode, choice, choice.label()).clicked() {
-                                            ui.close();
+                                if mode != CaptureMode::Video {
+                                    let mode_menu = ui.menu_button("     ▾", |ui| {
+                                        for choice in CaptureMode::ALL.into_iter().filter(|&choice| choice != CaptureMode::Video) {
+                                            if ui.selectable_value(&mut mode, choice, choice.label()).clicked() {
+                                                ui.close();
+                                            }
                                         }
-                                    }
-                                }).response;
-                                mode_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Capture mode: {}", mode.label())));
-                                crate::capture_panel::mode_icon(ui.painter(), mode,
-                                    Rect::from_center_size(mode_menu.rect.left_center() + Vec2::new(16., 0.), Vec2::splat(18.)), look.palette.ink);
-                                mode_menu.on_hover_text(format!("{} · Change capture mode (Space: Region / Window)", mode.label()));
+                                    }).response;
+                                    mode_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Capture mode: {}", mode.label())));
+                                    crate::capture_panel::mode_icon(ui.painter(), mode,
+                                        Rect::from_center_size(mode_menu.rect.left_center() + Vec2::new(16., 0.), Vec2::splat(18.)), look.palette.ink);
+                                    mode_menu.on_hover_text(format!("{} · Change capture mode (Space: Region / Window)", mode.label()));
+                                }
                                 #[cfg(target_os = "macos")]
                                 if mode == CaptureMode::Video {
                                     destination_changed |= self.settings.video.target.ui(ui);
                                     selection.webcam.menu(ui);
                                     let response = ui.menu_button("     ▾", |ui| {
                                         ui.set_min_width(286.);
-                                        let b = ctx.content_rect();
-                                        let region = selection.drag.bounds().and_then(|r| {
-                                            selection::selection_to_pixels(
-                                                [r.left() - b.left(), r.top() - b.top()],
-                                                [r.right() - b.left(), r.bottom() - b.top()],
-                                                [b.width(), b.height()],
-                                                [selection.image.width(), selection.image.height()],
-                                            )
-                                        }).map(|r| [r.width, r.height]);
                                         let region = match self.settings.video.target {
-                                            video_session::VideoTarget::Region => region,
                                             video_session::VideoTarget::Window => selection.window_id.and_then(|id| video_session::window_size(selection, id)),
                                             video_session::VideoTarget::FullScreen => Some([selection.image.width(), selection.image.height()]),
                                         };
@@ -932,12 +925,6 @@ impl MyImageApp {
                         }),
                     );
                 }
-                #[cfg(target_os = "macos")]
-                if mode == CaptureMode::Video && !menu_interaction && !selection.drag.active
-                    && let Some(rect) = (target_mode == CaptureMode::FullScreen).then_some(bounds).or(selection.drag.bounds())
-                {
-                    selection.webcam.drag(ctx, rect.intersect(bounds), bar, &mut selection_events);
-                }
                 let window_rect = |w: &capture::WindowInfo| {
                     Rect::from_min_size(
                         bounds.min
@@ -954,6 +941,22 @@ impl MyImageApp {
                         ),
                     )
                 };
+                #[cfg(target_os = "macos")]
+                let video_mode = mode == CaptureMode::Video;
+                #[cfg(target_os = "macos")]
+                let video_frame = |id| {
+                    video_mode.then(|| {
+                        if target_mode == CaptureMode::FullScreen {
+                            Some(bounds)
+                        } else {
+                            selection.windows.iter().find(|w| Some(w.id) == id).map(window_rect)
+                        }
+                    }).flatten()
+                };
+                #[cfg(target_os = "macos")]
+                if !menu_interaction && let Some(rect) = video_frame(selection.window_id) {
+                    selection.webcam.drag(ctx, rect, bar, &mut selection_events);
+                }
                 if ctx.input(|i| {
                     i.events
                         .iter()
@@ -1024,8 +1027,7 @@ impl MyImageApp {
                         &windows,
                         &mut selection.window_id,
                     );
-                } else if !placing_overlay && can_drag && !menu_interaction && matches!(mode, CaptureMode::Text | CaptureMode::Video) {
-                    // Text and video begin with a free rectangle.
+                } else if !placing_overlay && can_drag && !menu_interaction && mode == CaptureMode::Text {
                     selection.drag.update(
                         &selection_events,
                         bounds,
@@ -1081,6 +1083,14 @@ impl MyImageApp {
                         .flatten()
                 });
                 let painter = ui.painter();
+                #[cfg(target_os = "macos")]
+                if !self.demo {
+                    selection.webcam.update_preview(
+                        ctx, &selection.display,
+                        (!placing_overlay).then(|| video_frame(selection.window_id)).flatten(),
+                        menu_interaction,
+                    );
+                }
                 painter.image(
                     selection.texture.id(),
                     bounds,
@@ -1148,7 +1158,9 @@ impl MyImageApp {
                     }
                     #[cfg(target_os = "macos")]
                     if mode == CaptureMode::Video && chosen.is_some() && !selection.drag.active {
-                        selection.webcam.paint(painter, rect);
+                        if let Some(frame) = video_frame(selection.window_id) {
+                            selection.webcam.paint(painter, frame);
+                        }
                     }
                     let label = if target_mode == CaptureMode::Window || chosen.is_none() {
                         selection
@@ -1213,17 +1225,21 @@ impl MyImageApp {
                     "Drag to add regions · Drag a region to adjust · Delete removes · Enter captures"
                 } else if mode == CaptureMode::Video {
                     #[cfg(target_os = "macos")]
+                    let camera_error = selection.webcam.preview_error.as_deref();
+                    #[cfg(not(target_os = "macos"))]
+                    let camera_error: Option<&str> = None;
+                    #[cfg(target_os = "macos")]
                     let free = selection.webcam.mode == video_session::Webcam::Free && chosen.is_some();
                     #[cfg(not(target_os = "macos"))]
                     let free = false;
-                    if free {
+                    if let Some(error) = camera_error {
+                        error
+                    } else if free {
                         "Drag the webcam circle to position it · Record or Enter starts video · Esc cancels"
                     } else if target_mode == CaptureMode::FullScreen {
                         "Record this display · Choose a webcam position · Esc cancels"
-                    } else if target_mode == CaptureMode::Window {
-                        "Click a window to select it · Record or Enter starts video · Esc cancels"
                     } else {
-                        "Drag an area · Choose a webcam position · Record or Enter starts video"
+                        "Click a window to select it · Record or Enter starts video · Esc cancels"
                     }
                 } else if mode == CaptureMode::Text && self.settings.capture_on_release {
                     "Drag and release to copy text · Esc cancels"

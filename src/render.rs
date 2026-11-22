@@ -509,6 +509,19 @@ pub(crate) fn validate_text_raster(annotation: &Annotation) -> Result<(), String
 
 /// The selectable extent in original image pixels, including stroke and arrowhead.
 pub fn annotation_bounds(annotation: &Annotation) -> Rect {
+    let mut bounds = unedited_annotation_bounds(annotation);
+    for edit in &annotation.layer.region_edits {
+        if let Some([x, y]) = edit.offset {
+            let source = bounds.intersect(edit.bounds(annotation.start));
+            if source.is_positive() {
+                bounds = bounds.union(source.translate(egui::vec2(x as f32, y as f32)));
+            }
+        }
+    }
+    bounds
+}
+
+fn unedited_annotation_bounds(annotation: &Annotation) -> Rect {
     match annotation.kind {
         AnnotationKind::Text => text_raster(annotation)
             .map(|raster| {
@@ -696,7 +709,7 @@ pub fn paint_document_annotations(
         || document
             .annotations
             .iter()
-            .any(|annotation| annotation.visible() && annotation.kind.needs_composite())
+            .any(|annotation| annotation.visible() && annotation.needs_composite())
     {
         return;
     }
@@ -1220,14 +1233,19 @@ fn composite_annotations(
     let mut overlay: Option<Pixmap> = None;
     let mut pending = false;
     let transform = Transform::from_scale(scale[0], scale[1]);
-    for annotation in annotations.iter().filter(|a| a.visible()) {
+    let visible = annotations.iter().filter(|a| a.visible());
+    let stack = visible
+        .clone()
+        .filter(|a| a.layer.base_only)
+        .chain(visible.filter(|a| !a.layer.base_only));
+    for annotation in stack {
         if annotation.kind.needs_composite() {
             if pending {
-                let overlay = overlay
+                let scratch = overlay
                     .as_mut()
                     .expect("pending annotations have an overlay");
-                composite_overlay(output, overlay);
-                overlay.fill(tiny_skia::Color::TRANSPARENT);
+                composite_overlay(output, scratch);
+                scratch.fill(tiny_skia::Color::TRANSPARENT);
                 pending = false;
             }
             if annotation.kind.is_studio() {
@@ -1254,30 +1272,53 @@ fn composite_annotations(
                 crate::area_pixels::apply_filter(output, &scaled)?;
             }
         } else {
+            let isolated = !annotation.layer.region_edits.is_empty();
+            if isolated && pending {
+                let scratch = overlay
+                    .as_mut()
+                    .expect("pending annotations have an overlay");
+                composite_overlay(output, scratch);
+                scratch.fill(tiny_skia::Color::TRANSPARENT);
+            }
             if overlay.is_none() {
                 overlay =
                     Some(Pixmap::new(output.width(), output.height()).ok_or_else(|| {
                         "The image is too large to render annotations.".to_owned()
                     })?);
             }
-            let overlay = overlay
+            let scratch = overlay
                 .as_mut()
                 .expect("the annotation overlay was allocated");
             if annotation.kind == AnnotationKind::Stamp {
-                paint_stamp(overlay, annotation, transform)?;
+                paint_stamp(scratch, annotation, transform)?;
             } else if annotation.kind != AnnotationKind::Text {
-                paint_shape(overlay, annotation, transform);
+                paint_shape(scratch, annotation, transform);
             }
             if has_text(annotation) {
                 if scale == [1.0; 2] {
-                    paint_text(overlay, annotation)?;
+                    paint_text(scratch, annotation)?;
                 } else {
                     // Sample the canonical source glyph raster: scaling font
                     // size and laying it out again would shift line geometry.
-                    paint_text_transformed(overlay, annotation, transform)?;
+                    paint_text_transformed(scratch, annotation, transform)?;
                 }
             }
-            pending = true;
+            if isolated {
+                let layer = std::mem::take(&mut overlay);
+                // Reuse the most recent scratch buffer for this single layer.
+                let layer = layer.expect("the annotation overlay was allocated");
+                let size = tiny_skia::IntSize::from_wh(layer.width(), layer.height())
+                    .ok_or("Invalid isolated layer dimensions.")?;
+                let mut rgba = RgbaImage::from_raw(size.width(), size.height(), layer.take())
+                    .ok_or("Invalid isolated layer dimensions.")?;
+                crate::area_pixels::edit_isolated_layer(&mut rgba, annotation, scale);
+                let mut layer = Pixmap::from_vec(rgba.into_raw(), size)
+                    .ok_or("Invalid isolated layer bitmap.")?;
+                composite_overlay(output, &layer);
+                layer.fill(tiny_skia::Color::TRANSPARENT);
+                overlay = Some(layer);
+            }
+            pending = !isolated;
         }
     }
     if pending {
@@ -1321,7 +1362,7 @@ pub fn thumbnail(document: &Document, width: u32, height: u32) -> Result<RgbaIma
         || document
             .annotations
             .iter()
-            .any(|annotation| annotation.visible() && annotation.kind.needs_composite())
+            .any(|annotation| annotation.visible() && annotation.needs_composite())
     {
         return privacy_thumbnail(document, width, height);
     }

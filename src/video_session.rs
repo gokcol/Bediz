@@ -66,6 +66,8 @@ pub(super) struct WebcamSetup {
     free: Vec2,
     random: Vec2,
     drag_offset: Option<Vec2>,
+    preview: Option<WebcamPreview>,
+    pub preview_error: Option<String>,
 }
 
 impl Default for WebcamSetup {
@@ -75,6 +77,8 @@ impl Default for WebcamSetup {
             free: Vec2::splat(0.5),
             random: Vec2::splat(0.5),
             drag_offset: None,
+            preview: None,
+            preview_error: None,
         }
     }
 }
@@ -83,6 +87,7 @@ impl WebcamSetup {
     pub fn menu(&mut self, ui: &mut egui::Ui) {
         let response = ui
             .menu_button("     ▾", |ui| {
+                ui.strong("Camera overlay");
                 for mode in Webcam::ALL {
                     if ui
                         .selectable_value(&mut self.mode, mode, mode.label())
@@ -99,7 +104,7 @@ impl WebcamSetup {
                 }
             })
             .response;
-        let label = format!("Webcam: {}", self.mode.label());
+        let label = format!("Camera overlay: {}", self.mode.label());
         response.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), &label)
         });
@@ -212,18 +217,113 @@ impl WebcamSetup {
             .position(self.free, self.random)
             .unwrap_or(Vec2::splat(-1.))
     }
+
+    pub fn update_preview(
+        &mut self,
+        ctx: &egui::Context,
+        screen: &DisplayInfo,
+        frame: Option<Rect>,
+        menu_open: bool,
+    ) {
+        let Some(frame) = frame.filter(|_| self.mode != Webcam::Off) else {
+            self.preview = None;
+            self.preview_error = None;
+            return;
+        };
+        let position = self.native_position();
+        let preview = self.preview.get_or_insert_with(WebcamPreview::new);
+        let (status, message) = preview.status();
+        self.preview_error = (status < 0).then_some(message);
+        if menu_open || status <= 0 {
+            preview.hide();
+        } else {
+            let scale = ctx.zoom_factor();
+            let target = Rect::from_min_size(
+                egui::pos2(screen.x as f32, screen.y as f32) + frame.min.to_vec2() * scale,
+                frame.size() * scale,
+            );
+            preview.show(target, position, None);
+        }
+        if status == 0 {
+            ctx.request_repaint_after(Duration::from_millis(80));
+        }
+    }
+}
+
+struct WebcamPreview(NonNull<c_void>);
+
+impl WebcamPreview {
+    fn new() -> Self {
+        // SAFETY: Native preview creation and use are on the AppKit main thread.
+        Self(NonNull::new(unsafe { bediz_webcam_create() }).expect("Retained Swift preview"))
+    }
+
+    fn show(&self, target: Rect, position: Vec2, window: Option<u32>) {
+        // SAFETY: The native preview owns one retained reference until Drop.
+        unsafe {
+            bediz_webcam_show(
+                self.0.as_ptr(),
+                f64::from(target.min.x),
+                f64::from(target.min.y),
+                f64::from(target.width()),
+                f64::from(target.height()),
+                f64::from(position.x),
+                f64::from(position.y),
+                window.unwrap_or(0),
+            );
+        }
+    }
+
+    fn hide(&self) {
+        self.show(Rect::ZERO, Vec2::ZERO, None);
+    }
+
+    fn status(&self) -> (i32, String) {
+        let mut message = [0 as c_char; 512];
+        // SAFETY: The probe writes a terminated string within this buffer.
+        let status =
+            unsafe { bediz_webcam_status(self.0.as_ptr(), message.as_mut_ptr(), message.len()) };
+        let message = unsafe { CStr::from_ptr(message.as_ptr()) }
+            .to_string_lossy()
+            .into_owned();
+        (status, message)
+    }
+}
+
+impl Drop for WebcamPreview {
+    fn drop(&mut self) {
+        // SAFETY: Our owned preview is always closed on the AppKit main thread.
+        unsafe { bediz_webcam_release(self.0.as_ptr()) };
+    }
+}
+
+struct LiveWebcam {
+    preview: WebcamPreview,
+    target: Rect,
+    position: Vec2,
+    window: Option<u32>,
 }
 
 unsafe extern "C" {
-    fn bediz_record_start(
-        path: *const c_char,
-        display: u32,
-        window: u32,
+    fn bediz_webcam_create() -> *mut c_void;
+    fn bediz_webcam_show(
+        handle: *const c_void,
         x: f64,
         y: f64,
         width: f64,
         height: f64,
+        camera_x: f64,
+        camera_y: f64,
+        window: u32,
+    );
+    fn bediz_webcam_status(handle: *const c_void, message: *mut c_char, capacity: usize) -> i32;
+    fn bediz_webcam_release(handle: *const c_void);
+    fn bediz_record_start(
+        path: *const c_char,
+        display: u32,
+        window: u32,
         cursor: i32,
+        webcam: *const c_void,
         camera_x: f64,
         camera_y: f64,
         output_width: u32,
@@ -239,6 +339,7 @@ unsafe extern "C" {
     fn bediz_record_status(handle: *mut c_void, out: *mut c_char, capacity: usize) -> i32;
     fn bediz_record_command(handle: *mut c_void, command: i32);
     fn bediz_record_release(handle: *mut c_void);
+    fn bediz_play_video(path: *const c_char);
     fn bediz_record_thumbnail(
         movie: *const c_char,
         poster: *const c_char,
@@ -277,6 +378,7 @@ pub(super) struct Recording {
     active_started: Option<Instant>,
     elapsed: Duration,
     stopping: bool,
+    webcam: Option<LiveWebcam>,
 }
 
 impl Drop for Recording {
@@ -290,13 +392,13 @@ impl Drop for Recording {
 impl Recording {
     fn new(
         settings: &Settings,
-        screen: &Selection,
+        screen: &mut Selection,
         region: selection::PixelRect,
         window: Option<u32>,
         position: Pos2,
     ) -> Result<Self, String> {
         if region.width < 16 || region.height < 16 {
-            return Err("Select an area at least 16 × 16 pixels to record.".into());
+            return Err("Choose a window or display at least 16 × 16 pixels to record.".into());
         }
         let root = settings.output_dir.join("Recordings");
         options::check_start_space(&root)?;
@@ -313,11 +415,24 @@ impl Recording {
         ));
         let path = CString::new(staging.path().join("recording.mp4").as_os_str().as_bytes())
             .map_err(|_| "The recording path contains an invalid character.")?;
-        let (w, h) = (
-            f64::from(screen.image.width()),
-            f64::from(screen.image.height()),
-        );
         let camera = screen.webcam.native_position();
+        let display = &screen.display;
+        let webcam = (screen.webcam.mode != Webcam::Off).then(|| LiveWebcam {
+            preview: screen
+                .webcam
+                .preview
+                .take()
+                .unwrap_or_else(WebcamPreview::new),
+            target: Rect::from_min_size(
+                egui::pos2(display.x as f32, display.y as f32),
+                egui::vec2(display.width as f32, display.height as f32),
+            ),
+            position: camera,
+            window,
+        });
+        let webcam_ptr = webcam.as_ref().map_or(std::ptr::null(), |webcam| {
+            webcam.preview.0.as_ptr().cast_const()
+        });
         // SAFETY: Swift copies the UTF-8 path while this call is active, and
         // returns a retained handle for the UI to poll and release.
         let native = unsafe {
@@ -325,11 +440,8 @@ impl Recording {
                 path.as_ptr(),
                 screen.display.id,
                 window.unwrap_or(0),
-                f64::from(region.x) / w,
-                f64::from(region.y) / h,
-                f64::from(region.width) / w,
-                f64::from(region.height) / h,
                 i32::from(settings.include_pointer),
+                webcam_ptr,
                 f64::from(camera.x),
                 f64::from(camera.y),
                 plan.width,
@@ -353,6 +465,7 @@ impl Recording {
             active_started: None,
             elapsed: Duration::ZERO,
             stopping: false,
+            webcam,
         })
     }
 
@@ -438,7 +551,7 @@ impl MyImageApp {
     pub(super) fn start_window_recording(
         &mut self,
         ctx: &egui::Context,
-        screen: &Selection,
+        screen: &mut Selection,
         id: u32,
     ) {
         if let Some([width, height]) = window_size(screen, id) {
@@ -458,7 +571,7 @@ impl MyImageApp {
     pub(super) fn start_recording(
         &mut self,
         ctx: &egui::Context,
-        screen: &Selection,
+        screen: &mut Selection,
         region: selection::PixelRect,
         window: Option<u32>,
     ) {
@@ -547,6 +660,13 @@ impl MyImageApp {
         }
         let placing = recording.placement_frames < 3;
         let first_reveal = recording.placement_frames == 3;
+        if recording.stopping || status == Status::Saving {
+            recording.webcam = None;
+        } else if let Some(webcam) = &recording.webcam {
+            webcam
+                .preview
+                .show(webcam.target, webcam.position, webcam.window);
+        }
         let time = recording.duration(status).as_secs();
         let look = self.settings.capture_theme.look();
         let title = title();
@@ -691,11 +811,11 @@ pub(super) fn play(path: &Path) -> Result<(), String> {
             path.display()
         ));
     }
-    std::process::Command::new("/usr/bin/open")
-        .arg(path)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("Could not open the recording: {error}"))
+    let native_path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| "The video path contains an invalid character.")?;
+    // SAFETY: This runs on AppKit's main thread. Swift copies the path synchronously.
+    unsafe { bediz_play_video(native_path.as_ptr()) };
+    Ok(())
 }
 
 pub(crate) fn thumbnail(path: &Path, width: u32, height: u32) -> Result<image::RgbaImage, String> {

@@ -1,8 +1,10 @@
 {
   "version": "4.0.0",
-  "build": 149,
+  "build": 153,
   "store_version": "3.2.1.0",
   "changes": [
+    "Use Select to click objects or drag a rectangular pixel region. A region drag can start in the workspace margin.",
+    "Open the floating region layer checklist to apply Move, Delete, Copy or Cut to the visible image, an active layer or checked layers.",
     "Annotation line-width controls reach 96 px.",
     "Bediz runs under its current name in Windows Task Manager and macOS Activity Monitor.",
     "Extract Text prepares selected pixels with fewer copies while preserving the current recognition settings.",
@@ -20,7 +22,6 @@
     "Blur is pinned on the default editor toolbar. Custom toolbar layouts keep their saved tools.",
     "Open, save and print from File at the right end of the toolbar. The Image menu next to Properties contains the crop, resize and canvas tools.",
     "Use the up and down arrows in Customize toolbar to change tool order.",
-    "Select defaults to Region for moving and deleting pixels. Switch to Objects to edit annotations, or draw directly over existing artwork.",
     "Selected drawings have a lighter Styles shortcut and compact icon menus for arrangement and object actions.",
     "Fill has a compact palette, an image eyedropper, and a three-pixel Grow or Shrink edge adjustment.",
     "Medium is the default interface size and sits between Normal and Large.",
@@ -49,12 +50,12 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
-    "Capture Now can record a region, window, or full display as an MP4, with pause, resume, and stop controls.",
-    "Add an optional webcam bubble in any corner, drag it freely, or let Bediz choose a random position.",
+    "Choose Video in Capture Now to record a window or a full display as an MP4, with pause, resume, and stop controls.",
+    "See your optional live webcam bubble inside the recording frame. Use any corner, drag it freely, or let Bediz choose a random position.",
     "Set recording quality and a maximum duration, and check estimated file size against the available drive space.",
     "Record microphone or system audio with adjustable AAC quality and optional microphone noise reduction.",
     "Start recording immediately or after a 3-, 5-, or 10-second countdown.",
-    "Play finished recordings from their thumbnails in Recents.",
+    "Play recordings from Recents in the built-in Bediz player, or use File → Open Video to open another MP4.",
     "Use system symbol fonts to display arrow keys and shortcut symbols in interface labels.",
     "Dismiss capture with Esc and return to the editor without resizing its window. Open completed captures as soon as their project is saved.",
     "Show capture guides immediately over full-screen apps while keeping the current app active.",

@@ -5,11 +5,19 @@ use eframe::egui::{self, Id, Rect, Vec2};
 struct Frame {
     image: Rect,
     viewport: Rect,
+    chrome: Option<Id>,
 }
 
-pub fn remember(ui: &egui::Ui, salt: &str, image: Rect, viewport: Rect) {
+pub fn remember(ui: &egui::Ui, salt: &str, image: Rect, viewport: Rect, chrome: Option<Id>) {
     ui.ctx().data_mut(|d| {
-        d.insert_temp(Id::new(salt).with("zoom-frame"), Frame { image, viewport });
+        d.insert_temp(
+            Id::new(salt).with("zoom-frame"),
+            Frame {
+                image,
+                viewport,
+                chrome,
+            },
+        );
     });
 }
 
@@ -45,6 +53,7 @@ pub fn prepare_with_gutter(
     let (delta, pointer, down) =
         ui.input(|i| (i.zoom_delta(), i.pointer.hover_pos(), i.pointer.any_down()));
     let pointer = pointer?;
+    let layer = ui.ctx().layer_id_at(pointer);
     if !enabled
         || !ui.is_enabled()
         || down
@@ -52,7 +61,8 @@ pub fn prepare_with_gutter(
         || delta <= 0.
         || delta == 1.
         || !frame.viewport.contains(pointer)
-        || ui.ctx().layer_id_at(pointer) != Some(ui.layer_id())
+        || (layer != Some(ui.layer_id())
+            && !layer.is_some_and(|layer| Some(layer.id) == frame.chrome))
     {
         return None;
     }
@@ -118,7 +128,7 @@ mod tests {
                             );
                             assert_eq!(zoom, 2.);
                         }
-                        remember(ui, "gutter-test", image, viewport);
+                        remember(ui, "gutter-test", image, viewport, None);
                     });
                 },
             );
@@ -154,7 +164,7 @@ mod tests {
                             assert_eq!(state.offset, offset);
                             assert_eq!(state.velocity(), Vec2::ZERO);
                         }
-                        remember(ui, "test-canvas", image, viewport);
+                        remember(ui, "test-canvas", image, viewport, None);
                     });
                 },
             );

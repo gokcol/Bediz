@@ -149,14 +149,14 @@ impl EditorState {
                 let help = tile(ui,"Selection help",Glyph::Help,Vec2::splat(26.),false,false);
                 egui::Popup::menu(&help).show(|ui| {
                     ui.set_max_width(240.);
-                    help_section(ui, "Select pixels or objects", "Drag on the image in Region mode to select pixels. Switch to Objects to select annotations.");
+                    help_section(ui, "Select pixels or objects", "Click an object to select it, Shift-click to add objects, or drag a region from the canvas or its margin.");
                     help_section(ui, "Move the outline or the pixels", "Choose Adjust boundary to drag the outline, or Move pixels to drag the area as an editable layer.");
                     help_section(ui, "Resize or clear the selection", "Drag an edge or corner to resize. Press Escape to cancel a drag or clear the selection.");
                 });
             });
         });
         if self.tool == Tool::Select {
-            ui.small("Choose Region in the Select menu to work with pixels.");
+            ui.small("Drag a box to select a region. Its floating Layers menu controls which pixels are affected.");
             return;
         }
         ui.horizontal(|ui| {

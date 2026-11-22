@@ -2,9 +2,7 @@ use super::*;
 use crate::appearance::{self, Icon as DialogIcon, TileTone};
 use crate::dialogs::{self, Dialog};
 
-const SELECTION_MENU_WIDTH: f32 = 18.;
-const REGION_HINT: &str = "Select, move or delete pixels with a rectangle or lasso";
-const OBJECTS_HINT: &str = "Select, move or edit annotations. Shift-click to select several.";
+const SELECT_HINT: &str = "Click an object · Shift-click to add · Drag a region";
 
 fn toolbar_ink(ctx: &egui::Context, tool: Tool) -> Color32 {
     let tone = match tool {
@@ -171,7 +169,7 @@ impl EditorState {
                 "Color Inspector",
                 "Sample image colors, copy HEX/RGB, or apply to artwork",
             ),
-            (Tool::Area, "Select", REGION_HINT),
+            (Tool::Area, "Select", SELECT_HINT),
             (Tool::Arrow, "Arrow", "Point to a detail"),
             (Tool::Text, "Text", "Write and format text"),
             (Tool::Callout, "Callout", "Add a text bubble and pointer"),
@@ -319,7 +317,7 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
-        if tool == self.tool && matches!(tool, Tool::Area | Tool::Select) {
+        if tool == Tool::Area && matches!(self.tool, Tool::Area | Tool::Select) {
             self.focus_canvas = true;
             return;
         }
@@ -376,70 +374,6 @@ impl EditorState {
         }
     }
 
-    fn select_button(
-        &mut self,
-        ui: &mut egui::Ui,
-        document: &mut Document,
-        history: &mut EditHistory,
-    ) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.;
-            let (tool, label, hint) = match self.tool {
-                Tool::Area => (Tool::Area, "Region", REGION_HINT),
-                Tool::Select => (Tool::Select, "Objects", OBJECTS_HINT),
-                _ => (Tool::Area, "Select", REGION_HINT),
-            };
-            if tool_button(ui, tool, label, self.tool == tool)
-                .on_hover_text(hint)
-                .clicked()
-            {
-                self.choose_tool(tool, document, history);
-            }
-            let (rect, arrow) =
-                ui.allocate_exact_size(Vec2::new(SELECTION_MENU_WIDTH, 38.), Sense::click());
-            arrow.widget_info(|| {
-                egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button,
-                    ui.is_enabled(),
-                    "Selection mode",
-                )
-            });
-            let menu = egui::Popup::menu(&arrow);
-            let ink = appearance::satin_button(
-                ui,
-                rect,
-                &arrow,
-                menu.is_open(),
-                appearance::satin_ink(ui.ctx(), TileTone::Blue),
-            );
-            let center = rect.center();
-            ui.painter().line(
-                vec![
-                    center + egui::vec2(-3., -1.5),
-                    center + egui::vec2(0., 1.5),
-                    center + egui::vec2(3., -1.5),
-                ],
-                Stroke::new(1.5, ink),
-            );
-            arrow
-                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                .on_hover_text("Selection mode");
-            menu.show(|ui| {
-                ui.set_width(122.);
-                ui.spacing_mut().item_spacing.y = 1.;
-                for (tool, label, hint) in [
-                    (Tool::Area, "Region", REGION_HINT),
-                    (Tool::Select, "Objects", OBJECTS_HINT),
-                ] {
-                    if tool_menu_row(ui, tool, label, hint, self.tool == tool) {
-                        self.choose_tool(tool, document, history);
-                        ui.close();
-                    }
-                }
-            });
-        });
-    }
-
     pub fn toolbar(
         &mut self,
         ui: &mut egui::Ui,
@@ -448,13 +382,7 @@ impl EditorState {
     ) {
         let tools = self.tools();
         // Reserve the right-aligned properties toggle and overflow before placing pins.
-        let select_extra = if self.toolbar_pins.iter().any(|label| label == "Select") {
-            SELECTION_MENU_WIDTH
-        } else {
-            0.
-        };
-        let capacity = ((ui.available_width() - inspector_panel::TOGGLE_WIDTH - 42. - select_extra)
-            .max(0.)
+        let capacity = ((ui.available_width() - inspector_panel::TOGGLE_WIDTH - 42.).max(0.)
             / (44. + ui.spacing().item_spacing.x))
             .floor() as usize;
         let visible: Vec<_> = self
@@ -465,11 +393,14 @@ impl EditorState {
             .copied()
             .collect();
         for &(tool, label, hint) in &visible {
-            if tool == Tool::Area {
-                self.select_button(ui, document, history);
-            } else if tool_button(ui, tool, label, self.tool == tool)
-                .on_hover_text(hint)
-                .clicked()
+            if tool_button(
+                ui,
+                tool,
+                label,
+                tool == self.tool || (tool == Tool::Area && self.tool == Tool::Select),
+            )
+            .on_hover_text(hint)
+            .clicked()
             {
                 self.choose_tool(tool, document, history);
             }
@@ -511,17 +442,13 @@ impl EditorState {
                 if visible.iter().any(|(t, _, _)| *t == tool) {
                     continue;
                 }
-                if tool == Tool::Area {
-                    for (mode, label, hint) in [
-                        (Tool::Area, "Select region", REGION_HINT),
-                        (Tool::Select, "Select objects", OBJECTS_HINT),
-                    ] {
-                        if tool_menu_row(ui, mode, label, hint, self.tool == mode) {
-                            self.choose_tool(mode, document, history);
-                            ui.close();
-                        }
-                    }
-                } else if tool_menu_row(ui, tool, label, hint, self.tool == tool) {
+                if tool_menu_row(
+                    ui,
+                    tool,
+                    label,
+                    hint,
+                    tool == self.tool || (tool == Tool::Area && self.tool == Tool::Select),
+                ) {
                     self.choose_tool(tool, document, history);
                     ui.close();
                 }

@@ -43,7 +43,7 @@ impl Quality {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) enum VideoTarget {
     #[default]
-    Region,
+    #[serde(alias = "Region")]
     Window,
     FullScreen,
 }
@@ -52,7 +52,6 @@ impl VideoTarget {
     pub(crate) fn mode(self) -> crate::capture::CaptureMode {
         use crate::capture::CaptureMode;
         match self {
-            Self::Region => CaptureMode::Video,
             Self::Window => CaptureMode::Window,
             Self::FullScreen => CaptureMode::FullScreen,
         }
@@ -60,7 +59,6 @@ impl VideoTarget {
 
     pub(crate) fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         let label = |target| match target {
-            Self::Region => "Region",
             Self::Window => "Window",
             Self::FullScreen => "Full screen",
         };
@@ -68,7 +66,7 @@ impl VideoTarget {
         egui::ComboBox::from_id_salt("video-target")
             .selected_text(label(*self))
             .show_ui(ui, |ui| {
-                for target in [Self::Region, Self::Window, Self::FullScreen] {
+                for target in [Self::Window, Self::FullScreen] {
                     changed |= ui.selectable_value(self, target, label(target)).changed();
                 }
             });
@@ -136,7 +134,7 @@ pub(crate) struct VideoPreferences {
 impl Default for VideoPreferences {
     fn default() -> Self {
         Self {
-            target: VideoTarget::Region,
+            target: VideoTarget::default(),
             quality: Quality::Balanced,
             max_minutes: 30,
             audio_source: Default::default(),
@@ -396,6 +394,14 @@ pub(crate) fn preferences_ui(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_region_recording_preferences_open_as_window_capture() {
+        let preferences: VideoPreferences =
+            serde_json::from_str(r#"{"target":"Region","max_minutes":15}"#).unwrap();
+        assert_eq!(preferences.target, VideoTarget::Window);
+        assert_eq!(preferences.max_minutes, 15);
+    }
 
     #[test]
     fn resolution_keeps_portrait_orientation_and_small_regions_are_not_upscaled() {
