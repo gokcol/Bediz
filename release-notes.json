@@ -1,7 +1,7 @@
 {
-  "version": "3.2.0",
-  "build": 147,
-  "store_version": "3.2.1.0",
+  "version": "3.2.1",
+  "build": 150,
+  "store_version": "3.2.2.0",
   "changes": [
     "Extract Text prepares selected pixels with fewer copies while preserving the current recognition settings.",
     "The capture shortcut notice now offers Retry, Change shortcut, and Dismiss.",
@@ -58,6 +58,7 @@
     "Scrolling controls stay outside the captured image while the editor remains hidden."
   ],
   "windows": [
+    "The first Region drag works after opening capture with a global shortcut. The selection overlay opens without the Windows window animation.",
     "Store, Setup, and portable copies reuse the running Bediz instance when all copies use build 147 or later.",
     "The compact capture controls and automatic region scrolling are shared with Mac.",
     "Store-installed copies continue to check Microsoft Store for updates."
