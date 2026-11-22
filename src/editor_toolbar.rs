@@ -239,7 +239,7 @@ impl EditorState {
         });
         tools
     }
-    pub fn set_toolbar(&mut self, pins: Vec<String>, upgrade_layout: bool) {
+    pub fn set_toolbar(&mut self, pins: Vec<String>, layout_version: u8) {
         let valid = self.tools();
         let mut result = Vec::new();
         for pin in pins {
@@ -247,9 +247,18 @@ impl EditorState {
                 result.push(pin);
             }
         }
-        if upgrade_layout {
+        if layout_version < 2 {
             // Apply the compact layout once; later explicit re-pinning survives restart.
             result.retain(|label| label != "Pen" && label != "Magnify");
+        }
+        if layout_version < TOOLBAR_LAYOUT_VERSION {
+            let default_pins = default_toolbar();
+            if result
+                .iter()
+                .eq(default_pins.iter().filter(|name| name.as_str() != "Blur"))
+            {
+                result = default_pins;
+            }
             self.toolbar_changed = true;
         }
         self.toolbar_pins = result;
@@ -650,11 +659,11 @@ mod tests {
         let pins = ["Arrow", "Pen", "Shapes", "Magnify", "Fill"]
             .map(str::to_owned)
             .to_vec();
-        editor.set_toolbar(pins, true);
+        editor.set_toolbar(pins, 1);
         assert_eq!(editor.toolbar_pins, ["Arrow", "Shapes", "Fill"]);
         assert!(editor.take_toolbar_change().is_some());
         let customized = ["Pen", "Arrow", "Magnify"].map(str::to_owned).to_vec();
-        editor.set_toolbar(customized.clone(), false);
+        editor.set_toolbar(customized.clone(), TOOLBAR_LAYOUT_VERSION);
         assert_eq!(editor.toolbar_pins, customized);
         assert!(editor.take_toolbar_change().is_none());
         assert!(
@@ -666,7 +675,7 @@ mod tests {
     #[test]
     fn full_tool_order_migrates_and_survives_settings_and_document_changes() {
         let mut editor = EditorState::default();
-        editor.set_toolbar(vec!["Text".into(), "Arrow".into()], false);
+        editor.set_toolbar(vec!["Text".into(), "Arrow".into()], TOOLBAR_LAYOUT_VERSION);
         editor.set_toolbar_order(Vec::new());
         assert_eq!(&editor.toolbar_order[..2], &["Text", "Arrow"]);
         let count = editor.tools().len();
@@ -686,7 +695,7 @@ mod tests {
         let restored: crate::storage::Settings =
             serde_json::from_str(&serde_json::to_string(&settings).unwrap()).unwrap();
         let mut other = EditorState::default();
-        other.set_toolbar(restored.editor_toolbar, false);
+        other.set_toolbar(restored.editor_toolbar, restored.toolbar_layout_version);
         other.set_toolbar_order(restored.editor_tool_order);
         assert!(other.take_toolbar_change().is_none());
         other.reset();

@@ -1,10 +1,11 @@
 {
   "version": "3.1.0",
-  "build": 141,
-  "store_version": "3.1.8.0",
+  "build": 142,
+  "store_version": "3.1.9.0",
   "changes": [
+    "Hover over the Layer order icon on a selected object to move it one position or send it to either end of the stack.",
+    "Blur is pinned on the default editor toolbar. Custom toolbar layouts keep their saved tools.",
     "Open, save and print from File at the right end of the toolbar. The Image menu next to Styles contains the crop, resize and canvas tools.",
-    "Use the selected object's three-dot menu to raise or lower its layer, or move it to the front or back.",
     "Use the up and down arrows in Customize toolbar to change tool order.",
     "Select defaults to Region for moving and deleting pixels. Switch to Objects to edit annotations, or draw directly over existing artwork.",
     "Selected drawings have a lighter Styles shortcut and compact icon menus for arrangement and object actions.",

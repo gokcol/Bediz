@@ -258,16 +258,30 @@ pub(super) fn paint_glyph(p: &egui::Painter, c: Pos2, glyph: Glyph, color: Color
             }
         }
         Glyph::Order { front, extreme } => {
-            let sign = if front { -1. } else { 1. };
-            p.arrow(
-                c - Vec2::new(0., sign * size * 0.32),
-                Vec2::new(0., sign * size * 0.64),
-                s,
-            );
-            if extreme {
-                let y = c.y + sign * size * 0.48;
-                p.line_segment([egui::pos2(r.left(), y), egui::pos2(r.right(), y)], s);
+            let destination = match (front, extreme) {
+                (true, true) => 0,
+                (true, false) => 1,
+                (false, false) => 2,
+                (false, true) => 3,
+            };
+            let accent = appearance::satin_ink(p.ctx(), appearance::TileTone::Blue);
+            for row in 0..4 {
+                let y = 0.15 + row as f32 * 0.20;
+                let stroke = if row == destination {
+                    Stroke::new(2.1, accent)
+                } else {
+                    Stroke::new(1.25, color.gamma_multiply(0.60))
+                };
+                p.line(vec![at(0.01, y), at(0.26, y + 0.09), at(0.51, y)], stroke);
             }
+            let tip = 0.15 + destination as f32 * 0.20;
+            let direction = if front { -1. } else { 1. };
+            let distance = if extreme { 0.46 } else { 0.31 };
+            p.arrow(
+                at(0.79, tip - direction * distance),
+                Vec2::new(0., direction * distance * size),
+                Stroke::new(1.55, color),
+            );
         }
     }
 }

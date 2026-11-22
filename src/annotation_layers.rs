@@ -6,10 +6,10 @@ use crate::document::LayerSettings;
 use std::collections::BTreeSet;
 
 pub(super) const STACK_ORDER_ACTIONS: [(&str, bool, bool); 4] = [
-    ("To back", false, true),
-    ("Lower", false, false),
-    ("Raise", true, false),
-    ("To front", true, true),
+    ("Send to back", false, true),
+    ("Move backward", false, false),
+    ("Move forward", true, false),
+    ("Bring to front", true, true),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -957,7 +957,7 @@ mod tests {
             &ctx,
             &texture,
         );
-        click_label("To front", &mut e, &mut d, &mut h, &ctx, &texture);
+        click_label("Bring to front", &mut e, &mut d, &mut h, &ctx, &texture);
         assert_eq!(d.annotations[0].layer.name, "Artwork 3");
         for _ in 0..5 {
             assert!(h.undo(&mut d));

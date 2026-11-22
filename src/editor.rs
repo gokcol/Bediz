@@ -267,9 +267,11 @@ impl ResizeDraft {
     }
 }
 
+pub(crate) const TOOLBAR_LAYOUT_VERSION: u8 = 3;
+
 pub fn default_toolbar() -> Vec<String> {
     [
-        "Select", "Arrow", "Text", "Callout", "Shapes", "Stamps", "Fill",
+        "Select", "Arrow", "Text", "Callout", "Shapes", "Stamps", "Fill", "Blur",
     ]
     .into_iter()
     .map(str::to_owned)

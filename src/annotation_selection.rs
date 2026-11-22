@@ -34,28 +34,6 @@ impl EditorState {
             }
             self.compact_snap_toggle(ui);
         });
-        ui.separator();
-        ui.horizontal(|ui| {
-            for (label, front, extreme) in annotation_layers::STACK_ORDER_ACTIONS {
-                let can_move = self.selected.is_some_and(|index| {
-                    if front {
-                        index + 1 < document.annotations.len()
-                    } else {
-                        index > 0
-                    }
-                });
-                if ui
-                    .add_enabled_ui(can_move, |ui| {
-                        quick_glyph(ui, label, Glyph::Order { front, extreme })
-                    })
-                    .inner
-                    .clicked()
-                {
-                    self.reorder_layer(document, history, front, extreme);
-                    ui.close();
-                }
-            }
-        });
     }
 
     pub(super) fn selected_indices(&self, document: &Document) -> Vec<usize> {

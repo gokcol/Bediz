@@ -683,20 +683,21 @@ mod tests {
         );
     }
     #[test]
-    fn former_default_toolbar_gets_magnify_without_replacing_custom_layouts() {
+    fn former_default_toolbar_adds_blur_without_overriding_custom_pins() {
         let mut e = EditorState::default();
-        e.set_toolbar(
-            [
-                "Select", "Arrow", "Text", "Callout", "Shapes", "Stamps", "Fill",
-            ]
-            .map(str::to_owned)
-            .to_vec(),
-            true,
-        );
+        let former = [
+            "Select", "Arrow", "Text", "Callout", "Shapes", "Stamps", "Fill",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        e.set_toolbar(former.clone(), 2);
         assert_eq!(e.toolbar_pins, default_toolbar());
+        assert!(e.toolbar_pins.iter().any(|name| name == "Blur"));
         assert!(e.take_toolbar_change().is_some());
-        e.set_toolbar(vec!["Text".into(), "Magnify".into()], false);
+        e.set_toolbar(vec!["Text".into(), "Magnify".into()], 2);
         assert_eq!(e.toolbar_pins, vec!["Text", "Magnify"]);
+        e.set_toolbar(former.clone(), TOOLBAR_LAYOUT_VERSION);
+        assert_eq!(e.toolbar_pins, former);
     }
     #[test]
     fn cutouts_join_pixels_and_annotations_with_all_rotations_and_restore() {
@@ -837,7 +838,7 @@ mod tests {
                 "Text".into(),
                 "Text".into(),
             ],
-            false,
+            TOOLBAR_LAYOUT_VERSION,
         );
         e.reset();
         assert_eq!(e.toolbar_pins, vec!["Magic Wand", "Text"]);

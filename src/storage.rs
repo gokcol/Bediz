@@ -164,7 +164,7 @@ impl Default for Settings {
             editor_tools: Default::default(),
             editor_inspector: Default::default(),
             image_save: Default::default(),
-            toolbar_layout_version: 2,
+            toolbar_layout_version: crate::editor::TOOLBAR_LAYOUT_VERSION,
         }
     }
 }
@@ -454,7 +454,10 @@ mod tests {
         let legacy: Settings = serde_json::from_str(r#"{"include_pointer":true}"#).unwrap();
         assert_eq!(legacy.pointer_style, PointerStyle::Standard);
         assert_eq!(legacy.toolbar_layout_version, 0);
-        assert_eq!(Settings::default().toolbar_layout_version, 2);
+        assert_eq!(
+            Settings::default().toolbar_layout_version,
+            crate::editor::TOOLBAR_LAYOUT_VERSION
+        );
         for pointer_style in PointerStyle::ALL {
             let settings = Settings {
                 pointer_style,

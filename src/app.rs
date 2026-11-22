@@ -296,7 +296,7 @@ impl MyImageApp {
         editor.set_inspector_preferences(settings.editor_inspector);
         editor.set_toolbar(
             settings.editor_toolbar.clone(),
-            settings.toolbar_layout_version < 2,
+            settings.toolbar_layout_version,
         );
         editor.set_toolbar_order(settings.editor_tool_order.clone());
         Self {
@@ -2541,7 +2541,10 @@ impl eframe::App for MyImageApp {
         if let Some((pins, order)) = self.editor.take_toolbar_change() {
             self.settings.editor_toolbar = pins;
             self.settings.editor_tool_order = order;
-            self.settings.toolbar_layout_version = self.settings.toolbar_layout_version.max(2);
+            self.settings.toolbar_layout_version = self
+                .settings
+                .toolbar_layout_version
+                .max(crate::editor::TOOLBAR_LAYOUT_VERSION);
             self.persist_settings();
         }
         if previous_view != self.view {

@@ -747,8 +747,23 @@ impl QuickProperties {
         size: Vec2,
         content: impl FnOnce(&mut egui::Ui),
     ) {
-        let popup = egui::Popup::from_toggle_button_response(response)
-            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        self.show_popup(
+            ui,
+            response,
+            egui::Popup::from_toggle_button_response(response),
+            size,
+            content,
+        );
+    }
+
+    fn show_popup(
+        self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        popup: egui::Popup<'_>,
+        size: Vec2,
+        content: impl FnOnce(&mut egui::Ui),
+    ) {
         let size = popup.get_expected_size().unwrap_or(size);
         let position =
             quick_popup_position(response.rect, self.bar, self.selection, self.viewport, size);
@@ -762,6 +777,7 @@ impl QuickProperties {
             data.get_temp::<Pos2>(id).unwrap_or(position)
         });
         popup
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .at_position(position)
             .align(egui::emath::RectAlign::BOTTOM_START)
             .align_alternatives(&[])
@@ -833,13 +849,89 @@ fn quick_popup_position(
 }
 
 impl EditorState {
-    fn object_actions_button(
+    fn layer_order_button(
         &mut self,
         ui: &mut egui::Ui,
         document: &mut Document,
         history: &mut EditHistory,
         placement: QuickProperties,
     ) {
+        use inspector_widgets::Glyph;
+        let response = quick_glyph(ui, "Layer order", Glyph::Stack);
+        let popup = egui::Popup::from_response(&response).open_memory(None);
+        let open = popup.is_open();
+        let pointer = ui.ctx().pointer_hover_pos();
+        let hovered =
+            (open || response.hovered()) && pointer.is_some_and(|p| response.rect.contains(p));
+        let clicked_open = response.clicked() && !open;
+        let hover_state = response.id.with("layer-order-hover");
+        let (entered, pinned) = ui.ctx().data_mut(|data| {
+            let (last_hovered, last_pinned) = data
+                .get_temp::<(bool, bool)>(hover_state)
+                .unwrap_or_default();
+            let pinned = clicked_open || (open && last_pinned);
+            data.insert_temp(hover_state, (hovered, pinned));
+            (hovered && !last_hovered, pinned)
+        });
+        // Keep the menu open across the gap to its buttons, but let the user
+        // move sideways onto another control on the floating toolbar.
+        let within_menu_path = open
+            && pointer.is_some_and(|p| {
+                ui.ctx()
+                    .memory(|memory| memory.area_rect(popup.get_id()))
+                    .is_some_and(|menu| {
+                        menu.contains(p)
+                            || (!placement.bar.contains(p) && menu.union(response.rect).contains(p))
+                    })
+            });
+        let command = if !response.enabled() {
+            Some(false)
+        } else if clicked_open || entered {
+            Some(true)
+        } else if open && !pinned && !hovered && !within_menu_path {
+            Some(false)
+        } else {
+            None
+        };
+        placement.show_popup(
+            ui,
+            &response,
+            popup.open_memory(command.map(egui::SetOpenCommand::Bool)),
+            Vec2::new(138., 38.),
+            |ui| {
+                ui.horizontal(|ui| {
+                    for (label, front, extreme) in annotation_layers::STACK_ORDER_ACTIONS {
+                        let can_move = self.selected.is_some_and(|index| {
+                            if front {
+                                index + 1 < document.annotations.len()
+                            } else {
+                                index > 0
+                            }
+                        });
+                        if ui
+                            .add_enabled_ui(can_move, |ui| {
+                                quick_glyph(ui, label, Glyph::Order { front, extreme })
+                            })
+                            .inner
+                            .clicked()
+                        {
+                            self.reorder_layer(document, history, front, extreme);
+                            ui.close();
+                        }
+                    }
+                });
+            },
+        );
+    }
+
+    fn object_actions_buttons(
+        &mut self,
+        ui: &mut egui::Ui,
+        document: &mut Document,
+        history: &mut EditHistory,
+        placement: QuickProperties,
+    ) {
+        self.layer_order_button(ui, document, history, placement);
         let more = quick_button(ui, "Object actions", |ui, rect| {
             for x in [-5., 0., 5.] {
                 ui.painter().circle_filled(
@@ -849,7 +941,7 @@ impl EditorState {
                 );
             }
         });
-        placement.popup(ui, &more, Vec2::new(174., 78.), |ui| {
+        placement.popup(ui, &more, Vec2::new(174., 38.), |ui| {
             self.compact_object_actions(ui, document, history);
         });
     }
@@ -1289,18 +1381,18 @@ impl EditorState {
         let initial_size = if quick {
             Vec2::new(
                 if kind == AnnotationKind::Arrow {
-                    232.
+                    264.
                 } else if kind.is_shape() {
-                    200.
+                    232.
                 } else {
-                    136.
+                    168.
                 },
                 38.,
             )
         } else if indices.len() > 1 {
             Vec2::new(150., 38.)
         } else {
-            Vec2::new(364., 40.)
+            Vec2::new(398., 40.)
         };
         let previous = ui.ctx().memory(|m| m.area_rect(bar_id));
         let size = previous.map_or(initial_size, |r| r.size());
@@ -1399,7 +1491,7 @@ impl EditorState {
                         }
                         if quick {
                             changed |= self.quick_drawing_controls(ui, kind, placement);
-                            self.object_actions_button(ui, document, history, placement);
+                            self.object_actions_buttons(ui, document, history, placement);
                             return;
                         }
                         if kind == AnnotationKind::Stamp {
@@ -1543,7 +1635,7 @@ impl EditorState {
                             .response
                             .on_hover_text("Opacity");
                         }
-                        self.object_actions_button(ui, document, history, placement);
+                        self.object_actions_buttons(ui, document, history, placement);
                     });
                 });
             });

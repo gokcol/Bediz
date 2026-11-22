@@ -715,23 +715,16 @@ mod tests {
         })
     }
 
-    fn click_label(
-        label: &str,
-        e: &mut EditorState,
-        d: &mut Document,
-        h: &mut EditHistory,
-        ctx: &egui::Context,
-        texture: &egui::TextureHandle,
-    ) {
-        let input = || egui::RawInput {
+    fn ribbon_input(events: Vec<egui::Event>) -> egui::RawInput {
+        egui::RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 1000.0))),
+            events,
             ..Default::default()
-        };
-        for _ in 0..2 {
-            ui_frame(e, d, h, ctx, texture, input());
         }
-        let frame = ui_frame(e, d, h, ctx, texture, input());
-        let at = frame
+    }
+
+    fn label_position(frame: &egui::FullOutput, label: &str) -> Option<Pos2> {
+        frame
             .shapes
             .iter()
             .find_map(|shape| match &shape.shape {
@@ -754,10 +747,24 @@ mod tests {
                     })
                     .map(|r| Pos2::new(((r.x0 + r.x1) * 0.5) as f32, ((r.y0 + r.y1) * 0.5) as f32))
             })
+    }
+
+    fn click_label(
+        label: &str,
+        e: &mut EditorState,
+        d: &mut Document,
+        h: &mut EditHistory,
+        ctx: &egui::Context,
+        texture: &egui::TextureHandle,
+    ) {
+        for _ in 0..2 {
+            ui_frame(e, d, h, ctx, texture, ribbon_input(vec![]));
+        }
+        let frame = ui_frame(e, d, h, ctx, texture, ribbon_input(vec![]));
+        let at = label_position(&frame, label)
             .unwrap_or_else(|| panic!("Missing visible control: {label}"));
         for pressed in [true, false] {
-            let mut input = input();
-            input.events = vec![
+            let input = ribbon_input(vec![
                 egui::Event::PointerMoved(at),
                 egui::Event::PointerButton {
                     pos: at,
@@ -765,7 +772,7 @@ mod tests {
                     pressed,
                     modifiers: Modifiers::NONE,
                 },
-            ];
+            ]);
             ui_frame(e, d, h, ctx, texture, input);
         }
     }
@@ -811,9 +818,10 @@ mod tests {
     }
 
     #[test]
-    fn object_actions_change_stack_order_for_drawings_and_text() {
+    fn layer_order_hover_menu_reorders_shapes_drawings_and_text() {
         for kind in [
             AnnotationKind::Arrow,
+            AnnotationKind::Triangle,
             AnnotationKind::Freehand,
             AnnotationKind::Text,
         ] {
@@ -841,9 +849,32 @@ mod tests {
                 tool: Tool::Select,
                 ..Default::default()
             };
-            for (action, index) in [("To back", 0), ("Lower", 1), ("Raise", 3), ("To front", 4)] {
+            for (action, index) in [
+                ("Send to back", 0),
+                ("Move backward", 1),
+                ("Move forward", 3),
+                ("Bring to front", 4),
+            ] {
                 e.set_selection(vec![2], &d);
-                click_label("Object actions", &mut e, &mut d, &mut h, &ctx, &texture);
+                let mut frame =
+                    |events| ui_frame(&mut e, &mut d, &mut h, &ctx, &texture, ribbon_input(events));
+                frame(vec![egui::Event::PointerMoved(Pos2::new(12., 12.))]);
+                frame(vec![]);
+                let bar = frame(vec![]);
+                let trigger = label_position(&bar, "Layer order").unwrap();
+                assert!(label_position(&bar, action).is_none());
+                frame(vec![egui::Event::PointerMoved(trigger)]);
+                let popup = frame(vec![]);
+                let target = label_position(&popup, action)
+                    .unwrap_or_else(|| panic!("{kind:?} hover did not show {action}"));
+                for progress in [0.3, 0.55, 0.8, 1.] {
+                    let position = trigger + (target - trigger) * progress;
+                    let menu = frame(vec![egui::Event::PointerMoved(position)]);
+                    assert!(
+                        label_position(&menu, action).is_some(),
+                        "{kind:?} menu closed on the way to {action}"
+                    );
+                }
                 click_label(action, &mut e, &mut d, &mut h, &ctx, &texture);
                 let mut expected = before.annotations.clone();
                 expected.remove(2);
