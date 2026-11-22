@@ -16,7 +16,16 @@ pub fn run(
     mut inbox: Option<crate::external_open::Inbox>,
     demo_path: Option<std::path::PathBuf>,
 ) -> eframe::Result {
-    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+    let mut builder = EventLoop::<UserEvent>::with_user_event();
+    #[cfg(target_os = "windows")]
+    {
+        use winit::platform::windows::EventLoopBuilderExtWindows;
+        // SAFETY: winit invokes this hook with a live pointer to the MSG.
+        builder.with_msg_hook(|message| unsafe {
+            crate::capture_window::win32::observe_message(message)
+        });
+    }
+    let event_loop = builder.build()?;
     event_loop.set_control_flow(ControlFlow::Wait);
     let hidden = Arc::new(AtomicBool::new(false));
     let app_hidden = hidden.clone();
@@ -131,6 +140,42 @@ impl ApplicationHandler<UserEvent> for ResidentRuntime<'_> {
     }
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
         self.root.observe(id, &event);
+        #[cfg(target_os = "windows")]
+        if crate::capture_window::win32::is_overlay(id) {
+            if let WindowEvent::MouseInput {
+                device_id,
+                state,
+                button,
+            } = &event
+                && let Some(position) =
+                    crate::capture_window::win32::button_position(id, *button, *state)
+            {
+                // egui-winit drops MouseInput until it has a cursor position.
+                // Seed it from the button message even when Windows has sent
+                // no mouse move since the overlay appeared or regained the cursor.
+                self.inner.window_event(
+                    event_loop,
+                    id,
+                    WindowEvent::CursorMoved {
+                        device_id: *device_id,
+                        position,
+                    },
+                );
+            }
+            if self.hidden.load(Ordering::Relaxed)
+                && matches!(
+                    event,
+                    WindowEvent::MouseInput { .. }
+                        | WindowEvent::CursorMoved { .. }
+                        | WindowEvent::CursorLeft { .. }
+                        | WindowEvent::KeyboardInput { .. }
+                        | WindowEvent::Touch(_)
+                )
+            {
+                // Immediate child viewports need the hidden parent to draw.
+                self.external_wake.store(true, Ordering::Release);
+            }
+        }
         if let WindowEvent::ModifiersChanged(modifiers) = &event {
             self.modifiers = modifiers.state();
         }
