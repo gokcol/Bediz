@@ -464,9 +464,9 @@ fn bundle(
             &format!("previous-{name}"),
         )?;
     }
-    let staged_exe = stage.path.join("MyImage.exe");
+    let staged_exe = stage.path.join("Bediz.exe");
     fs::copy(executable, &staged_exe)?;
-    let final_exe = destination.join("MyImage.exe");
+    let final_exe = destination.join("Bediz.exe");
     let same_release = cleanup::same_file_contents(&staged_exe, &final_exe)?;
     stage.publish(&staged_exe, &final_exe, "previous.exe")?;
     println!("Created {}", final_exe.display());

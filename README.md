@@ -192,7 +192,7 @@ cargo run -p xtask -- bundle --debug # isolated output in target/bundle/debug/
 open target/bundle/Bediz.app
 ```
 
-Bundles use optimized release builds by default; `--release` is also accepted explicitly. `--debug` keeps development builds available. The bundle has a stable location at `target/bundle/Bediz.app` and bundle identifier `com.myimage.app`. macOS packaging requires a persistent signing certificate, verifies the signature, then creates a ZIP alongside the app. Configure the certificate once using [the signing setup guide](packaging/macos/SIGNING.md). Builds never silently fall back to ad-hoc signing; disposable development builds must explicitly pass `--ad-hoc`. Distribution signing and notarization remain separate release work. On Windows, the same helper produces `target/bundle/MyImage.exe`.
+Bundles use optimized release builds by default; `--release` is also accepted explicitly. `--debug` keeps development builds available. The bundle has a stable location at `target/bundle/Bediz.app` and bundle identifier `com.myimage.app`. macOS packaging requires a persistent signing certificate, verifies the signature, then creates a ZIP alongside the app. Configure the certificate once using [the signing setup guide](packaging/macos/SIGNING.md). Builds never silently fall back to ad-hoc signing; disposable development builds must explicitly pass `--ad-hoc`. Distribution signing and notarization remain separate release work. On Windows, the same helper produces `target/bundle/Bediz.exe`.
 
 Install the macOS release at `/Applications/Bediz.app`. Open that copy for everyday use. Settings, captures, projects and annotation assets remain in their existing folders.
 

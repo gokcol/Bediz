@@ -52,7 +52,7 @@ Name: "openwith"; Description: "{cm:OpenWith}"; GroupDescription: "{cm:Additiona
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "{#Source}\MyImage.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#Source}\Bediz.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\bediz-open-protocol.txt"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 Source: "{#Source}\MyImage.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#Source}\LICENSE.txt"; DestDir: "{app}"; Flags: ignoreversion
@@ -62,20 +62,21 @@ Source: "{#Source}\READ-ME-WINDOWS.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Replace the old installer-owned shortcuts while retaining the upgrade AppId.
 [InstallDelete]
+Type: files; Name: "{app}\MyImage.exe"
 Type: files; Name: "{userprograms}\MyImage.lnk"
 Type: files; Name: "{userdesktop}\MyImage.lnk"
 Type: files; Name: "{userprograms}\SkyImage.lnk"
 Type: files; Name: "{userdesktop}\SkyImage.lnk"
 
 [Icons]
-Name: "{userprograms}\Bediz"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"
-Name: "{userdesktop}\Bediz"; Filename: "{app}\MyImage.exe"; IconFilename: "{app}\MyImage.ico"; Tasks: desktopicon
+Name: "{userprograms}\Bediz"; Filename: "{app}\Bediz.exe"; IconFilename: "{app}\MyImage.ico"
+Name: "{userdesktop}\Bediz"; Filename: "{app}\Bediz.exe"; IconFilename: "{app}\MyImage.ico"; Tasks: desktopicon
 
 [Registry]
 ; Open with only: never take over a user's default image viewer.
 Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document"; ValueType: string; ValueName: ""; ValueData: "Bediz image or project"; Flags: uninsdeletekey; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\MyImage.ico"; Tasks: openwith
-Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\MyImage.exe"" ""%1"""; Tasks: openwith
+Root: HKCU; Subkey: "Software\Classes\MyImage.Installer.Document\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\Bediz.exe"" ""%1"""; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\.myimage\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\.png\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
 Root: HKCU; Subkey: "Software\Classes\.jpg\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
@@ -87,18 +88,36 @@ Root: HKCU; Subkey: "Software\Classes\.tif\OpenWithProgids"; ValueType: string; 
 Root: HKCU; Subkey: "Software\Classes\.tiff\OpenWithProgids"; ValueType: string; ValueName: "MyImage.Installer.Document"; ValueData: ""; Flags: uninsdeletevalue; Tasks: openwith
 
 [Run]
-Filename: "{app}\MyImage.exe"; Description: "{cm:LaunchProgram,Bediz}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Bediz.exe"; Description: "{cm:LaunchProgram,Bediz}"; Flags: nowait postinstall skipifsilent
 
 ; No UninstallDelete entries: projects, captures, settings, recovery and unknown
 ; files are deliberately preserved. Login startup stays off by default.
 
 [Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Command: String;
+  OldExecutable: String;
+  NewExecutable: String;
+begin
+  if CurStep <> ssPostInstall then
+    Exit;
+  OldExecutable := '"' + ExpandConstant('{app}\MyImage.exe') + '"';
+  NewExecutable := '"' + ExpandConstant('{app}\Bediz.exe') + '"';
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'MyImage', Command) then
+    if CompareText(Command, OldExecutable) = 0 then
+      RegWriteStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'MyImage', NewExecutable);
+  if RegQueryStringValue(HKCU, 'Software\Classes\MyImage.Installer.Document\shell\open\command', '', Command) then
+    if CompareText(Command, OldExecutable + ' "%1"') = 0 then
+      RegWriteStringValue(HKCU, 'Software\Classes\MyImage.Installer.Document\shell\open\command', '', NewExecutable + ' "%1"');
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   Command: String;
 begin
   if CurUninstallStep = usUninstall then
     if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'MyImage', Command) then
-      if CompareText(Command, '"' + ExpandConstant('{app}\MyImage.exe') + '"') = 0 then
+      if CompareText(Command, '"' + ExpandConstant('{app}\Bediz.exe') + '"') = 0 then
         RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'MyImage');
 end;

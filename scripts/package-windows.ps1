@@ -18,7 +18,7 @@ try {
     [xml]$plist = Get-Content packaging/macos/Info.plist -Raw
     $build = $plist.SelectSingleNode("/plist/dict/key[text()='CFBundleVersion']/following-sibling::string[1]").InnerText
     if ($build -notmatch '^[0-9]+$' -or [int]$build -gt 65535) { throw 'Invalid build number.' }
-    $name = "MyImage-$version-build$build"
+    $name = "Bediz-$version-build$build"
     $setup = Join-Path $out "$name-Setup.exe"
     $archive = Join-Path $out "$name-windows-x64.zip"
     foreach ($path in @($setup, $archive)) {
@@ -37,10 +37,10 @@ try {
     $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
     if (-not (Test-Path $iscc)) { throw 'Install Inno Setup 6 before packaging.' }
     $work = Join-Path $out ('.work-' + [guid]::NewGuid().ToString('N'))
-    $layout = Join-Path $work 'MyImage'
+    $layout = Join-Path $work 'Bediz'
     $null = New-Item -ItemType Directory -Force $layout
     try {
-        Copy-Item $exe (Join-Path $layout 'MyImage.exe')
+        Copy-Item $exe (Join-Path $layout 'Bediz.exe')
         if (Test-Path packaging/windows/bediz-open-protocol.txt) {
             Copy-Item packaging/windows/bediz-open-protocol.txt (Join-Path $layout 'bediz-open-protocol.txt')
         }
@@ -73,7 +73,7 @@ Start at login remains off until enabled in Bediz Settings.
 Save your work and quit Bediz from its tray menu before updating/removing it.
 Uninstall removes installed application files, not projects, captured images,
 settings, stamps or recovery data. The portable ZIP can instead be extracted
-to a folder and run with MyImage.exe; remove that folder to remove that copy.
+to a folder and run with Bediz.exe; remove that folder to remove that copy.
 
 Packaging/install/uninstall are checked in CI. Interactive Windows capture,
 clipboard, pen/touch, scaling and tray behavior still require device testing.
