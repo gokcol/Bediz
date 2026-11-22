@@ -1,13 +1,18 @@
 use super::Control;
 use block2::RcBlock;
-use image::{ImageEncoder, RgbaImage, codecs::png::PngEncoder};
+use image::RgbaImage;
 use objc2::runtime::NSObjectProtocol;
 use objc2::{
     AnyThread, ClassType,
     rc::{Retained, autoreleasepool},
 };
+use objc2_core_foundation::{CFData, CFRetained};
+use objc2_core_graphics::{
+    CGBitmapInfo, CGColorRenderingIntent, CGColorSpace, CGDataProvider, CGImage, CGImageAlphaInfo,
+    CGImageByteOrderInfo, kCGColorSpaceSRGB,
+};
 use objc2_core_ml::MLCPUComputeDevice;
-use objc2_foundation::{NSArray, NSData, NSDictionary, NSError, NSIndexSet};
+use objc2_foundation::{NSArray, NSDictionary, NSError, NSIndexSet};
 use objc2_vision::{
     VNImageRequestHandler, VNRecognizeTextRequest, VNRequest, VNRequestProgressProviding,
     VNRequestTextRecognitionLevel,
@@ -42,18 +47,6 @@ fn recognize_controlled(
     control: &Control,
 ) -> Result<String, String> {
     control.check()?;
-    let mut png = Vec::new();
-    PngEncoder::new(&mut png)
-        .write_image(
-            image.as_raw(),
-            image.width(),
-            image.height(),
-            image::ExtendedColorType::Rgba8,
-        )
-        .map_err(|error| {
-            format!("Could not prepare the selected region for text recognition: {error}")
-        })?;
-
     // Recognition runs on a worker; that thread has no AppKit autorelease pool.
     autoreleasepool(|_| {
         let request = VNRecognizeTextRequest::new();
@@ -111,14 +104,19 @@ fn recognize_controlled(
         }
         control.check()?;
 
-        let data = NSData::with_bytes(&png);
-        let handler = VNImageRequestHandler::initWithData_options(
-            VNImageRequestHandler::alloc(),
-            &data,
-            &NSDictionary::new(),
-        );
+        let bitmap = recognition_bitmap(image)
+            .ok_or("Could not prepare the selected region for text recognition.")?;
+        // SAFETY: the bitmap's provider owns immutable image bytes, and the
+        // empty options dictionary supplies no incorrectly typed values.
+        let handler = unsafe {
+            VNImageRequestHandler::initWithCGImage_options(
+                VNImageRequestHandler::alloc(),
+                &bitmap,
+                &NSDictionary::new(),
+            )
+        };
         let requests = NSArray::<VNRequest>::from_slice(&[request.as_ref()]);
-        // The request and immutable encoded image outlive this synchronous call.
+        // The request and immutable bitmap outlive this synchronous call.
         let result = handler.performRequests_error(&requests);
         // A canceled/timed-out call has a stable, useful message rather than a
         // platform-specific VNErrorRequestCancelled description.
@@ -154,6 +152,34 @@ fn recognize_controlled(
             .collect::<Vec<_>>()
             .join("\n"))
     })
+}
+
+fn recognition_bitmap(image: &RgbaImage) -> Option<CFRetained<CGImage>> {
+    let data = CFData::from_bytes(image.as_raw());
+    let provider = CGDataProvider::with_cf_data(Some(&data))?;
+    // SAFETY: Core Graphics provides this immutable, process-lifetime name.
+    let space = CGColorSpace::with_name(Some(unsafe { kCGColorSpaceSRGB }))?;
+    let width = image.width() as usize;
+    // The shared OCR path has already composited transparency onto white.
+    let layout =
+        CGBitmapInfo(CGImageAlphaInfo::NoneSkipLast.0 | CGImageByteOrderInfo::Order32Big.0);
+    // SAFETY: the provider retains the complete RGBX buffer, with width * 4
+    // bytes per row, and a null decode pointer selects the default mapping.
+    unsafe {
+        CGImage::new(
+            width,
+            image.height() as usize,
+            8,
+            32,
+            width * 4,
+            Some(&space),
+            layout,
+            Some(&provider),
+            std::ptr::null(),
+            false,
+            CGColorRenderingIntent::RenderingIntentDefault,
+        )
+    }
 }
 
 fn configure_revision(request: &VNRecognizeTextRequest) -> Result<(), String> {

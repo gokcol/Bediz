@@ -1,8 +1,10 @@
 {
   "version": "3.2.0",
-  "build": 146,
-  "store_version": "3.2.0.0",
+  "build": 147,
+  "store_version": "3.2.1.0",
   "changes": [
+    "Extract Text prepares selected pixels with fewer copies while preserving the current recognition settings.",
+    "The capture shortcut notice now offers Retry, Change shortcut, and Dismiss.",
     "Unpin Properties and drag the grip in its header to move the panel around the canvas. Pin it again to dock it on the right.",
     "Use the Properties icon on the editor ribbon to show or hide the right panel. Reopening restores the selected panel.",
     "Switch between Styles, Layers, Presets, and Quick Effects using the icons in the inspector header.",
@@ -56,6 +58,7 @@
     "Scrolling controls stay outside the captured image while the editor remains hidden."
   ],
   "windows": [
+    "Store, Setup, and portable copies reuse the running Bediz instance when all copies use build 147 or later.",
     "The compact capture controls and automatic region scrolling are shared with Mac.",
     "Store-installed copies continue to check Microsoft Store for updates."
   ]

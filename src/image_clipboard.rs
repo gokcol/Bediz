@@ -146,15 +146,22 @@ pub fn copy_pixels_masked(
     area: Option<(Rect, Vec<Point>)>,
     pixel_mask: Option<crate::fill::FillRegion>,
 ) -> Result<RgbaImage, String> {
-    let flat = crate::render::flatten(document)?;
     let Some((rect, mask)) = area else {
-        return Ok(flat);
+        return crate::render::flatten(document);
+    };
+    // A plain screenshot can be cropped from the original pixels without
+    // allocating a full-size copy first. Edited documents still need compositing.
+    let flat = if document.annotations.is_empty() && document.geometry == Default::default() {
+        crate::document::validate_document(document)?;
+        std::borrow::Cow::Borrowed(document.image.as_ref())
+    } else {
+        std::borrow::Cow::Owned(crate::render::flatten(document)?)
     };
     let size = [document.image.width(), document.image.height()];
     let crop = copy_bounds(document, rect)?;
     let (left, top) = (crop.x, crop.y);
     let mut result =
-        image::imageops::crop_imm(&flat, left, top, crop.width, crop.height).to_image();
+        image::imageops::crop_imm(flat.as_ref(), left, top, crop.width, crop.height).to_image();
     if !mask.is_empty() || pixel_mask.is_some() {
         let base = document.geometry.inverse_point(
             Point {

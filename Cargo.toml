@@ -49,7 +49,7 @@ objc2-core-foundation = "0.3.2"
 objc2-core-graphics = "0.3.2"
 objc2-image-io = { version = "0.3.2", default-features = false, features = ["std", "CGImageDestination", "CGImageSource", "CGImageProperties", "objc2-core-graphics"] }
 objc2-core-ml = { version = "0.3.2", default-features = false, features = ["std", "MLCPUComputeDevice", "MLComputeDeviceProtocol"] }
-objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "block2", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes", "objc2-core-foundation", "objc2-core-ml"] }
+objc2-vision = { version = "0.3.2", default-features = false, features = ["std", "block2", "VNRecognizeTextRequest", "VNRequest", "VNRequestHandler", "VNObservation", "VNTypes", "objc2-core-foundation", "objc2-core-graphics", "objc2-core-ml"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 notify = { version = "=8.2.0", default-features = false }

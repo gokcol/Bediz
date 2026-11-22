@@ -2348,6 +2348,7 @@ impl eframe::App for MyImageApp {
                 ctx.clone(),
                 self.desktop_tx.clone(),
                 self.settings.capture_shortcut.clone(),
+                !self.demo,
             ) {
                 Ok(desktop) => self.desktop = Some(desktop),
                 Err(error) => {
@@ -2642,25 +2643,39 @@ impl eframe::App for MyImageApp {
                         self.error = None;
                     }
                 }
-                if let Some(error) = self
+                if let Some((message, any_registered)) = self
                     .desktop
                     .as_ref()
-                    .and_then(|desktop| desktop.hotkey_error())
-                    .map(str::to_string)
+                    .and_then(DesktopIntegration::hotkey_warning)
+                    .map(|(message, any_registered)| (message.to_owned(), any_registered))
                 {
                     dialogs::notice(
                         ui,
                         DialogIcon::Capture,
-                        "Capture shortcut unavailable",
-                        &error,
-                        true,
+                        if any_registered {
+                            "Some capture shortcuts are unavailable"
+                        } else {
+                            "Capture shortcuts unavailable"
+                        },
+                        &message,
+                        !any_registered,
                     );
-                    if dialogs::secondary(ui, "Retry unavailable shortcuts", DialogIcon::Refresh)
-                        .clicked()
-                        && let Some(desktop) = &mut self.desktop
-                    {
-                        let _ = desktop.retry_hotkey();
-                    }
+                    ui.horizontal_wrapped(|ui| {
+                        if dialogs::secondary(ui, "Retry shortcuts", DialogIcon::Refresh).clicked()
+                            && let Some(desktop) = &mut self.desktop
+                        {
+                            let _ = desktop.retry_hotkey();
+                        }
+                        if dialogs::secondary(ui, "Change shortcut", DialogIcon::Settings).clicked()
+                        {
+                            self.open_capture_hotkey(ctx);
+                        }
+                        if dialogs::secondary(ui, "Dismiss", DialogIcon::Close).clicked()
+                            && let Some(desktop) = &mut self.desktop
+                        {
+                            desktop.dismiss_hotkey_warning();
+                        }
+                    });
                 }
                 self.workspace_ui(ui, ctx);
             });

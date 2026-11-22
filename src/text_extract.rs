@@ -23,8 +23,7 @@ pub(super) struct State {
 struct Job {
     receiver: mpsc::Receiver<Result<String, String>>,
     canceled: Arc<AtomicBool>,
-    image: Arc<image::RgbaImage>,
-    before: EditState,
+    snapshot: Arc<Document>,
     started: Instant,
 }
 impl Drop for Job {
@@ -83,8 +82,7 @@ impl EditorState {
                 .map(|a| a.pixel_mask.clone())
                 .unwrap_or_else(|| self.pixel_mask.clone())
         };
-        let before = document.edit_state();
-        let snapshot = document.clone();
+        let snapshot = Arc::new(document.clone());
         let canceled = Arc::new(AtomicBool::new(false));
         let cancel = canceled.clone();
         let (tx, receiver) = mpsc::channel();
@@ -94,8 +92,7 @@ impl EditorState {
             job: Some(Job {
                 receiver,
                 canceled,
-                image: document.image.clone(),
-                before,
+                snapshot: snapshot.clone(),
                 started: Instant::now(),
             }),
             ..Default::default()
@@ -123,7 +120,10 @@ impl EditorState {
         let Some(job) = &self.text_extraction.job else {
             return;
         };
-        if !Arc::ptr_eq(&job.image, &document.image) || job.before != document.edit_state() {
+        if !Arc::ptr_eq(&job.snapshot.image, &document.image)
+            || job.snapshot.geometry != document.geometry
+            || job.snapshot.annotations != document.annotations
+        {
             self.text_extraction = State::default();
             return;
         }
@@ -302,8 +302,7 @@ mod tests {
             job: Some(Job {
                 receiver,
                 canceled: Arc::new(AtomicBool::new(false)),
-                image: document.image.clone(),
-                before: document.edit_state(),
+                snapshot: Arc::new(document.clone()),
                 started: Instant::now(),
             }),
             ..Default::default()

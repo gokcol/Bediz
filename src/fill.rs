@@ -162,9 +162,8 @@ fn adjust_edges(
                 );
             } else {
                 let inset: Vec<_> = row
-                    .filter_map(|&[_, l, r]| {
-                        (r - l > 2 * distance).then(|| (l + distance, r - distance))
-                    })
+                    .filter(|&&[_, l, r]| r - l > 2 * distance)
+                    .map(|&[_, l, r]| (l + distance, r - distance))
                     .collect();
                 spans = intersect_spans(&spans, &inset);
                 if spans.is_empty() {

@@ -55,6 +55,16 @@ pub fn start(path: Option<PathBuf>, background: bool) -> Result<Startup, String>
             }
         })
         .transpose()?;
+    // MSIX can redirect writes to AppData into a package-private directory.
+    // Keep only the activation queue and lock in the shared Windows profile
+    // so Store, Setup and portable launches all find the same running copy.
+    #[cfg(target_os = "windows")]
+    let directory = directories::BaseDirs::new()
+        .ok_or("Cannot locate Bediz's document-open directory.")?
+        .home_dir()
+        .join(".bediz")
+        .join("external-open-v1");
+    #[cfg(target_os = "macos")]
     let directory = directories::ProjectDirs::from("com", "MyImage", "MyImage")
         .ok_or("Cannot locate Bediz's document-open directory.")?
         .data_local_dir()
@@ -270,6 +280,26 @@ mod tests {
             start_at(directory, None, false).unwrap(),
             Startup::Primary(_)
         ));
+    }
+
+    #[test]
+    fn a_background_relaunch_does_not_open_another_editor_or_show_the_first() {
+        let folder = tempfile::tempdir().unwrap();
+        let directory = folder.path().join("queue");
+        let Startup::Primary(mut first) = start_at(directory.clone(), None, true).unwrap() else {
+            panic!("new instance was not primary");
+        };
+        assert!(matches!(
+            start_at(directory.clone(), None, true).unwrap(),
+            Startup::Forwarded
+        ));
+        assert!(request_files(&directory).unwrap().is_empty());
+
+        assert!(matches!(
+            start_at(directory, None, false).unwrap(),
+            Startup::Forwarded
+        ));
+        assert!(matches!(first.take_latest(), Some(Request::Show)));
     }
 
     #[test]

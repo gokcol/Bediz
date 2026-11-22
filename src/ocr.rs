@@ -156,6 +156,9 @@ fn prepare_cancellable(mut pixels: RgbaImage, control: &Control) -> Result<RgbaI
     for row in pixels.rows_mut() {
         control.check()?;
         for pixel in row {
+            if pixel[3] == 255 {
+                continue;
+            }
             let alpha = u32::from(pixel[3]);
             for channel in &mut pixel.0[..3] {
                 *channel = ((u32::from(*channel) * alpha + 255 * (255 - alpha) + 127) / 255) as u8;

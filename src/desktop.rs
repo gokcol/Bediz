@@ -201,6 +201,7 @@ impl DesktopIntegration {
         ctx: egui::Context,
         sender: Sender<DesktopEvent>,
         primary_shortcut: shortcut::CaptureShortcut,
+        register_shortcuts: bool,
     ) -> Result<Self, String> {
         if EVENT_TARGET
             .lock()
@@ -300,8 +301,11 @@ impl DesktopIntegration {
             sink,
             capture_active: false,
         };
+        // Demo instances are independent and must not take the user's keys.
         // Conflicts and manager errors must not remove the working tray menu.
-        let _ = integration.retry_hotkey();
+        if register_shortcuts {
+            let _ = integration.retry_hotkey();
+        }
         integration.update_shortcut_label();
         Ok(integration)
     }
@@ -367,11 +371,10 @@ impl DesktopIntegration {
             replacement,
             |key, register| {
                 if register {
-                    manager.register(key)
+                    register_capture_hotkey(manager, key)
                 } else {
-                    manager.unregister(key)
+                    manager.unregister(key).map_err(|e| e.to_string())
                 }
-                .map_err(|e| e.to_string())
             },
             persist,
         );
@@ -383,7 +386,7 @@ impl DesktopIntegration {
             .retain(|e| e.starts_with("Period capture shortcuts unavailable:"));
         self.hotkey_error =
             register_missing_hotkeys(&self.hotkeys, &self.hotkey_resolution_errors, |key| {
-                manager.register(key).map_err(|e| e.to_string())
+                register_capture_hotkey(manager, key)
             })
             .err();
         self.update_shortcut_label();
@@ -411,8 +414,18 @@ impl DesktopIntegration {
         })
     }
 
-    pub fn hotkey_error(&self) -> Option<&str> {
-        self.hotkey_error.as_deref()
+    pub fn hotkey_warning(&self) -> Option<(&str, bool)> {
+        self.hotkey_error.as_deref().map(|message| {
+            let any_registered = self
+                .hotkeys
+                .iter()
+                .any(|key| key.registered.load(Ordering::Acquire));
+            (message, any_registered)
+        })
+    }
+
+    pub fn dismiss_hotkey_warning(&mut self) {
+        self.hotkey_error = None;
     }
 
     pub fn capture_feedback(&self, message: &str) {
@@ -456,8 +469,8 @@ impl DesktopIntegration {
             }
             Err(error) => {
                 let message = format!(
-                    "{error}. If another application owns an unavailable shortcut, free it and retry. \
-                     Capture in the Bediz menu or editor remains available."
+                    "{error}. Quit any other copies of Bediz, SkyImage, or MyImage from the capture menu, then retry. \
+                     You can still start capture from the menu or editor."
                 );
                 self.hotkey_error = Some(message.clone());
                 Err(message)
@@ -489,9 +502,19 @@ impl DesktopIntegration {
             .as_ref()
             .ok_or("The operating system did not provide a shortcut manager")?;
         register_missing_hotkeys(&self.hotkeys, &self.hotkey_resolution_errors, |hotkey| {
-            manager.register(hotkey).map_err(|error| error.to_string())
+            register_capture_hotkey(manager, hotkey)
         })
     }
+}
+
+fn register_capture_hotkey(manager: &GlobalHotKeyManager, key: HotKey) -> Result<(), String> {
+    manager.register(key).map_err(|error| {
+        log::warn!("Could not register capture shortcut {key:?}: {error}");
+        match error {
+            global_hotkey::Error::AlreadyRegistered(_) => "already in use".into(),
+            error => error.to_string(),
+        }
+    })
 }
 
 /// Transaction boundary shared by OS registration and settings persistence.
