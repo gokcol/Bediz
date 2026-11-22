@@ -169,7 +169,7 @@ from earlier MyImage and SkyImage Store packages.
 
 ## Run
 
-Install rustup (the repository pins Rust 1.93.1) and your platform's native build tools: Xcode Command Line Tools on macOS, or the Visual Studio C++ build tools with a Windows SDK on Windows.
+Install rustup (the repository pins Rust 1.93.1). On Mac, use Xcode 26 or later to build with the Speech framework. On Windows, install the Visual Studio C++ build tools and a Windows SDK.
 
 ```sh
 cargo run
