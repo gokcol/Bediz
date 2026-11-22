@@ -1,8 +1,9 @@
 {
   "version": "4.0.0",
-  "build": 148,
+  "build": 149,
   "store_version": "3.2.1.0",
   "changes": [
+    "Bediz runs under its current name in Windows Task Manager and macOS Activity Monitor.",
     "Extract Text prepares selected pixels with fewer copies while preserving the current recognition settings.",
     "The capture shortcut notice now offers Retry, Change shortcut, and Dismiss.",
     "Unpin Properties and drag the grip in its header to move the panel around the canvas. Pin it again to dock it on the right.",

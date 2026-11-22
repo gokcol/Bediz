@@ -55,7 +55,7 @@ try {
         throw 'Installed package display names differ from the requested branding.'
     }
     if ($startup.GetAttribute('Enabled') -cne 'false') { throw 'Installed package unexpectedly enabled login startup.' }
-    if (-not (Test-Path (Join-Path $installed.InstallLocation 'MyImage.exe'))) { throw 'Packaged executable missing.' }
+    if (-not (Test-Path (Join-Path $installed.InstallLocation 'Bediz.exe'))) { throw 'Packaged executable missing.' }
     Write-Host "PASS package installation: $($installed.PackageFullName)"
     Remove-AppxPackage -Package $installed.PackageFullName
     $installed = $null

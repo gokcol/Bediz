@@ -61,7 +61,7 @@ jobs:
         run: '& ./packaging-tools/scripts/test-windows-installer.ps1 -OutputDirectory ./dist/windows'
       - uses: actions/upload-artifact@v4
         with:
-          name: MyImage-Windows-x64-installers
+          name: Bediz-Windows-x64-installers
           path: dist/windows/*
           if-no-files-found: error
       - name: Attach to release

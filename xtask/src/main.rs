@@ -141,7 +141,7 @@ fn run() -> TaskResult<()> {
     if cfg!(target_os = "macos") {
         build.env("MACOSX_DEPLOYMENT_TARGET", "14.0");
     }
-    checked(&mut build, "Build MyImage")?;
+    checked(&mut build, "Build Bediz")?;
 
     let profile = if release { "release" } else { "debug" };
     let binary_dir = target.join(profile);
@@ -337,7 +337,10 @@ fn bundle(
         workspace.join("assets/stamps/ATTRIBUTION.txt"),
         contents.join("Resources/Twemoji-ATTRIBUTION.txt"),
     )?;
-    fs::copy(executable, macos.join("MyImage"))?;
+    fs::copy(executable, macos.join("Bediz"))?;
+    // Earlier Seyir versions probe this legacy path, then open the bundle.
+    // Launch Services uses CFBundleExecutable for the running process.
+    std::os::unix::fs::symlink("Bediz", macos.join("MyImage"))?;
     fs::copy(
         workspace.join("packaging/macos/Info.plist"),
         contents.join("Info.plist"),
@@ -465,9 +468,9 @@ fn bundle(
             &format!("previous-{name}"),
         )?;
     }
-    let staged_exe = stage.path.join("MyImage.exe");
+    let staged_exe = stage.path.join("Bediz.exe");
     fs::copy(executable, &staged_exe)?;
-    let final_exe = destination.join("MyImage.exe");
+    let final_exe = destination.join("Bediz.exe");
     let same_release = cleanup::same_file_contents(&staged_exe, &final_exe)?;
     stage.publish(&staged_exe, &final_exe, "previous.exe")?;
     println!("Created {}", final_exe.display());
@@ -513,7 +516,7 @@ mod packaging_tests {
             fs::create_dir_all(output.parent().unwrap()).unwrap();
             fs::copy(source.join(relative), output).unwrap();
         }
-        let executable = source.join("target/bundle/Bediz.app/Contents/MacOS/MyImage");
+        let executable = source.join("target/bundle/Bediz.app/Contents/MacOS/Bediz");
         let destination = root.join("target/bundle");
         fs::create_dir_all(&destination).unwrap();
         let cache = root.join("target/debug/deps/old.rlib");
@@ -546,11 +549,7 @@ mod packaging_tests {
             std::env::consts::ARCH
         ));
         assert_eq!(fs::read(&backup).unwrap(), previous);
-        assert!(
-            destination
-                .join("Bediz.app/Contents/MacOS/MyImage")
-                .exists()
-        );
+        assert!(destination.join("Bediz.app/Contents/MacOS/Bediz").exists());
         // Repeated packaging retains that rollback rather than rotating again.
         bundle(root, &executable, &destination, "-", true).unwrap();
         assert_eq!(fs::read(backup).unwrap(), previous);

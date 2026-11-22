@@ -15,11 +15,12 @@ test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist")" = com.
 test "$(basename "$app")" = Bediz.app
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleName' "$plist")" = Bediz
 test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$plist")" = Bediz
-test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")" = MyImage
+executable=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$plist")
+case "$executable" in Bediz|MyImage) ;; *) echo "Unexpected bundle executable" >&2; exit 1;; esac
 version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist")
 build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")
 case "$version.$build" in *[!0-9.]*|'') echo 'Invalid app version' >&2; exit 1;; esac
-arch=$(lipo -archs "$app/Contents/MacOS/MyImage")
+arch=$(lipo -archs "$app/Contents/MacOS/$executable")
 case "$arch" in arm64|x86_64) ;; *) echo "Unsupported DMG architecture: $arch" >&2; exit 1;; esac
 name=MyImage-$version-build$build-macos-$arch.dmg
 mkdir -p "$out"
@@ -67,7 +68,7 @@ mkdir "$work/mount"
 hdiutil attach -readonly -nobrowse -mountpoint "$work/mount" "$work/$name"
 mounted=true
 test "$(readlink "$work/mount/Applications")" = /Applications
-cmp "$app/Contents/MacOS/MyImage" "$work/mount/Bediz.app/Contents/MacOS/MyImage"
+cmp "$app/Contents/MacOS/$executable" "$work/mount/Bediz.app/Contents/MacOS/$executable"
 codesign --verify --deep --strict "$work/mount/Bediz.app"
 xcrun stapler validate "$work/mount/Bediz.app"
 hdiutil detach "$work/mount"

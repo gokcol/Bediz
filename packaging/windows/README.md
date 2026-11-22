@@ -1,11 +1,11 @@
 # Windows GitHub installers
 
-The app is displayed as **Bediz**, previously SkyImage and MyImage. Download
-filenames, `MyImage.exe`, the installation directory and installer AppId retain
-their existing names so upgrades and saved data continue to work.
+The app and its executable are named **Bediz**. The installer keeps the
+existing installation directory and AppId so upgrades can find the existing
+installation and saved data.
 
 The **Windows installer and portable ZIP** workflow builds the app from the
-specified existing release tag, then attaches `MyImage-<version>-build<N>-Setup.exe`,
+specified existing release tag, then attaches `Bediz-<version>-build<N>-Setup.exe`,
 the portable ZIP, SHA-256 checksums and a source/signing manifest. Leave the tag
 empty for Actions artifacts only. Packaging tools come from the workflow commit;
 the manifest records both application and packaging commits. Existing assets
@@ -21,7 +21,7 @@ is shipped. Production Authenticode signing can be added when a provider is conf
 Setup uses Inno Setup 6, installs for the current user into
 `%LOCALAPPDATA%\Programs\MyImage`, and does not require administrator privileges.
 It creates a Bediz Start menu shortcut and Add/Remove Programs entry. Upgrades
-remove the installer-owned MyImage and SkyImage shortcuts from the Start menu
+replace the old executable and remove the installer-owned legacy shortcuts from the Start menu
 and desktop. Desktop and
 Open with integration are optional; default image associations are not changed.
 Startup remains off by default. Uninstall removes a login entry only when its

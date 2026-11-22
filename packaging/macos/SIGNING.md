@@ -137,8 +137,8 @@ and installs at `/Applications/Bediz.app`. Failed publication or verification
 restores the original bundle at its original path. Any pair of existing names
 (or all three) is rejected for manual resolution before replacing files.
 
-The bundle identifier `com.myimage.app`, executable `MyImage`, signing requirement
-and storage locations remain stable. The rename does not reset permissions or
+The bundle executable is `Bediz`. The bundle identifier `com.myimage.app`,
+signing requirement and storage locations remain stable. The rename does not reset permissions or
 move projects/settings. Download and rollback filenames retain MyImage so older
 update clients can find the new release. The DMG contains `Bediz.app`, and its
 installation instructions explain removing the previous named bundle to avoid

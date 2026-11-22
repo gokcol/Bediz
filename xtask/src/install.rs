@@ -62,7 +62,7 @@ fn requirement(app: &Path) -> TaskResult<String> {
 }
 fn stopped() -> TaskResult<()> {
     let result = Command::new("/usr/bin/pgrep")
-        .args(["-x", "MyImage"])
+        .args(["-x", "Bediz|MyImage"])
         .output()?;
     match result.status.code() {
         Some(1) => Ok(()),
@@ -91,6 +91,18 @@ fn same_tree(left: &Path, right: &Path) -> TaskResult<bool> {
         let mb = fs::symlink_metadata(&b)?;
         if ma.is_dir() && mb.is_dir() {
             if !same_tree(&a, &b)? {
+                return Ok(false);
+            }
+        } else if ma.is_symlink() && mb.is_symlink() {
+            let target = fs::read_link(&a)?;
+            if a.file_name().and_then(std::ffi::OsStr::to_str) != Some("MyImage")
+                || a.parent()
+                    .and_then(Path::file_name)
+                    .and_then(std::ffi::OsStr::to_str)
+                    != Some("MacOS")
+                || target != Path::new("Bediz")
+                || fs::read_link(&b)? != target
+            {
                 return Ok(false);
             }
         } else if !ma.is_file() || !mb.is_file() || !cleanup::same_file_contents(&a, &b)? {
@@ -449,6 +461,24 @@ mod tests {
         assert!(!same_tree(&a, &b).unwrap());
         fs::write(b.join("Contents/app"), b"old").unwrap();
         fs::write(b.join("extra"), b"x").unwrap();
+        assert!(!same_tree(&a, &b).unwrap());
+    }
+
+    #[test]
+    fn rollback_accepts_only_the_internal_executable_alias() {
+        let root = tempfile::tempdir().unwrap();
+        let a = root.path().join("a");
+        let b = root.path().join("b");
+        for bundle in [&a, &b] {
+            let directory = bundle.join("Contents/MacOS");
+            fs::create_dir_all(&directory).unwrap();
+            fs::write(directory.join("Bediz"), b"app").unwrap();
+            std::os::unix::fs::symlink("Bediz", directory.join("MyImage")).unwrap();
+        }
+        assert!(same_tree(&a, &b).unwrap());
+        let link = b.join("Contents/MacOS/MyImage");
+        fs::remove_file(&link).unwrap();
+        std::os::unix::fs::symlink("../Bediz", &link).unwrap();
         assert!(!same_tree(&a, &b).unwrap());
     }
 }

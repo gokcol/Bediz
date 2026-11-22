@@ -80,14 +80,14 @@ try {
     $out = [System.IO.Path]::GetFullPath($OutputDirectory)
     $null = New-Item -ItemType Directory -Path $out -Force
     $flavor = if ($TestIdentity) { 'TEST-ONLY' } else { 'store' }
-    $name = "MyImage-$PackageVersion-$flavor-x64.msix"
+    $name = "Bediz-$PackageVersion-$flavor-x64.msix"
     $package = Join-Path $out $name
     if (Test-Path $package) { throw "Output already exists: $package. Choose a new folder or version." }
     $work = Join-Path $out ('.work-' + [guid]::NewGuid().ToString('N'))
     $layout = Join-Path $work 'layout'
     $null = New-Item -ItemType Directory -Path $layout -Force
     try {
-        Copy-Item $exe (Join-Path $layout 'MyImage.exe')
+        Copy-Item $exe (Join-Path $layout 'Bediz.exe')
         Copy-Item packaging/windows/bediz-open-protocol.txt (Join-Path $layout 'bediz-open-protocol.txt')
         Copy-Item -Path @('README.md', 'LICENSE', 'PRIVACY.md') -Destination $layout
         Copy-Item 'assets/stamps/LICENSE-GRAPHICS' (Join-Path $layout 'Twemoji-LICENSE.txt')
@@ -115,7 +115,7 @@ try {
         $unpacked = Join-Path $work 'unpacked'
         & $makeappx unpack /p $package /d $unpacked /o
         if ($LASTEXITCODE -ne 0) { throw 'MSIX round-trip validation failed.' }
-        if ((Get-FileHash $exe).Hash -ne (Get-FileHash (Join-Path $unpacked 'MyImage.exe')).Hash) {
+        if ((Get-FileHash $exe).Hash -ne (Get-FileHash (Join-Path $unpacked 'Bediz.exe')).Hash) {
             throw 'Packaged executable differs from the release build.'
         }
         [xml]$roundTrip = Get-Content (Join-Path $unpacked 'AppxManifest.xml') -Raw

@@ -29,9 +29,9 @@ $uninstaller = Join-Path $install 'unins000.exe'
 try {
     $args = @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/NOCLOSEAPPLICATIONS',"/DIR=`"$install`"",'/TASKS=openwith')
     Run-Checked $setup[0].FullName $args
-    if ((Get-FileHash (Join-Path $install 'MyImage.exe')).Hash.ToLower() -ne $metadata.executableSha256) { throw 'Installed executable does not match packaged source.' }
+    if ((Get-FileHash (Join-Path $install 'Bediz.exe')).Hash.ToLower() -ne $metadata.executableSha256) { throw 'Installed executable does not match packaged source.' }
     $command = (Get-Item "$registry\shell\open\command").GetValue('')
-    if ($command -ne "`"$install\MyImage.exe`" `"%1`"") { throw 'Incorrect file-open command quoting.' }
+    if ($command -ne "`"$install\Bediz.exe`" `"%1`"") { throw 'Incorrect file-open command quoting.' }
     if (-not (Test-Path $uninstallKey)) { throw 'Uninstall registration missing.' }
     if ((Get-Item $uninstallKey).GetValue('DisplayName') -ne 'Bediz') { throw 'Windows app display name was not updated.' }
     $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Bediz.lnk'
@@ -52,18 +52,22 @@ try {
             $legacyShortcuts += $legacyShortcut
         }
     }
+    $legacyExe = Join-Path $install 'MyImage.exe'
+    Copy-Item (Join-Path $install 'Bediz.exe') $legacyExe
+    $null = New-Item -Path $run -Force
+    $null = New-ItemProperty -Path $run -Name MyImage -Value "`"$legacyExe`"" -PropertyType String
     $upgradeArgs = @($args | Where-Object { -not $_.StartsWith('/TASKS=') }) + '/TASKS=openwith,desktopicon'
     Run-Checked $setup[0].FullName $upgradeArgs
+    if (Test-Path $legacyExe) { throw 'Upgrade left the legacy executable behind.' }
+    if ((Get-Item $run).GetValue('MyImage') -ne "`"$install\Bediz.exe`"") { throw 'Upgrade did not preserve startup for this installation.' }
     foreach ($legacyShortcut in $legacyShortcuts) {
         if (Test-Path $legacyShortcut) { throw "Update left a duplicate legacy shortcut: $legacyShortcut" }
     }
     if (-not (Test-Path $shortcut) -or -not (Test-Path $desktopShortcut)) { throw 'Update did not create the requested Bediz shortcuts.' }
     if (-not (Test-Path $localProject)) { throw 'Update removed a project.' }
-    # Simulate the optional login setting; uninstall must remove only this copy.
-    $null = New-Item -Path $run -Force
-    $null = New-ItemProperty -Path $run -Name MyImage -Value "`"$install\MyImage.exe`"" -PropertyType String
+    # Uninstall must remove this installation's migrated startup entry.
     Run-Checked $uninstaller @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART')
-    if ((Test-Path (Join-Path $install 'MyImage.exe')) -or (Test-Path $registry) -or (Test-Path $uninstallKey) -or (Test-Path $shortcut) -or (Test-Path $desktopShortcut)) { throw 'Uninstall left installed files or integration behind.' }
+    if ((Test-Path (Join-Path $install 'Bediz.exe')) -or (Test-Path $registry) -or (Test-Path $uninstallKey) -or (Test-Path $shortcut) -or (Test-Path $desktopShortcut)) { throw 'Uninstall left installed files or integration behind.' }
     if (-not (Test-Path $localProject) -or (Get-FileHash $sentinel).Hash -ne $sentinelHash) { throw 'Uninstall changed project data.' }
     if ((Get-Item $run).GetValue('MyImage')) { throw 'Uninstall left this copy registered for login startup.' }
     foreach ($ext in @('.myimage','.png','.jpg','.jpeg','.webp','.bmp','.gif','.tif','.tiff')) {

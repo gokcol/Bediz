@@ -44,7 +44,7 @@ jobs:
           with open('input/Bediz.app/Contents/Info.plist', 'rb') as file:
               info = plistlib.load(file)
           assert info['CFBundleIdentifier'] == 'com.myimage.app', 'Unexpected application identity'
-          assert info['CFBundleExecutable'] == 'MyImage', 'Unexpected executable'
+          assert info['CFBundleExecutable'] in {'Bediz', 'MyImage'}, 'Unexpected executable'
           assert info['CFBundleName'] == info['CFBundleDisplayName'] == 'Bediz', 'Unexpected display name'
           match = re.fullmatch(r'v(\d+\.\d+(?:\.\d+)?)(?:-build(\d+))?', os.environ['RELEASE_TAG'])
           version = match[1] + ('.0' if match[1].count('.') == 1 else '')
