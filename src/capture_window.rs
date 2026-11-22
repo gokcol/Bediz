@@ -1,5 +1,8 @@
 //! Native capture surfaces must cover system chrome as well as normal windows.
 
+#[cfg(target_os = "windows")]
+pub(crate) mod win32;
+
 fn title_prefix() -> String {
     format!("{} Capture — ", crate::branding::NAME)
 }
@@ -264,7 +267,9 @@ pub fn desktop_pointer() -> Option<eframe::egui::Pos2> {
         let location = CGEvent::location(Some(&event));
         Some(eframe::egui::pos2(location.x as f32, location.y as f32))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    return win32::desktop_pointer();
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     None
 }
 
@@ -288,6 +293,8 @@ pub fn reveal_after_paint(name: &str) {
 pub fn forget_overlay_reveals() {
     #[cfg(target_os = "macos")]
     macos::forget_overlay_reveals();
+    #[cfg(target_os = "windows")]
+    win32::forget_overlays();
 }
 
 pub fn after_paint() -> Option<std::time::Instant> {

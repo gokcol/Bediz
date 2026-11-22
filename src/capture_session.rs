@@ -375,13 +375,33 @@ fn overlay_geometry(display: &DisplayInfo, desktop_units_per_point: f32) -> (Pos
     )
 }
 
-fn pointer_in_overlay(pointer: Pos2, display: &DisplayInfo, bounds: Rect) -> Option<Pos2> {
-    // Quartz cursor locations and DisplayInfo both use top-left desktop points.
+fn display_pointer_fraction(pointer: Pos2, display: &DisplayInfo) -> Option<Vec2> {
+    // Quartz uses desktop points and Windows uses physical desktop pixels.
     // Half-open edges assign a cursor on a display seam to exactly one overlay.
     let local = pointer - Pos2::new(display.x as f32, display.y as f32);
     let size = Vec2::new(display.width as f32, display.height as f32);
-    ((0.0..size.x).contains(&local.x) && (0.0..size.y).contains(&local.y))
-        .then(|| bounds.min + local / size * bounds.size())
+    ((0.0..size.x).contains(&local.x) && (0.0..size.y).contains(&local.y)).then(|| local / size)
+}
+
+fn pointer_in_overlay(pointer: Pos2, display: &DisplayInfo, bounds: Rect) -> Option<Pos2> {
+    Some(bounds.min + display_pointer_fraction(pointer, display)? * bounds.size())
+}
+
+// Events can be coalesced while the hidden parent is being repainted. A leave
+// clears the hover, but must not discard an earlier press from the same frame.
+fn update_pointer_presence(ready: &mut bool, events: &[egui::Event]) -> bool {
+    let mut had_position = false;
+    for event in events {
+        match event {
+            egui::Event::PointerGone => *ready = false,
+            egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. } => {
+                *ready = true;
+                had_position = true;
+            }
+            _ => {}
+        }
+    }
+    had_position
 }
 
 impl SelectionSession {
@@ -502,13 +522,24 @@ impl MyImageApp {
         if !self.demo {
             crate::capture_window::prepare();
         }
-        let desktop_pointer = if native_reveal
+        let desktop_pointer = if !self.demo
             && session.screens.iter().any(|screen| {
                 screen.placement_frames >= SELECTION_PLACEMENT_FRAMES && !screen.pointer_ready
             }) {
             crate::capture_window::desktop_pointer()
         } else {
             None
+        };
+        let focus_index = if cfg!(target_os = "windows") {
+            desktop_pointer
+                .and_then(|pointer| {
+                    session.screens.iter().position(|screen| {
+                        display_pointer_fraction(pointer, &screen.display).is_some()
+                    })
+                })
+                .unwrap_or(0)
+        } else {
+            0
         };
         for (index, screen) in session.screens.iter_mut().enumerate() {
             // Mode changes in one controller apply to every screen.
@@ -545,8 +576,9 @@ impl MyImageApp {
                     1.
                 };
             let (position, size) = overlay_geometry(&screen.display, divisor);
+            let title = crate::capture_window::title(&screen.display);
             let builder = egui::ViewportBuilder::default()
-                .with_title(crate::capture_window::title(&screen.display))
+                .with_title(&title)
                 .with_position(position)
                 .with_inner_size(size)
                 .with_min_inner_size(Vec2::ZERO)
@@ -563,10 +595,15 @@ impl MyImageApp {
             // Every display has a dedicated surface. The resident runtime
             // drains child repaint/input requests while the editor stays hidden.
             ctx.show_viewport_immediate(overlay_id(&screen.display), builder, |child, _| {
+                #[cfg(target_os = "windows")]
+                if placing && !self.demo {
+                    // Initialize the actual HWND while its backing frame is hidden.
+                    crate::capture_window::win32::prepare_overlay(&title);
+                }
                 if let Some(action) = self.selection_overlay_ui(child, screen, desktop_pointer) {
                     chosen = Some((index, action));
                 }
-                if index == 0 && first_reveal && !native_reveal {
+                if index == focus_index && first_reveal && !native_reveal {
                     child.send_viewport_cmd(ViewportCommand::Focus);
                 }
                 crate::pointer_style::paint(child, self.settings.pointer_style);
@@ -644,33 +681,10 @@ impl MyImageApp {
                 .reveal_time
                 .get_or_insert_with(|| ctx.input(|i| i.time));
         }
-        // Placement changes invalidate window-relative coordinates. Only real
-        // events on this overlay enable selection; leaving clears stale hover.
-        let pointer_moved = ctx.input(|i| {
-            i.events.iter().any(|event| {
-                matches!(
-                    event,
-                    egui::Event::PointerMoved(_) | egui::Event::PointerButton { .. }
-                )
-            })
-        });
-        if ctx.input(|i| {
-            i.events
-                .iter()
-                .any(|event| matches!(event, egui::Event::PointerGone))
-        }) {
-            selection.pointer_ready = false;
-        } else if !placing_overlay && pointer_moved {
-            selection.pointer_ready = true;
-            // Hovering an inactive Mac window must not activate Bediz. AppKit
-            // handles deliberate clicks (the winit view accepts first mouse).
-            if !cfg!(target_os = "macos")
-                && !ctx.input(|i| i.viewport().focused.unwrap_or(i.focused))
-            {
-                ctx.send_viewport_cmd(ViewportCommand::Focus);
-            }
-        }
         let mut selection_events = ctx.input(|i| i.events.clone());
+        // Hidden placement frames can still receive stale native positions.
+        let had_position = !placing_overlay
+            && update_pointer_presence(&mut selection.pointer_ready, &selection_events);
         if selection.drag.active && selection.drag.pointer_left && !self.demo {
             selection.drag.recover_release(
                 &mut selection_events,
@@ -678,7 +692,7 @@ impl MyImageApp {
                 ctx.input(|i| i.modifiers),
             );
         }
-        let can_drag = selection.pointer_ready || selection.drag.active;
+        let can_drag = selection.pointer_ready || had_position || selection.drag.active;
         let mut mode = selection.mode;
         let old_mode = mode;
         #[cfg(target_os = "macos")]
@@ -2985,6 +2999,40 @@ mod tests {
             assert!(!screen.pointer_ready && !screen.drag.active);
             assert!(screen.drag.bounds().is_none());
         }
+    }
+
+    #[test]
+    fn coalesced_pointer_leave_does_not_drop_a_region_press_or_release() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        let mut session = test_screens(&ctx, CaptureMode::Region);
+        let screen = &mut session.screens[0];
+        overlay_frame(&mut app, &ctx, screen, vec![]);
+        let start = Pos2::new(150., 120.);
+        let end = Pos2::new(450., 320.);
+        overlay_frame(
+            &mut app,
+            &ctx,
+            screen,
+            vec![
+                pointer_button(start, true),
+                egui::Event::PointerMoved(end),
+                egui::Event::PointerGone,
+            ],
+        );
+        assert_eq!(screen.drag.bounds(), Some(Rect::from_two_pos(start, end)));
+        assert!(screen.drag.active);
+        assert!(!screen.pointer_ready);
+        overlay_frame(
+            &mut app,
+            &ctx,
+            screen,
+            vec![egui::Event::PointerGone, pointer_button(end, false)],
+        );
+        assert!(screen.pointer_ready);
+        assert!(screen.drag.completed);
+        assert!(!screen.drag.active);
+        assert_eq!(screen.drag.bounds(), Some(Rect::from_two_pos(start, end)));
     }
 
     #[test]
