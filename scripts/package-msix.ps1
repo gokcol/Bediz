@@ -88,6 +88,7 @@ try {
     $null = New-Item -ItemType Directory -Path $layout -Force
     try {
         Copy-Item $exe (Join-Path $layout 'MyImage.exe')
+        Copy-Item packaging/windows/bediz-open-protocol.txt (Join-Path $layout 'bediz-open-protocol.txt')
         Copy-Item -Path @('README.md', 'LICENSE', 'PRIVACY.md') -Destination $layout
         Copy-Item 'assets/stamps/LICENSE-GRAPHICS' (Join-Path $layout 'Twemoji-LICENSE.txt')
         Copy-Item 'assets/stamps/ATTRIBUTION.txt' (Join-Path $layout 'Twemoji-ATTRIBUTION.txt')

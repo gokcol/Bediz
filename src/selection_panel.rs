@@ -1,7 +1,7 @@
 //! Visual selection properties, using the same pixel/layer operations as the canvas.
 use super::*;
 use crate::appearance::{self};
-use inspector_widgets::{Glyph, tile};
+use inspector_widgets::{Glyph, help_section, tile};
 
 fn section(ui: &mut egui::Ui, label: &str) {
     ui.add_space(2.);
@@ -149,11 +149,9 @@ impl EditorState {
                 let help = tile(ui,"Selection help",Glyph::Help,Vec2::splat(26.),false,false);
                 egui::Popup::menu(&help).show(|ui| {
                     ui.set_max_width(240.);
-                    ui.strong("Select, then make it yours");
-                    ui.label("Drag on the image to select pixels. Use Objects mode to select and edit annotations.");
-                    ui.label("Boundary moves only the marquee. Pixels lifts the selected area as an editable layer.");
-                    ui.label("Edges and corners resize the selection. Escape cancels a drag or clears the selection.");
-                    ui.small("Original pixels and annotations remain editable in your .myimage project.");
+                    help_section(ui, "Select pixels or objects", "Drag on the image in Region mode to select pixels. Switch to Objects to select annotations.");
+                    help_section(ui, "Move the outline or the pixels", "Choose Adjust boundary to drag the outline, or Move pixels to drag the area as an editable layer.");
+                    help_section(ui, "Resize or clear the selection", "Drag an edge or corner to resize. Press Escape to cancel a drag or clear the selection.");
                 });
             });
         });

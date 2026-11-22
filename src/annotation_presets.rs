@@ -148,7 +148,7 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
-        use inspector_widgets::{Glyph, tile};
+        use inspector_widgets::{Glyph, help_section, tile};
         if !self.presets.loaded {
             self.presets.reload();
         }
@@ -156,16 +156,49 @@ impl EditorState {
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Presets").size(16.).strong());
             ui.weak(self.presets.library.entries.len().to_string());
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
-                if tile(ui,"Refresh presets",Glyph::App(DialogIcon::Refresh),Vec2::splat(26.),false,false)
-                    .on_hover_text("Refresh the saved preset library").clicked() { self.presets.reload(); }
-                let help=tile(ui,"Preset help",Glyph::Help,Vec2::splat(26.),false,false);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if tile(
+                    ui,
+                    "Refresh presets",
+                    Glyph::App(DialogIcon::Refresh),
+                    Vec2::splat(26.),
+                    false,
+                    false,
+                )
+                .on_hover_text("Refresh the saved preset library")
+                .clicked()
+                {
+                    self.presets.reload();
+                }
+                let help = tile(
+                    ui,
+                    "Preset help",
+                    Glyph::Help,
+                    Vec2::splat(26.),
+                    false,
+                    false,
+                );
                 egui::Popup::menu(&help).show(|ui| {
                     ui.set_max_width(240.);
-                    ui.label("Save selected annotations or groups, then reuse editable copies in another image.");
-                    ui.label("Double-click a card to insert it, or select it and choose Insert preset.");
-                    ui.small("Inserted copies keep their styles and layer settings. Editing a copy does not change the preset.");
-                    if let Ok(path)=&self.presets.path { ui.small("Saved on this computer").on_hover_text(path.display().to_string()); }
+                    help_section(
+                        ui,
+                        "Save artwork for later",
+                        "Select annotations or groups, then choose Save selection as preset.",
+                    );
+                    help_section(
+                        ui,
+                        "Insert a preset",
+                        "Double-click its card, or select it and choose Insert preset.",
+                    );
+                    help_section(
+                        ui,
+                        "Customize the copy",
+                        "Each copy has its own editable styles and layer settings.",
+                    );
+                    if let Ok(path) = &self.presets.path {
+                        ui.weak("Preset library location")
+                            .on_hover_text(path.display().to_string());
+                    }
                 });
             });
         });
@@ -773,8 +806,8 @@ mod tests {
         let initial = d.edit_state();
         let mut h = EditHistory::new(initial.clone());
         e.set_selection(vec![0, 1, 2], &d);
-        click("Choose panel", &mut e, &mut d, &mut h, &ctx, &texture);
-        click("Presets", &mut e, &mut d, &mut h, &ctx, &texture);
+        click("Properties", &mut e, &mut d, &mut h, &ctx, &texture);
+        click("Show Presets panel", &mut e, &mut d, &mut h, &ctx, &texture);
         click(
             "Save selection as preset…",
             &mut e,
@@ -807,8 +840,7 @@ mod tests {
         e.reset();
         d = blank();
         h = EditHistory::new(d.edit_state());
-        click("Choose panel", &mut e, &mut d, &mut h, &ctx, &texture);
-        click("Presets", &mut e, &mut d, &mut h, &ctx, &texture);
+        click("Show Presets panel", &mut e, &mut d, &mut h, &ctx, &texture);
         click("Review kit", &mut e, &mut d, &mut h, &ctx, &texture);
         click("Insert preset", &mut e, &mut d, &mut h, &ctx, &texture);
         assert_eq!(d.annotations.len(), 3);

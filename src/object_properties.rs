@@ -1445,28 +1445,53 @@ impl EditorState {
         };
         let previous = ui.ctx().memory(|m| m.area_rect(bar_id));
         let size = previous.map_or(initial_size, |r| r.size());
-        // Keep the on-canvas shortcuts clear of the inspector overlay without
-        // resizing or scrolling the actual image underneath it.
-        let mut viewport = viewport;
-        if self.inspector.preferences.expanded
+        let popup_open = egui::Popup::is_any_open(ui.ctx());
+        let place_in = |available: Rect| {
+            previous
+                .filter(|r| popup_open && available.contains_rect(*r))
+                .map_or_else(|| floating_position(screen, available, size), |r| r.min)
+        };
+        let desired = place_in(viewport);
+        // Find the nearest space for the shortcuts and their popups around the
+        // movable inspector, leaving the image geometry untouched.
+        let (viewport, position) = if self.inspector.preferences.expanded
             && !self.inspector.preferences.pinned
             && let Some(overlay) = ui
                 .ctx()
-                .memory(|m| m.area_rect(egui::Id::new("inspector-overlay")))
+                .memory(|m| m.area_rect(egui::Id::new(super::inspector_panel::OVERLAY_ID)))
+            && viewport.intersects(overlay)
         {
-            viewport.max.x = viewport.right().min(overlay.left() - 6.);
-            if viewport.width() < size.x + 16. {
+            let blocked = overlay.expand(6.).intersect(viewport);
+            let spaces = [
+                Rect::from_min_max(viewport.min, egui::pos2(blocked.left(), viewport.bottom())),
+                Rect::from_min_max(egui::pos2(blocked.right(), viewport.top()), viewport.max),
+                Rect::from_min_max(viewport.min, egui::pos2(viewport.right(), blocked.top())),
+                Rect::from_min_max(egui::pos2(viewport.left(), blocked.bottom()), viewport.max),
+            ];
+            let score = |position: Pos2| {
+                (
+                    overlap_area(Rect::from_min_size(position, size), screen.expand(6.)),
+                    position.distance_sq(desired),
+                )
+            };
+            let Some(placement) = spaces
+                .into_iter()
+                .filter(|r| r.width() >= size.x + 16. && r.height() >= size.y + 16.)
+                .map(|r| (r, place_in(r)))
+                .min_by(|(_, a), (_, b)| {
+                    let (overlap_a, distance_a) = score(*a);
+                    let (overlap_b, distance_b) = score(*b);
+                    overlap_a
+                        .total_cmp(&overlap_b)
+                        .then_with(|| distance_a.total_cmp(&distance_b))
+                })
+            else {
                 return;
-            }
-        }
-        let position = if egui::Popup::is_any_open(ui.ctx()) {
-            previous
-                .filter(|r| viewport.contains_rect(*r))
-                .map(|r| r.min)
+            };
+            placement
         } else {
-            None
-        }
-        .unwrap_or_else(|| floating_position(screen, viewport, size));
+            (viewport, desired)
+        };
         let placement = QuickProperties {
             selection: screen,
             viewport,

@@ -346,7 +346,7 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
-        use inspector_widgets::{Glyph, tile};
+        use inspector_widgets::{Glyph, help_section, tile};
         ui.spacing_mut().item_spacing = Vec2::new(5., 5.);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new("Layers").size(16.).strong());
@@ -355,9 +355,10 @@ impl EditorState {
                 let help=tile(ui,"Layer help",Glyph::Help,Vec2::splat(26.),false,false);
                 egui::Popup::menu(&help).show(|ui| {
                     ui.set_max_width(240.);
-                    ui.label("Top layers appear in front. Expand a group to edit its members.");
-                    ui.label("The eye hides artwork from the image and exports. The lock protects it from edits.");
-                    ui.label("Shift-click rows to select more. Double-click a name to rename it.");
+                    help_section(ui, "Read the layer stack", "Layers higher in the list sit in front.");
+                    help_section(ui, "Hide or protect a layer", "Use the eye to hide artwork on the canvas and in exports. Use the lock to protect it from edits.");
+                    help_section(ui, "Select or rename layers", "Shift-click to select multiple rows. Double-click a name to rename it.");
+                    help_section(ui, "Group layers", "Shift-click two or more layers, then choose Group to move, hide, or lock them together. Expand the group to edit individual layers, or choose Ungroup to separate them.");
                     if ui.button("All annotations").clicked() {
                         self.select_all_annotations(document,history);
                         ui.close();
@@ -1063,8 +1064,8 @@ mod tests {
         let original = d.edit_state();
         let mut h = EditHistory::new(original.clone());
         let mut e = EditorState::default();
-        click_label("Choose panel", &mut e, &mut d, &mut h, &ctx, &texture);
-        click_label("Layers", &mut e, &mut d, &mut h, &ctx, &texture);
+        click_label("Properties", &mut e, &mut d, &mut h, &ctx, &texture);
+        click_label("Show Layers panel", &mut e, &mut d, &mut h, &ctx, &texture);
         assert!(e.inspector.is(InspectorPanel::Layers));
         click_label("Group 1", &mut e, &mut d, &mut h, &ctx, &texture);
         assert_eq!(e.selected_indices(&d), vec![0, 1]);

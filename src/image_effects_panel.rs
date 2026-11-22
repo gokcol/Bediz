@@ -1,9 +1,10 @@
 //! Image-wide styling, kept separate from annotation styles and privacy tools.
 use super::*;
 use crate::{
-    appearance,
+    appearance::{self, TileTone},
     image_effects::{ColorFilter, EdgeStyle, Edges, ImageEffects},
 };
+use inspector_widgets::help_section;
 
 impl EditorState {
     pub(super) fn open_image_effects(
@@ -29,9 +30,9 @@ impl EditorState {
                 let help = appearance::icon_button(ui, "Image effects help", DialogIcon::Info);
                 egui::Popup::menu(&help).show(|ui| {
                     ui.set_max_width(240.);
-                    ui.label("Style the whole image, including its annotations. Effects stay adjustable in your project.");
-                    ui.label("Borders and frame shadows add transparent canvas space. Changing a style keeps the same frame, so padding does not accumulate.");
-                    ui.small("No effects clears the styling; added canvas space remains available. Undo restores styling and canvas size together.");
+                    help_section(ui, "Style the whole image", "Quick Effects apply to the image and its annotations. You can adjust them anytime in your project.");
+                    help_section(ui, "Make room for borders and shadows", "Bediz adds transparent space where needed and reuses it when you switch styles.");
+                    help_section(ui, "Clear or undo an effect", "Choose No effects to clear the styling and keep the extra space. Use Undo to restore the previous style and canvas size.");
                 });
             });
         });
@@ -120,33 +121,8 @@ impl EditorState {
             });
         ui.add_space(2.);
         ui.separator();
-        ui.label(
-            egui::RichText::new("Effect Styles")
-                .small()
-                .strong()
-                .color(appearance::palette(ui.ctx()).muted),
-        );
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(3., 3.);
-            ui.spacing_mut().button_padding = Vec2::new(6., 3.);
-            ui.spacing_mut().interact_size.y = 22.;
-            for (index, name) in [
-                (3, "Edges"),
-                (1, "Border"),
-                (0, "Shadow"),
-                (4, "Perspective"),
-                (5, "Reflection"),
-                (7, "Fade"),
-                (6, "Filters"),
-                (2, "Adjust"),
-            ] {
-                ui.selectable_value(
-                    &mut self.image_effect_tab,
-                    index,
-                    egui::RichText::new(name).size(11.),
-                );
-            }
-        });
+        ui.label(egui::RichText::new("Effect Styles").size(12.).strong());
+        effect_style_tabs(ui, &mut self.image_effect_tab);
         ui.separator();
         match self.image_effect_tab {
             4 => {
@@ -453,6 +429,233 @@ impl EditorState {
             }
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum EffectIcon {
+    Edges,
+    Border,
+    Shadow,
+    Perspective,
+    Reflection,
+    Fade,
+    Filters,
+    Adjust,
+}
+
+fn effect_style_tabs(ui: &mut egui::Ui, selected_tab: &mut u8) {
+    use EffectIcon::*;
+    let tabs = [
+        (3, "Edges", Edges, TileTone::Teal, "Shape the image edges"),
+        (
+            1,
+            "Border",
+            Border,
+            TileTone::Blue,
+            "Set border width and color",
+        ),
+        (
+            0,
+            "Shadow",
+            Shadow,
+            TileTone::Slate,
+            "Adjust the frame shadow",
+        ),
+        (
+            4,
+            "Perspective",
+            Perspective,
+            TileTone::Violet,
+            "Tilt the image",
+        ),
+        (
+            5,
+            "Reflection",
+            Reflection,
+            TileTone::Teal,
+            "Add a reflection below the image",
+        ),
+        (
+            7,
+            "Fade",
+            Fade,
+            TileTone::Clay,
+            "Fade edges into transparency",
+        ),
+        (
+            6,
+            "Filters",
+            Filters,
+            TileTone::Violet,
+            "Choose a color filter",
+        ),
+        (
+            2,
+            "Adjust",
+            Adjust,
+            TileTone::Blue,
+            "Set brightness, contrast and saturation",
+        ),
+    ];
+    let palette = appearance::palette(ui.ctx());
+    egui::Frame::new()
+        .fill(palette.base.lerp_to_gamma(palette.paper, 0.45))
+        .stroke(Stroke::new(1., palette.border))
+        .corner_radius(8)
+        .inner_margin(4)
+        .show(ui, |ui| {
+            let gap = 3.;
+            ui.spacing_mut().item_spacing = Vec2::splat(gap);
+            let available = ui.available_width();
+            let columns = [8, 4, 2]
+                .into_iter()
+                .find(|&n| available >= n as f32 * 49. + (n - 1) as f32 * gap)
+                .unwrap_or(1);
+            let width = ((available - (columns - 1) as f32 * gap) / columns as f32).max(1.);
+            let caption = egui::FontId::proportional(11.);
+            let longest = tabs
+                .iter()
+                .map(|(_, name, _, _, _)| {
+                    ui.painter()
+                        .layout_no_wrap((*name).into(), caption.clone(), palette.ink)
+                        .size()
+                        .x
+                })
+                .fold(1., f32::max);
+            let font =
+                egui::FontId::proportional(caption.size * ((width - 4.) / longest).clamp(0.8, 1.));
+            for row in tabs.chunks(columns) {
+                ui.horizontal(|ui| {
+                    for &(index, name, glyph, tone, hint) in row {
+                        let selected = index == *selected_tab;
+                        let response =
+                            ui.add_sized([width, 40.], egui::Button::new("").frame(false));
+                        response.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::SelectableLabel,
+                                ui.is_enabled(),
+                                selected,
+                                name,
+                            )
+                        });
+                        let rect = response.rect;
+                        let ink = appearance::satin_button(
+                            ui,
+                            rect,
+                            &response,
+                            selected,
+                            appearance::satin_ink(ui.ctx(), tone),
+                        );
+                        if selected && !response.has_focus() {
+                            ui.painter().rect_stroke(
+                                rect,
+                                5,
+                                Stroke::new(1., ink.gamma_multiply(0.52)),
+                                StrokeKind::Inside,
+                            );
+                        }
+                        let painter = ui.painter().with_clip_rect(rect);
+                        paint_effect_icon(
+                            &painter,
+                            rect.center_top() + Vec2::new(0., 13.),
+                            glyph,
+                            ink,
+                        );
+                        painter.text(
+                            rect.center_bottom() - Vec2::new(0., 5.),
+                            egui::Align2::CENTER_BOTTOM,
+                            name,
+                            font.clone(),
+                            appearance::satin_label_color(ui.ctx(), selected),
+                        );
+                        if response
+                            .on_hover_cursor(CursorIcon::PointingHand)
+                            .on_hover_text(hint)
+                            .clicked()
+                        {
+                            *selected_tab = index;
+                        }
+                    }
+                });
+            }
+        });
+}
+
+fn paint_effect_icon(p: &egui::Painter, center: Pos2, glyph: EffectIcon, ink: Color32) {
+    let at = |x, y| center + Vec2::new(x, y);
+    let stroke = Stroke::new(crate::icon_style::current(p.ctx()).width(), ink);
+    let tint = ink.gamma_multiply(0.16);
+    let rect = |left, top, right, bottom| Rect::from_min_max(at(left, top), at(right, bottom));
+    match glyph {
+        EffectIcon::Edges => {
+            p.line(
+                vec![
+                    at(7., -6.),
+                    at(-7., -6.),
+                    at(-7., 6.),
+                    at(7., 6.),
+                    at(5., 2.),
+                    at(7., -2.),
+                    at(7., -6.),
+                ],
+                stroke,
+            );
+        }
+        EffectIcon::Border => {
+            p.rect(rect(-8., -6., 8., 6.), 2., tint, stroke, StrokeKind::Inside);
+            p.rect_stroke(
+                rect(-4.5, -2.5, 4.5, 2.5),
+                1.,
+                Stroke::new(1., ink),
+                StrokeKind::Inside,
+            );
+        }
+        EffectIcon::Shadow => {
+            p.rect_filled(rect(-4., -2., 8., 7.), 2., ink.gamma_multiply(0.38));
+            p.rect(
+                rect(-8., -6., 4., 3.),
+                2.,
+                appearance::surface(p.ctx()),
+                stroke,
+                StrokeKind::Inside,
+            );
+        }
+        EffectIcon::Perspective => {
+            p.add(egui::Shape::convex_polygon(
+                vec![at(-7., -3.), at(7., -7.), at(7., 7.), at(-7., 3.)],
+                tint,
+                stroke,
+            ));
+        }
+        EffectIcon::Reflection => {
+            p.rect(
+                rect(-6., -7., 6., -2.),
+                1.,
+                tint,
+                stroke,
+                StrokeKind::Inside,
+            );
+            p.line_segment([at(-8., 0.), at(8., 0.)], Stroke::new(1., ink));
+            p.rect_stroke(
+                rect(-6., 2., 6., 7.),
+                1.,
+                Stroke::new(1.2, ink.gamma_multiply(0.55)),
+                StrokeKind::Inside,
+            );
+        }
+        EffectIcon::Fade => {
+            for (i, opacity) in [1., 0.75, 0.48, 0.26].into_iter().enumerate() {
+                let x = -7. + i as f32 * 4.;
+                p.rect_filled(rect(x, -6., x + 2., 6.), 1., ink.gamma_multiply(opacity));
+            }
+        }
+        EffectIcon::Filters => {
+            for (x, y) in [(0., -3.), (-3.5, 3.), (3.5, 3.)] {
+                p.circle(at(x, y), 3.8, tint, Stroke::new(1.25, ink));
+            }
+        }
+        EffectIcon::Adjust => appearance::icon(p, center, DialogIcon::Settings, ink, 15.),
+    };
 }
 
 fn effect_card(
@@ -772,6 +975,97 @@ fn style_card(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effect_tabs_fit_and_select_at_narrow_and_wide_inspector_widths() {
+        let names = [
+            "Edges",
+            "Border",
+            "Shadow",
+            "Perspective",
+            "Reflection",
+            "Fade",
+            "Filters",
+            "Adjust",
+        ];
+        for (width, columns) in [(180., 2), (260., 4), (500., 8)] {
+            let ctx = egui::Context::default();
+            ctx.enable_accesskit();
+            appearance::apply(&ctx);
+            if width == 260. {
+                appearance::set_finish(&ctx, appearance::GuiFinish::GraphiteNight);
+            }
+            let mut selected = 0;
+            let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(width, 260.));
+            let mut frame = |events| {
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default()
+                            .frame(egui::Frame::NONE)
+                            .show(ctx, |ui| effect_style_tabs(ui, &mut selected));
+                    },
+                )
+            };
+            let output = frame(vec![]);
+            let nodes = &output
+                .platform_output
+                .accesskit_update
+                .as_ref()
+                .unwrap()
+                .nodes;
+            let bounds: Vec<_> = names
+                .iter()
+                .map(|&name| {
+                    let bounds = nodes
+                        .iter()
+                        .find(|(_, node)| node.label() == Some(name))
+                        .unwrap()
+                        .1
+                        .bounds()
+                        .unwrap();
+                    Rect::from_min_max(
+                        egui::pos2(bounds.x0 as f32, bounds.y0 as f32),
+                        egui::pos2(bounds.x1 as f32, bounds.y1 as f32),
+                    )
+                })
+                .collect();
+            assert_eq!(
+                bounds.iter().filter(|r| r.top() == bounds[0].top()).count(),
+                columns
+            );
+            for (index, rect) in bounds.iter().enumerate() {
+                assert!(
+                    screen.contains_rect(*rect),
+                    "{} is outside the inspector",
+                    names[index]
+                );
+                assert!(
+                    bounds[..index]
+                        .iter()
+                        .all(|previous| !previous.intersects(*rect))
+                );
+            }
+            let target = bounds[3].center();
+            for pressed in [true, false] {
+                frame(vec![
+                    egui::Event::PointerMoved(target),
+                    egui::Event::PointerButton {
+                        pos: target,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ]);
+            }
+            assert_eq!(selected, 4);
+        }
+    }
+
     #[test]
     fn quick_cards_combine_clear_and_keep_disabled_border_off() {
         let ctx = egui::Context::default();

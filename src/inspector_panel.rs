@@ -1,12 +1,14 @@
-//! Ribbon panel selector, floating inspector, and resizable pinned panel.
+//! Ribbon visibility control, floating inspector, and resizable pinned panel.
 use super::{
     EditorState,
     inspector_widgets::{self, Glyph},
 };
+use crate::document::{Document, EditHistory};
 use eframe::egui::{self, CursorIcon, Id, Key, Pos2, Rect, Sense, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 
-pub(super) const SELECTOR_WIDTH: f32 = 104.;
+pub(super) const TOGGLE_WIDTH: f32 = 34.;
+pub(super) const OVERLAY_ID: &str = "inspector-overlay";
 const MIN_WIDTH: f32 = 260.;
 const MAX_WIDTH: f32 = 560.;
 const PANEL_MARGIN: i8 = 8;
@@ -99,6 +101,22 @@ impl State {
 }
 
 impl EditorState {
+    pub(super) fn show_inspector_panel(
+        &mut self,
+        panel: Panel,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
+        match panel {
+            Panel::Effects => self.open_image_effects(document, history),
+            Panel::Presets => {
+                self.cancel_image_tools();
+                self.inspector.show(panel);
+            }
+            _ => self.inspector.show(panel),
+        }
+    }
+
     pub fn set_inspector_preferences(&mut self, preferences: Preferences) {
         self.inspector = State {
             preferences,
@@ -112,184 +130,277 @@ impl EditorState {
     }
 }
 
-/// The primary action always opens Styles; the chevron exposes all sections.
-/// `true` means the primary action can also collapse an already-open Styles panel.
-pub(super) fn selector(ui: &mut egui::Ui, state: State) -> Option<(Panel, bool)> {
-    let mut action = None;
-    ui.scope(|ui| {
-        ui.spacing_mut().item_spacing.x = 2.;
-        let palette = crate::appearance::palette(ui.ctx());
-        let menu = ui.add_sized([24., 30.], egui::Button::new("").corner_radius(6));
-        menu.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Choose panel")
-        });
-        let center = menu.rect.center();
-        ui.painter().line(
-            vec![
-                center + Vec2::new(-4., -2.),
-                center + Vec2::new(0., 2.),
-                center + Vec2::new(4., -2.),
-            ],
-            Stroke::new(1.7, palette.ink),
-        );
-        let menu = menu.on_hover_text("Styles, Layers, Presets and Quick Effects");
-        egui::Popup::menu(&menu).show(|ui| {
-            ui.set_min_width(168.);
-            for panel in Panel::ALL {
-                let selected = state.preferences.expanded && state.is(panel);
-                let response = ui.add_sized([168., 30.], egui::Button::new("").selected(selected));
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        ui.is_enabled(),
-                        selected,
-                        panel.label(),
-                    )
-                });
-                inspector_widgets::paint_glyph(
-                    ui.painter(),
-                    response.rect.left_center() + Vec2::new(15., 0.),
-                    panel.glyph(),
-                    palette.ink,
-                    18.,
-                );
-                ui.painter().text(
-                    response.rect.left_center() + Vec2::new(32., 0.),
-                    egui::Align2::LEFT_CENTER,
-                    panel.label(),
-                    egui::FontId::proportional(13.),
-                    palette.ink,
-                );
-                if response.clicked() {
-                    action = Some((panel, false));
-                    ui.close();
-                }
-            }
-        });
-        let selected = state.preferences.expanded && state.is(Panel::Styles);
-        let styles = ui.add_sized(
-            [78., 30.],
-            egui::Button::new("").selected(selected).corner_radius(6),
-        );
-        styles.widget_info(|| {
-            egui::WidgetInfo::selected(
-                egui::WidgetType::Button,
-                ui.is_enabled(),
-                selected,
-                "Styles",
-            )
-        });
-        crate::appearance::icon(
-            ui.painter(),
-            styles.rect.left_center() + Vec2::new(15., 0.),
-            crate::appearance::Icon::Settings,
-            crate::appearance::satin_ink(ui.ctx(), crate::appearance::TileTone::Slate),
-            17.,
-        );
-        ui.painter().text(
-            styles.rect.left_center() + Vec2::new(29., 0.),
-            egui::Align2::LEFT_CENTER,
-            "Styles",
-            egui::FontId::proportional(13.),
-            palette.ink,
-        );
-        if styles
-            .on_hover_text(if selected {
-                "Close Styles"
-            } else {
-                "Open Styles"
-            })
-            .clicked()
-        {
-            action = Some((Panel::Styles, true));
-        }
+pub(super) fn toggle_button(ui: &mut egui::Ui, expanded: bool) -> egui::Response {
+    use crate::appearance::{self, TileTone};
+
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(TOGGLE_WIDTH, 38.), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            expanded,
+            "Properties",
+        )
     });
-    action
+    let tone = if expanded {
+        TileTone::Blue
+    } else {
+        TileTone::Slate
+    };
+    let ink = appearance::satin_button(
+        ui,
+        rect,
+        &response,
+        expanded,
+        appearance::satin_ink(ui.ctx(), tone),
+    );
+    let window = Rect::from_center_size(rect.center(), Vec2::new(21., 15.));
+    let divider = window.right() - 7.;
+    let painter = ui.painter();
+    if expanded {
+        painter.rect_filled(
+            Rect::from_min_max(
+                egui::pos2(divider, window.top() + 1.),
+                window.right_bottom() - Vec2::splat(1.),
+            ),
+            1.,
+            ink.gamma_multiply(0.28),
+        );
+    }
+    let stroke = Stroke::new(1.5, ink);
+    painter.rect_stroke(window, 3., stroke, egui::StrokeKind::Inside);
+    painter.line_segment(
+        [
+            egui::pos2(divider, window.top() + 1.),
+            egui::pos2(divider, window.bottom() - 1.),
+        ],
+        stroke,
+    );
+    response
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(if expanded {
+            "Hide properties panel"
+        } else {
+            "Show properties panel"
+        })
 }
 
 pub(super) enum HeaderAction {
     Close,
     TogglePin,
+    Show(Panel),
 }
 
 pub(super) fn header(ui: &mut egui::Ui, preferences: Preferences) -> Option<HeaderAction> {
+    use crate::appearance::{self, TileTone};
+
     let mut action = None;
     ui.horizontal(|ui| {
-        ui.strong(preferences.panel.label());
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if crate::appearance::icon_button(
-                ui,
-                "Close properties",
-                crate::appearance::Icon::Close,
-            )
-            .clicked()
-            {
-                action = Some(HeaderAction::Close);
-            }
-            let pin = ui.add_sized(
-                [24., 24.],
-                egui::Button::new("").selected(preferences.pinned),
-            );
-            let label = if preferences.pinned {
-                "Unpin panel"
-            } else {
-                "Pin panel"
-            };
-            pin.widget_info(|| {
+        let gap = 4.;
+        let height = 24.;
+        ui.spacing_mut().item_spacing.x = gap;
+        for panel in Panel::ALL {
+            let selected = preferences.panel == panel;
+            let tab = ui.add_sized([28., height], egui::Button::new("").frame(false));
+            tab.widget_info(|| {
                 egui::WidgetInfo::selected(
-                    egui::WidgetType::Button,
+                    egui::WidgetType::SelectableLabel,
                     ui.is_enabled(),
-                    preferences.pinned,
-                    label,
+                    selected,
+                    format!("Show {} panel", panel.label()),
                 )
             });
-            crate::appearance::icon(
-                ui.painter(),
-                pin.rect.center(),
-                if preferences.pinned {
-                    crate::appearance::Icon::Unpin
-                } else {
-                    crate::appearance::Icon::Pin
-                },
-                crate::appearance::palette(ui.ctx()).ink,
-                16.,
+            let tone = match panel {
+                Panel::Styles => TileTone::Slate,
+                Panel::Layers => TileTone::Blue,
+                Panel::Presets => TileTone::Clay,
+                Panel::Effects => TileTone::Violet,
+            };
+            let ink = appearance::satin_button(
+                ui,
+                tab.rect,
+                &tab,
+                selected,
+                appearance::satin_ink(ui.ctx(), tone),
             );
-            if pin
-                .on_hover_text(if preferences.pinned {
-                    "Unpin panel · Float over the canvas"
-                } else {
-                    "Pin panel · Dock beside the canvas"
-                })
+            inspector_widgets::paint_glyph(
+                ui.painter(),
+                tab.rect.center(),
+                panel.glyph(),
+                ink,
+                17.,
+            );
+            if tab
+                .on_hover_cursor(CursorIcon::PointingHand)
+                .on_hover_text(panel.label())
                 .clicked()
+                && !selected
             {
-                action = Some(HeaderAction::TogglePin);
+                action = Some(HeaderAction::Show(panel));
             }
+        }
+        let action_size = Vec2::splat(height);
+        let spacer = ui.available_width() - 2. * action_size.x - gap;
+        if preferences.pinned || spacer <= gap {
+            ui.add_space(spacer.max(0.));
+        } else {
+            let (rect, _) = ui.allocate_exact_size(Vec2::new(spacer - gap, height), Sense::hover());
+            let grip = ui.interact(rect, Id::new(OVERLAY_ID).with("grip"), Sense::drag());
+            grip.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Other,
+                    ui.is_enabled(),
+                    "Move properties panel",
+                )
+            });
+            let palette = appearance::palette(ui.ctx());
+            let ink = if grip.hovered() || grip.dragged() {
+                palette.accent
+            } else {
+                palette.muted
+            };
+            for y in [-2.5, 2.5] {
+                for x in [-5., 0., 5.] {
+                    ui.painter()
+                        .circle_filled(rect.center() + Vec2::new(x, y), 1.25, ink);
+                }
+            }
+            let cursor = if grip.dragged() {
+                CursorIcon::Grabbing
+            } else {
+                CursorIcon::Grab
+            };
+            grip.on_hover_and_drag_cursor(cursor)
+                .on_hover_text("Drag to move properties panel");
+        }
+        let ink = appearance::palette(ui.ctx()).ink;
+        let (pin_icon, pin_label, pin_hint) = if preferences.pinned {
+            (
+                appearance::Icon::Unpin,
+                "Unpin panel",
+                "Unpin panel and drag it anywhere on the canvas",
+            )
+        } else {
+            (
+                appearance::Icon::Pin,
+                "Pin panel",
+                "Pin panel to dock beside the canvas",
+            )
+        };
+        let pin = ui.add_sized(
+            action_size,
+            egui::Button::new("").selected(preferences.pinned),
+        );
+        pin.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                preferences.pinned,
+                pin_label,
+            )
         });
+        appearance::icon(ui.painter(), pin.rect.center(), pin_icon, ink, 16.);
+        if pin
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text(pin_hint)
+            .clicked()
+        {
+            action = Some(HeaderAction::TogglePin);
+        }
+
+        let close = ui.add_sized(action_size, egui::Button::new(""));
+        close.widget_info(|| {
+            egui::WidgetInfo::labeled(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                "Close properties",
+            )
+        });
+        appearance::icon(
+            ui.painter(),
+            close.rect.center(),
+            appearance::Icon::Close,
+            ink,
+            16.,
+        );
+        if close
+            .on_hover_cursor(CursorIcon::PointingHand)
+            .on_hover_text("Close properties")
+            .clicked()
+        {
+            action = Some(HeaderAction::Close);
+        }
     });
     ui.separator();
     action
 }
 
-pub(super) fn overlay_rect(ui: &egui::Ui) -> Rect {
+pub(super) fn overlay_placement(ui: &egui::Ui) -> (Rect, bool) {
     let workspace = ui.available_rect_before_wrap();
-    let width = ui
-        .ctx()
-        .data(|d| d.get_temp::<WidthPreference>(Id::new("annotation-inspector-width")))
-        .unwrap_or_default()
-        .0
-        .unwrap_or(MIN_WIDTH);
-    let width = width.clamp(MIN_WIDTH, MAX_WIDTH).min(workspace.width());
-    Rect::from_min_max(
-        Pos2::new(workspace.right() - width, workspace.top()),
-        workspace.max,
-    )
+    let ctx = ui.ctx();
+    let id = Id::new(OVERLAY_ID);
+    let position_id = id.with("position");
+    let (width, offset) = ctx.data(|data| {
+        let width = data
+            .get_temp::<WidthPreference>(Id::new("annotation-inspector-width"))
+            .unwrap_or_default()
+            .0
+            .unwrap_or(MIN_WIDTH);
+        (width, data.get_temp::<Vec2>(position_id))
+    });
+    let inset = (workspace.size().min_elem() * 0.1).clamp(0., 10.);
+    let bounds = workspace.shrink(inset);
+    let size = Vec2::new(
+        width
+            .clamp(MIN_WIDTH, MAX_WIDTH)
+            .min(bounds.width().max(0.)),
+        (bounds.height() * 0.85).clamp(0., 560.),
+    );
+    let travel = (bounds.size() - size).max(Vec2::ZERO);
+    let offset = offset
+        .unwrap_or(Vec2::new(travel.x, 0.))
+        .clamp(Vec2::ZERO, travel);
+    let mut position = offset;
+    let mut dragging = false;
+    // Read the grip before laying out the floating panel and hit-testing the canvas.
+    if ui.is_enabled()
+        && !egui::Popup::is_any_open(ctx)
+        && let Some(grip) = ctx
+            .read_response(id.with("grip"))
+            .filter(egui::Response::enabled)
+    {
+        let delta = if let Some((start, end)) = completed_drag(ui, grip.rect)
+            .filter(|(start, _)| ctx.layer_id_at(*start) == Some(grip.layer_id))
+        {
+            Some(end - start)
+        } else if grip.drag_started() {
+            Some(ui.input(|i| {
+                i.pointer
+                    .press_origin()
+                    .zip(i.pointer.interact_pos())
+                    .map_or(Vec2::ZERO, |(start, pos)| pos - start)
+            }))
+        } else if grip.dragged() || grip.drag_stopped() {
+            Some(ui.input(|i| i.pointer.delta()))
+        } else {
+            None
+        };
+        if let Some(delta) = delta {
+            dragging = true;
+            if delta != Vec2::ZERO {
+                position = (offset + delta).clamp(Vec2::ZERO, travel);
+                ctx.data_mut(|data| data.insert_temp(position_id, position));
+            }
+        }
+    }
+    (Rect::from_min_size(bounds.min + position, size), dragging)
 }
 
 pub(super) fn overlay<R>(ui: &egui::Ui, rect: Rect, contents: impl FnOnce(&mut egui::Ui) -> R) {
     let palette = crate::appearance::palette(ui.ctx());
     let enabled = ui.is_enabled();
     let opacity = ui.opacity();
-    egui::Area::new(Id::new("inspector-overlay"))
+    egui::Area::new(Id::new(OVERLAY_ID))
         .order(egui::Order::Foreground)
         .fixed_pos(rect.min)
         .default_size(rect.size())
@@ -302,27 +413,48 @@ pub(super) fn overlay<R>(ui: &egui::Ui, rect: Rect, contents: impl FnOnce(&mut e
             }
             ui.set_opacity(opacity);
             ui.set_clip_rect(rect);
-            egui::Frame::NONE
+            let frame = egui::Frame::new()
                 .fill(palette.paper)
-                .inner_margin(PANEL_MARGIN)
-                .show(ui, |ui| {
-                    ui.set_min_size(
-                        (rect.size() - Vec2::splat(2. * f32::from(PANEL_MARGIN))).max(Vec2::ZERO),
-                    );
-                    ui.set_max_size(
-                        (rect.size() - Vec2::splat(2. * f32::from(PANEL_MARGIN))).max(Vec2::ZERO),
-                    );
-                    contents(ui);
-                });
-            ui.painter().line_segment(
-                [rect.left_top(), rect.left_bottom()],
-                Stroke::new(1., palette.border),
-            );
+                .corner_radius(10)
+                .stroke(Stroke::new(1., palette.border))
+                .inner_margin(PANEL_MARGIN);
+            let size = (rect.size() - frame.total_margin().sum()).max(Vec2::ZERO);
+            frame.show(ui, |ui| {
+                ui.set_min_size(size);
+                ui.set_max_size(size);
+                contents(ui);
+            });
         });
 }
 
 #[derive(Clone, Copy, Default)]
 struct WidthPreference(Option<f32>);
+
+fn completed_drag(ui: &egui::Ui, rect: Rect) -> Option<(Pos2, Pos2)> {
+    // A native press, motion and release can all arrive between two repaints.
+    ui.input(|i| {
+        let mut origin = None;
+        let mut completed = None;
+        for event in &i.events {
+            if let egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                ..
+            } = event
+            {
+                if *pressed {
+                    origin = rect.contains(*pos).then_some(*pos);
+                } else if let Some(start) = origin.take()
+                    && pos.distance(start) > 3.
+                {
+                    completed = Some((start, *pos));
+                }
+            }
+        }
+        completed
+    })
+}
 
 pub(super) fn dock<R>(
     ui: &mut egui::Ui,
@@ -347,35 +479,9 @@ pub(super) fn dock<R>(
         .read_response(divider_id)
         .filter(|r| r.enabled() && ui.is_enabled())
     {
-        // A native drag can be delivered entirely between two repaints.
-        // egui then sees a release without an ongoing `dragged` response.
-        let completed_drag = if egui::Popup::is_any_open(ui.ctx()) {
-            None
-        } else {
-            ui.input(|i| {
-                let mut origin = None;
-                let mut end = None;
-                for event in &i.events {
-                    if let egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed,
-                        ..
-                    } = event
-                    {
-                        if *pressed {
-                            origin = response.rect.contains(*pos).then_some(*pos);
-                        } else if let Some(start) = origin.take()
-                            && pos.distance(start) > 3.
-                        {
-                            end = Some(*pos);
-                        }
-                    }
-                }
-                end
-            })
-        };
-        if let Some(pointer) = completed_drag {
+        if !egui::Popup::is_any_open(ui.ctx())
+            && let Some((_, pointer)) = completed_drag(ui, response.rect)
+        {
             preference.0 = Some((workspace.right() - pointer.x).clamp(min, max));
             response.request_focus();
         } else if response.double_clicked() {
@@ -740,10 +846,10 @@ mod tests {
         }
 
         fn choose_panel(&mut self, panel: Panel) {
-            if panel != Panel::Styles {
-                self.click("Choose panel");
+            if !self.editor.inspector.preferences.expanded {
+                self.click("Properties");
             }
-            self.click(panel.label());
+            self.click(&format!("Show {} panel", panel.label()));
         }
 
         fn source_quad(&mut self) -> Vec<(Pos2, Pos2)> {
@@ -803,10 +909,22 @@ mod tests {
         workspace.click("Pin panel");
         assert!(workspace.editor.inspector.preferences.pinned);
         assert_ne!(workspace.source_quad(), original);
+        workspace.click("Close properties");
+        assert!(!workspace.editor.inspector.preferences.expanded);
+        assert_eq!(workspace.source_quad(), original);
+        workspace.click("Properties");
+        assert_eq!(
+            workspace.editor.inspector.preferences,
+            Preferences {
+                panel: Panel::Effects,
+                pinned: true,
+                expanded: true,
+            }
+        );
         workspace.click("Unpin panel");
         assert!(!workspace.editor.inspector.preferences.pinned);
         assert_eq!(workspace.source_quad(), original);
-        workspace.click("Close properties");
+        workspace.click("Properties");
         assert!(!workspace.editor.inspector.preferences.expanded);
         assert!(workspace.editor.inspector.is(Panel::Effects));
         assert_eq!(workspace.source_quad(), original);
@@ -815,9 +933,63 @@ mod tests {
     }
 
     #[test]
+    fn inspector_header_switches_panels_in_one_row_when_floating_or_docked() {
+        let mut workspace = Workspace::new();
+        let before = workspace.document.edit_state();
+        workspace.click("Properties");
+        for pinned in [false, true] {
+            let pin = if pinned { "Unpin panel" } else { "Pin panel" };
+            let labels = Panel::ALL.map(|panel| format!("Show {} panel", panel.label()));
+            let output = workspace.settle();
+            let nodes = output.platform_output.accesskit_update.unwrap().nodes;
+            let bounds = |label: &str| {
+                nodes
+                    .iter()
+                    .find_map(|(_, node)| {
+                        (node.label() == Some(label))
+                            .then(|| node.bounds())
+                            .flatten()
+                    })
+                    .unwrap_or_else(|| panic!("Missing header control {label}"))
+            };
+            let row = labels
+                .iter()
+                .map(|label| bounds(label))
+                .chain([bounds(pin), bounds("Close properties")])
+                .collect::<Vec<_>>();
+            assert!(row.windows(2).all(|pair| pair[0].x1 <= pair[1].x0));
+            let row_center = row[0].y0 + row[0].y1;
+            assert!(
+                row.iter()
+                    .all(|rect| (rect.y0 + rect.y1 - row_center).abs() < 2.),
+                "Header controls should share a vertical center: {row:?}"
+            );
+
+            let canvas = workspace.source_quad();
+            for (panel, label) in Panel::ALL.into_iter().zip(labels) {
+                workspace.click(&label);
+                assert_eq!(
+                    workspace.editor.inspector.preferences,
+                    Preferences {
+                        panel,
+                        pinned,
+                        expanded: true
+                    }
+                );
+                assert_eq!(workspace.source_quad(), canvas);
+            }
+            if !pinned {
+                workspace.click("Pin panel");
+            }
+        }
+        assert_eq!(workspace.document.edit_state(), before);
+        assert!(!workspace.history.can_undo());
+    }
+
+    #[test]
     fn overlay_controls_and_fast_pen_input_do_not_reach_the_image_underneath() {
         let mut workspace = Workspace::new();
-        workspace.click("Styles");
+        workspace.click("Properties");
         let output = workspace.settle();
         let mut swatches: Vec<_> = output
             .platform_output
@@ -888,7 +1060,7 @@ mod tests {
     #[test]
     fn quick_style_tabs_save_apply_update_and_clear_without_resizing_the_canvas() {
         let mut workspace = Workspace::new();
-        workspace.click("Styles");
+        workspace.click("Properties");
         let image = workspace.source_quad();
         let artwork = workspace.document.edit_state();
         workspace.click("Quick styles 2");
@@ -954,7 +1126,7 @@ mod tests {
     #[test]
     fn styles_default_on_restore_and_document_reset_preserving_pin_and_tool_appearances() {
         let mut workspace = Workspace::new();
-        workspace.click("Styles");
+        workspace.click("Properties");
         workspace.click("Arrow · Blue quick style");
         workspace.choose_panel(Panel::Layers);
         workspace.click("Pin panel");
@@ -1047,8 +1219,8 @@ mod tests {
                 .find_map(|(_, n)| (n.label() == Some(label)).then(|| n.bounds()).flatten())
                 .unwrap()
         };
-        assert!(bounds("Styles").x0 >= bounds("More tools").x1);
-        assert!(bounds("Choose panel").x1 <= f64::from(workspace.size.x));
+        assert!(bounds("Properties").x0 >= bounds("More tools").x1);
+        assert!(bounds("Properties").x1 <= f64::from(workspace.size.x));
         assert!(!nodes.iter().any(|(_, n)| n.label() == Some("Fill")));
         workspace.click("More tools");
         workspace.click("Fill");
@@ -1073,19 +1245,82 @@ mod tests {
             assert!(workspace.editor.inspector.is(panel));
             assert!(workspace.editor.inspector.preferences.expanded);
         }
-        workspace.click("Styles");
+        workspace.choose_panel(Panel::Styles);
         assert!(workspace.editor.inspector.is(Panel::Styles));
         assert!(workspace.editor.inspector.preferences.expanded);
         workspace.click("Close properties");
-        workspace.click("Styles");
+        workspace.click("Properties");
         assert!(workspace.editor.inspector.is(Panel::Styles));
         assert!(workspace.editor.inspector.preferences.expanded);
     }
 
     #[test]
+    fn unpinned_inspector_drags_without_moving_or_editing_the_canvas() {
+        let mut workspace = Workspace::new();
+        let before = workspace.document.edit_state();
+        let canvas = workspace.source_quad();
+        let overlay = |workspace: &Workspace| {
+            workspace
+                .ctx
+                .memory(|m| m.area_rect(Id::new(OVERLAY_ID)))
+                .unwrap()
+        };
+        let grip = |workspace: &Workspace| {
+            workspace
+                .ctx
+                .read_response(Id::new(OVERLAY_ID).with("grip"))
+                .unwrap()
+                .rect
+                .center()
+        };
+        workspace.click("Properties");
+        workspace.click("Pin panel");
+        assert_ne!(workspace.source_quad(), canvas);
+        workspace.click("Unpin panel");
+        let initial = overlay(&workspace);
+        let start = grip(&workspace);
+        let delta = Vec2::new(-330., 44.);
+        let end = start + delta;
+        workspace.frame(vec![egui::Event::PointerMoved(start), pointer(start, true)]);
+        assert_eq!(
+            overlay(&workspace),
+            initial,
+            "pressing the grip must not move it"
+        );
+        workspace.frame(vec![egui::Event::PointerMoved(end)]);
+        assert_eq!(overlay(&workspace), initial.translate(delta));
+        workspace.frame(vec![pointer(end, false)]);
+        assert_eq!(overlay(&workspace), initial.translate(delta));
+        assert_eq!(workspace.source_quad(), canvas);
+
+        workspace.click("Close properties");
+        workspace.click("Properties");
+        assert_eq!(overlay(&workspace), initial.translate(delta));
+
+        let start = grip(&workspace);
+        let end = egui::pos2(0., workspace.size.y - 1.);
+        workspace.frame(vec![
+            egui::Event::PointerMoved(start),
+            pointer(start, true),
+            egui::Event::PointerMoved(end),
+            pointer(end, false),
+        ]);
+        workspace.settle();
+        let moved = overlay(&workspace);
+        assert!(moved.left() < initial.left() - 500.);
+        assert!(moved.top() > initial.top() + delta.y);
+        assert!(Rect::from_min_size(Pos2::ZERO, workspace.size).contains_rect(moved));
+        assert!(workspace.editor.inspector.preferences.expanded);
+        assert_eq!(workspace.source_quad(), canvas);
+        assert_eq!(workspace.document.edit_state(), before);
+        assert!(workspace.editor.gesture.is_none());
+        assert!(!workspace.history.can_undo());
+    }
+
+    #[test]
     fn floating_annotation_controls_do_not_cover_the_open_inspector() {
         let mut workspace = Workspace::new();
-        workspace.click("Styles");
+        workspace.click("Properties");
         let mut arrow = workspace.editor.new_annotation(
             crate::document::AnnotationKind::Arrow,
             crate::document::Point { x: 950., y: 250. },
@@ -1094,21 +1329,29 @@ mod tests {
         workspace.document.annotations.push(arrow);
         workspace.editor.select(Some(0), &workspace.document);
         workspace.settle();
-        let overlay = workspace
-            .ctx
-            .memory(|m| m.area_rect(Id::new("inspector-overlay")))
-            .unwrap();
-        let bar = workspace.ctx.memory(|m| {
-            m.area_rect(
-                Id::new("selected-object-properties")
-                    .with(crate::document::AnnotationKind::Arrow as u8)
-                    .with(1_usize),
-            )
-        });
-        assert!(
-            bar.is_none_or(|bar| !bar.intersects(overlay)),
-            "Floating controls {bar:?} cover inspector {overlay:?}"
-        );
+        for offset in [None, Some(Vec2::ZERO)] {
+            if let Some(offset) = offset {
+                workspace.ctx.data_mut(|d| {
+                    d.insert_temp(Id::new(OVERLAY_ID).with("position"), offset);
+                });
+                workspace.settle();
+            }
+            let (overlay, bar) = workspace.ctx.memory(|m| {
+                (
+                    m.area_rect(Id::new(OVERLAY_ID)).unwrap(),
+                    m.area_rect(
+                        Id::new("selected-object-properties")
+                            .with(crate::document::AnnotationKind::Arrow as u8)
+                            .with(1_usize),
+                    )
+                    .unwrap(),
+                )
+            });
+            assert!(
+                !bar.intersects(overlay),
+                "Floating controls {bar:?} cover inspector {overlay:?}"
+            );
+        }
     }
     #[test]
     fn object_styles_shortcut_opens_styles_without_editing_or_deselecting() {

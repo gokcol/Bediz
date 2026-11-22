@@ -447,16 +447,16 @@ impl EditorState {
         history: &mut EditHistory,
     ) {
         let tools = self.tools();
-        // Reserve the right-aligned panel selector and overflow before placing pins.
+        // Reserve the right-aligned properties toggle and overflow before placing pins.
         let select_extra = if self.toolbar_pins.iter().any(|label| label == "Select") {
             SELECTION_MENU_WIDTH
         } else {
             0.
         };
-        let capacity =
-            ((ui.available_width() - inspector_panel::SELECTOR_WIDTH - 42. - select_extra).max(0.)
-                / (44. + ui.spacing().item_spacing.x))
-                .floor() as usize;
+        let capacity = ((ui.available_width() - inspector_panel::TOGGLE_WIDTH - 42. - select_extra)
+            .max(0.)
+            / (44. + ui.spacing().item_spacing.x))
+            .floor() as usize;
         let visible: Vec<_> = self
             .toolbar_pins
             .iter()
@@ -535,25 +535,19 @@ impl EditorState {
                 ui.close();
             }
         });
-        let action = ui
+        let properties = ui
             .with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                inspector_panel::selector(ui, self.inspector)
+                inspector_panel::toggle_button(ui, self.inspector.preferences.expanded)
             })
             .inner;
-        if let Some((panel, toggle)) = action {
+        if properties.clicked() {
             self.finish_properties(document, history);
-            if toggle && self.inspector.is(panel) && self.inspector.preferences.expanded {
+            if self.inspector.preferences.expanded {
                 self.inspector.close();
             } else {
-                match panel {
-                    InspectorPanel::Effects => self.open_image_effects(document, history),
-                    InspectorPanel::Presets => {
-                        self.cancel_image_tools();
-                        self.inspector.show(panel);
-                    }
-                    _ => self.inspector.show(panel),
-                }
+                self.inspector.show(self.inspector.preferences.panel);
             }
+            ui.ctx().request_repaint();
         }
         self.copy_feedback(ui);
     }

@@ -405,57 +405,6 @@ impl LibraryPanel {
                 {
                     self.refresh();
                 }
-                let help = appearance::info_button(
-                    ui,
-                    "Recents guide",
-                    appearance::Icon::Library,
-                    appearance::TileTone::Clay,
-                );
-                egui::Popup::menu(&help).show(|ui| {
-                    use appearance::{Icon, TileTone};
-                    ui.set_width(267.);
-                    ui.spacing_mut().item_spacing.y = 5.;
-                    ui.label(RichText::new("Recent projects").size(15.).strong());
-                    for (icon, tone, title, detail) in [
-                        (
-                            Icon::OpenProject,
-                            TileTone::Blue,
-                            "Open a thumbnail",
-                            "Only editing or saving moves it to the front.",
-                        ),
-                        (
-                            Icon::Check,
-                            TileTone::Teal,
-                            "Select several",
-                            "Ctrl/⌘-click to add or remove. Shift-click for a range.",
-                        ),
-                        (
-                            Icon::Forward,
-                            TileTone::Violet,
-                            "Browse projects",
-                            "Scroll sideways, or use Left and Right Arrow with no selection.",
-                        ),
-                        (
-                            Icon::List,
-                            TileTone::Slate,
-                            "See file details",
-                            "Hover for the name and path. Right-click for file actions.",
-                        ),
-                    ] {
-                        ui.horizontal(|ui| {
-                            appearance::info_badge(ui, icon, tone, 31.);
-                            ui.vertical(|ui| {
-                                ui.spacing_mut().item_spacing.y = 1.;
-                                ui.label(RichText::new(title).size(12.).strong());
-                                ui.label(
-                                    RichText::new(detail)
-                                        .size(11.)
-                                        .color(appearance::palette(ui.ctx()).muted),
-                                );
-                            });
-                        });
-                    }
-                });
             });
         });
         chosen

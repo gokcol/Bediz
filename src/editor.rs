@@ -717,12 +717,12 @@ impl EditorState {
             self.clear_selection();
         }
         let workspace = ui.available_rect_before_wrap();
-        let overlay = inspector_panel::overlay_rect(ui);
+        let overlay = (self.inspector.preferences.expanded && !self.inspector.preferences.pinned)
+            .then(|| inspector_panel::overlay_placement(ui));
         // Only a direct press in the canvas dismisses the overlay. Its child
         // popups and modal dialogs retain their normal focus and input behavior.
-        if self.inspector.preferences.expanded
+        if let Some((overlay, false)) = overlay
             && !self.precision_active()
-            && !self.inspector.preferences.pinned
             && ui.is_enabled()
             && !egui::Popup::is_any_open(ui.ctx())
             && ui
@@ -741,7 +741,7 @@ impl EditorState {
         if self.inspector.preferences.expanded {
             if self.inspector.preferences.pinned {
                 inspector_panel::dock(ui, |ui| self.inspector_contents(ui, document, history));
-            } else {
+            } else if let Some((overlay, _)) = overlay {
                 inspector_panel::overlay(ui, overlay, |ui| {
                     self.inspector_contents(ui, document, history)
                 });
@@ -758,6 +758,13 @@ impl EditorState {
             .inner_margin(12)
             .corner_radius(8)
             .show(ui, |ui| {
+                if overlay.is_some_and(|(_, dragging)| dragging) {
+                    // A quick drag can uncover its press location before the
+                    // canvas processes the same frame of pointer events.
+                    let opacity = ui.opacity();
+                    ui.disable();
+                    ui.set_opacity(opacity);
+                }
                 self.canvas(ui, document, history, texture, preview)
             });
         ui.set_opacity(workspace_opacity);
@@ -777,6 +784,9 @@ impl EditorState {
             match action {
                 inspector_panel::HeaderAction::Close => self.inspector.close(),
                 inspector_panel::HeaderAction::TogglePin => self.inspector.toggle_pin(),
+                inspector_panel::HeaderAction::Show(panel) => {
+                    self.show_inspector_panel(panel, document, history);
+                }
             }
             ui.ctx().request_repaint();
         }
@@ -1085,14 +1095,14 @@ impl EditorState {
                         .strong(),
                 );
                 ui.label(
-                    egui::RichText::new("Includes visible edits")
+                    egui::RichText::new("Includes visible layers and effects")
                         .size(11.)
                         .color(palette.muted),
                 );
             });
         })
         .response
-        .on_hover_text("Select all with Command/Ctrl+A. Deselect with Escape.");
+        .on_hover_text("Press Command+A on Mac or Ctrl+A on Windows to select all. Press Escape to clear the selection.");
     }
 
     fn apply_geometry(

@@ -143,6 +143,8 @@ Choose Cobalt Satin, Amber Enamel or Jade Graphite in **App menu → Settings**,
 
 **Settings → Pointer** offers Standard (default) and Calico. Calico includes a cat-accented arrow, open/closed grab paws, and matching crosshair, text, link, move, resize, status and zoom pointers. Precision hotspots stay exact; Fill keeps its bucket and selected color with a small cat accent. The same preference applies in the editor and capture controls. This UI artwork is excluded from image exports.
 
+Use the **Properties** icon on the editor ribbon to show or hide the right panel. The panel’s **X** closes it, and reopening brings back the selected section. Use the icons in the panel header to switch sections.
+
 Drag the left divider of the right properties panel to resize it. Double-click the divider to restore its compact fitted width. With the divider focused, arrow keys resize it and Home resets it. Styles, Layers, Presets and Effects share the width during the session; the app starts with the compact fit.
 
 Text and twelve callout styles edit directly on the canvas. The Magnify tool in **More tools** offers twenty visual presets with adjustable lenses and linked source areas. The Library sidebar and More/customization menus are more compact, and Fill has a dedicated pointer.
@@ -408,7 +410,7 @@ When copying selected annotation objects, the system clipboard carries a version
 
 ## Layers
 
-Open **Edit → Layers** beside Styles. Compact rows show each object’s shape/tool icon and name, with eye and lock controls alongside it. Groups expand into member rows, with frontmost objects first. Select artwork to reveal Rename, Group/Ungroup, Duplicate and Delete; the small ordering controls move it through the stack. Hover an icon for its action.
+Open **Properties** and click the **Layers** icon in the panel header. Compact rows show each object’s shape/tool icon and name, with eye and lock controls alongside it. Groups expand into member rows, with frontmost objects first. Select artwork to reveal Rename, Group/Ungroup, Duplicate and Delete; the small ordering controls move it through the stack. Hover an icon for its action.
 
 - **Rename:** select an annotation or group and choose **Rename…**, or double-click its name. A blank name restores its automatic label.
 - **Show:** hide or reveal the selected layer. Hiding a group preserves each member’s own visibility setting. Hidden layers stay editable in the project and are omitted from the canvas, viewer, thumbnails, and every export format.
@@ -420,7 +422,7 @@ Every layer change supports undo and redo. Saving and reopening `.myimage` retai
 
 ## Quick Effects and compact workspace
 
-Open **Effects** beside Styles, Layers and Presets, or use **Effects** in the canvas footer. Visual cards apply **Soft shadow**, **Floating**, **Ink border**, **Calico border** and **Grayscale**. Shadow opacity, softness and offset use sliders; Border offers width, a color picker and swatches. The Shadow, Border and Color tabs show only the chosen properties. Effects style the entire composition while retaining the original image and editable annotations in the project.
+Open **Quick Effects** from the panel header or the canvas footer. Visual cards apply **Soft shadow**, **Floating**, **Ink border**, **Calico border** and **Grayscale**. Shadow opacity, softness and offset use sliders; Border offers width, a color picker and swatches. Effects style the entire composition while retaining the original image and editable annotations in the project.
 
 Borders and rectangular frame shadows add transparent canvas space around the current image frame. Changing effects reuses that frame, preventing cumulative padding. **No effects** removes styling; the extra canvas remains available. Undo restores both styling and canvas size. Preview, copying, Library thumbnails and every export format include the effects. Grayscale preserves alpha and leaves the border’s independently chosen color intact.
 
@@ -446,9 +448,11 @@ Draw a pixel selection with **Select**, then choose **Adjust selected area**. Us
 
 ## Editor tools and quick styles
 
-Edit keeps annotation tools in a top toolbar. Selecting **Arrow**, for example, opens **Arrow → Quick styles → Tool properties** in the right panel. Open **Image**, just after the **Styles** controls, for whole-image and canvas operations. Right-click the displayed image for these operations plus Undo/Redo, Copy/Cut/Paste and zoom controls. The small **Image actions** menu below the canvas offers the same commands. Choose a visual style, then draw; selecting an existing annotation lets you restyle it in one undoable action. Styles adjust the relevant colors, thickness, fill, text size, or effect strength while keeping the object's content, geometry, and group/layer settings. Locked artwork cannot be restyled, and multi-selections retain their arrangement controls. Text, arrows, shapes, steps, callouts, highlighters, pen, blur, and pixelate each have contextual choices; Eraser has its own size controls.
+Unpin the **Properties** panel and drag the dotted grip in its header to move it around the canvas. Pin it to dock it on the right.
 
-**Layers** and **Presets** stay available beside Styles. Choosing a drawing tool returns to its properties automatically. The compact inspector shows only that tool’s options until artwork is selected; grouping, alignment, duplicate and deletion controls appear with a selection. Quick styles are built-in starting points; use Presets to save your own reusable artwork. Inserted or restyled annotations remain editable in `.myimage` projects. Zoom, opacity, privacy strength, and JPEG quality use a shared slider with a thin track, small white thumb, and a larger invisible interaction target. Opacity, privacy strength, and JPEG quality also have editable numeric fields.
+Edit keeps annotation tools in a top toolbar. Selecting **Arrow**, for example, opens **Arrow → Quick styles → Tool properties** in the right panel. Open **Image** beside the **Properties** icon for whole-image and canvas operations. Right-click the displayed image for these operations plus Undo/Redo, Copy/Cut/Paste and zoom controls. The small **Image actions** menu below the canvas offers the same commands. Choose a visual style, then draw; selecting an existing annotation lets you restyle it in one undoable action. Styles adjust the relevant colors, thickness, fill, text size, or effect strength while keeping the object's content, geometry, and group/layer settings. Locked artwork cannot be restyled, and multi-selections retain their arrangement controls. Text, arrows, shapes, steps, callouts, highlighters, pen, blur, and pixelate each have contextual choices; Eraser has its own size controls.
+
+Choosing a drawing tool returns to its properties automatically. The compact inspector shows only that tool’s options until artwork is selected; grouping, alignment, duplicate and deletion controls appear with a selection. Quick styles are built-in starting points; use Presets to save your own reusable artwork. Inserted or restyled annotations remain editable in `.myimage` projects. Zoom, opacity, privacy strength, and JPEG quality use a shared slider with a thin track, small white thumb, and a larger invisible interaction target. Opacity, privacy strength, and JPEG quality also have editable numeric fields.
 
 ## Style Brush, Measure and Color Inspector
 

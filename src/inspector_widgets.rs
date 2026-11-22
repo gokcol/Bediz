@@ -25,6 +25,14 @@ pub(super) enum Glyph {
     Order { front: bool, extreme: bool },
 }
 
+pub(super) fn help_section(ui: &mut egui::Ui, title: &str, detail: &str) {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = 2.;
+        ui.label(egui::RichText::new(title).size(12.).strong());
+        ui.label(egui::RichText::new(detail).size(12.));
+    });
+}
+
 pub(super) fn tile(
     ui: &mut egui::Ui,
     label: &str,

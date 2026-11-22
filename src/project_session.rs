@@ -239,7 +239,7 @@ mod tests {
                 })
                 .unwrap()
         };
-        assert!(bounds("Image").x0 >= bounds("Choose panel").x1);
+        assert!(bounds("Image").x0 >= bounds("Properties").x1);
         assert!(bounds("File").x0 >= bounds("Image").x1);
         assert!(bounds("File").x1 > 640.);
         assert!(

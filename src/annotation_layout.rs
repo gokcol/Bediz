@@ -818,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn recents_header_opens_both_information_panels_and_lists_objects() {
+    fn recents_header_opens_canvas_information_and_lists_objects() {
         let ctx = egui::Context::default();
         ctx.enable_accesskit();
         crate::appearance::apply(&ctx);
@@ -840,46 +840,30 @@ mod tests {
                 });
             })
         };
-        for (trigger, labels) in [
-            (
-                "Canvas information",
-                [
-                    "Objects · 3",
-                    "Review arrow",
-                    "Hidden markup",
-                    "Open Layers",
-                ],
-            ),
-            (
-                "Recents guide",
-                [
-                    "Open a thumbnail",
-                    "Select several",
-                    "Browse projects",
-                    "See file details",
-                ],
-            ),
+        frame(vec![]);
+        let header = frame(vec![]);
+        assert!(label_position(&header, "Recents guide").is_none());
+        assert!(label_position(&header, "Refresh recents").is_some());
+        let button = label_position(&header, "Canvas information").unwrap();
+        for pressed in [true, false] {
+            frame(vec![
+                egui::Event::PointerMoved(button),
+                egui::Event::PointerButton {
+                    pos: button,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                },
+            ]);
+        }
+        let menu = frame(vec![]);
+        for label in [
+            "Objects · 3",
+            "Review arrow",
+            "Hidden markup",
+            "Open Layers",
         ] {
-            frame(vec![]);
-            let button = label_position(&frame(vec![]), trigger).unwrap();
-            for pressed in [true, false] {
-                frame(vec![
-                    egui::Event::PointerMoved(button),
-                    egui::Event::PointerButton {
-                        pos: button,
-                        button: PointerButton::Primary,
-                        pressed,
-                        modifiers: Modifiers::NONE,
-                    },
-                ]);
-            }
-            let menu = frame(vec![]);
-            for label in labels {
-                assert!(
-                    label_position(&menu, label).is_some(),
-                    "{trigger} is missing {label}"
-                );
-            }
+            assert!(label_position(&menu, label).is_some(), "missing {label}");
         }
     }
 
