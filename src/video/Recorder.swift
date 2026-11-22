@@ -3,6 +3,7 @@ import AVFoundation
 import CoreImage
 import Foundation
 import ImageIO
+import OSLog
 @preconcurrency import ScreenCaptureKit
 
 private struct RecorderError: LocalizedError {
@@ -16,6 +17,7 @@ private struct RecorderError: LocalizedError {
 // Share a single camera between the live preview and the recording encoder.
 private final class WebcamSource: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
     private static let queue = DispatchQueue(label: "com.myimage.app.webcam")
+    private static let log = Logger(subsystem: "com.myimage.app", category: "PresenterCamera")
     let session = AVCaptureSession()
     private let lock = NSLock()
     private var frame: CIImage?
@@ -33,7 +35,7 @@ private final class WebcamSource: NSObject, AVCaptureVideoDataOutputSampleBuffer
             if allowed {
                 Self.queue.async { [weak self] in self?.configure() }
             } else {
-                self?.fail("Camera access is off. Enable Bediz in Privacy & Security → Camera, or choose Webcam off.")
+                self?.fail("Allow Bediz in System Settings → Privacy & Security → Camera, or turn off the presenter camera.")
             }
         }
     }
@@ -47,27 +49,36 @@ private final class WebcamSource: NSObject, AVCaptureVideoDataOutputSampleBuffer
         do {
             guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
                     ?? AVCaptureDevice.default(for: .video) else {
-                throw RecorderError("No webcam is available. Choose Webcam off to record the screen.")
+                throw RecorderError("No camera is available. Turn off the presenter camera to record the screen.")
             }
             if session.canSetSessionPreset(.medium) { session.sessionPreset = .medium }
             let input = try AVCaptureDeviceInput(device: device)
             let output = AVCaptureVideoDataOutput()
             output.alwaysDiscardsLateVideoFrames = true
             output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-            guard session.canAddInput(input), session.canAddOutput(output) else {
-                throw RecorderError("The webcam could not be started.")
+            guard session.canAddInput(input) else {
+                throw RecorderError("The camera could not connect. Check whether another app is using it.")
             }
             session.addInput(input)
+            guard session.canAddOutput(output) else {
+                throw RecorderError("Bediz could not receive video from this camera.")
+            }
             session.addOutput(output)
             output.setSampleBufferDelegate(self, queue: Self.queue)
             session.startRunning()
-            if !session.isRunning { throw RecorderError("The webcam is unavailable.") }
+            if !session.isRunning { throw RecorderError("The camera session could not start.") }
+            Self.log.notice("Camera session started")
+            Self.queue.asyncAfter(deadline: .now() + 6) { [weak self] in
+                guard let self, self.snapshot().frame == nil else { return }
+                self.fail("No camera frames arrived. Close other apps using the camera, then turn the presenter camera off and on.")
+            }
         } catch {
             fail(error.localizedDescription)
         }
     }
 
     private func fail(_ message: String) {
+        Self.log.error("Camera unavailable: \(message, privacy: .public)")
         lock.lock()
         failure = message
         lock.unlock()
@@ -83,8 +94,11 @@ private final class WebcamSource: NSObject, AVCaptureVideoDataOutputSampleBuffer
         guard let buffer = sample.imageBuffer else { return }
         let image = CIImage(cvPixelBuffer: buffer)
         lock.lock()
+        let firstFrame = frame == nil
         frame = image
+        failure = nil
         lock.unlock()
+        if firstFrame { Self.log.notice("First camera frame received") }
     }
 }
 
@@ -94,13 +108,15 @@ private final class WebcamPreview {
     let source: WebcamSource
     private var panel: NSPanel?
     private var layer: AVCaptureVideoPreviewLayer?
+    private lazy var thumbnailContext = CIContext(options: [.cacheIntermediates: false])
+    private var didRenderThumbnail = false
 
     init() {
         source = Self.activeSource ?? WebcamSource()
         Self.activeSource = source
     }
 
-    func show(target: CGRect, position: CGPoint, windowID: CGWindowID) {
+    func show(target: CGRect, position: CGPoint, windowID: CGWindowID, sizeRatio: CGFloat, mirrored: Bool) {
         guard source.snapshot().frame != nil else { return }
         var bounds = target
         if windowID != 0 {
@@ -115,11 +131,15 @@ private final class WebcamPreview {
             bounds = frame
         }
         guard let primary = NSScreen.screens.first else { return }
-        let bubble = webcamBounds(in: bounds, at: position)
+        let bubble = webcamBounds(in: bounds, at: position, sizeRatio: sizeRatio)
         let frame = CGRect(x: bubble.minX, y: primary.frame.maxY - bubble.maxY,
                            width: bubble.width, height: bubble.height)
         if panel == nil { makePanel(frame: frame) }
         guard let panel, let layer, let view = panel.contentView else { return }
+        if let connection = layer.connection, connection.isVideoMirroringSupported,
+           connection.isVideoMirrored != mirrored {
+            connection.isVideoMirrored = mirrored
+        }
         if panel.frame != frame {
             panel.setFrame(frame, display: false)
             view.layer?.cornerRadius = frame.width / 2
@@ -166,6 +186,19 @@ private final class WebcamPreview {
 
     func hide() { panel?.orderOut(nil) }
 
+    func copyThumbnail(to buffer: UnsafeMutableRawPointer, side: Int, mirrored: Bool) -> Bool {
+        guard let camera = source.snapshot().frame else { return false }
+        let box = CGRect(x: 0, y: 0, width: side, height: side)
+        let face = fillCamera(camera, box: box, mirrored: mirrored)
+        thumbnailContext.render(face, toBitmap: buffer, rowBytes: side * 4, bounds: box,
+                                format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        if !didRenderThumbnail {
+            didRenderThumbnail = true
+            Logger(subsystem: "com.myimage.app", category: "PresenterCamera").notice("Live preview received its first frame")
+        }
+        return true
+    }
+
     func close() {
         layer?.session = nil
         panel?.close()
@@ -174,15 +207,26 @@ private final class WebcamPreview {
     }
 }
 
-private func webcamBounds(in bounds: CGRect, at position: CGPoint) -> CGRect {
+private func webcamBounds(in bounds: CGRect, at position: CGPoint, sizeRatio: CGFloat) -> CGRect {
     let size = min(bounds.width, bounds.height)
-    let diameter = size * 0.22
+    let diameter = size * sizeRatio
     let inset = size * 0.035
     return CGRect(
         x: bounds.minX + inset + position.x * (bounds.width - diameter - 2 * inset),
         y: bounds.minY + inset + position.y * (bounds.height - diameter - 2 * inset),
         width: diameter, height: diameter
     )
+}
+
+private func fillCamera(_ camera: CIImage, box: CGRect, mirrored: Bool) -> CIImage {
+    let scale = box.width / min(camera.extent.width, camera.extent.height)
+    let scaleX = mirrored ? -scale : scale
+    let transform = CGAffineTransform(
+        a: scaleX, b: 0, c: 0, d: scale,
+        tx: box.midX - camera.extent.midX * scaleX,
+        ty: box.midY - camera.extent.midY * scale
+    )
+    return camera.transformed(by: transform).cropped(to: box)
 }
 
 @_cdecl("bediz_webcam_create")
@@ -195,15 +239,28 @@ public func bediz_webcam_create() -> UnsafeMutableRawPointer {
 @MainActor
 public func bediz_webcam_show(
     _ handle: UnsafeRawPointer, _ x: Double, _ y: Double, _ width: Double, _ height: Double,
-    _ cameraX: Double, _ cameraY: Double, _ window: UInt32
+    _ cameraX: Double, _ cameraY: Double, _ window: UInt32,
+    _ sizeRatio: Double, _ mirrored: Int32
 ) {
     let preview = Unmanaged<WebcamPreview>.fromOpaque(handle).takeUnretainedValue()
     if width > 0 && height > 0 {
         preview.show(target: CGRect(x: x, y: y, width: width, height: height),
-                     position: CGPoint(x: cameraX, y: cameraY), windowID: window)
+                     position: CGPoint(x: cameraX, y: cameraY), windowID: window,
+                     sizeRatio: sizeRatio, mirrored: mirrored != 0)
     } else {
         preview.hide()
     }
+}
+
+@_cdecl("bediz_webcam_copy_preview")
+@MainActor
+public func bediz_webcam_copy_preview(
+    _ handle: UnsafeRawPointer, _ output: UnsafeMutableRawPointer, _ capacity: Int,
+    _ side: Int, _ mirrored: Int32
+) -> Int32 {
+    guard (32...256).contains(side), capacity >= 4 * side * side else { return 0 }
+    let preview = Unmanaged<WebcamPreview>.fromOpaque(handle).takeUnretainedValue()
+    return preview.copyThumbnail(to: output, side: side, mirrored: mirrored != 0) ? 1 : 0
 }
 
 @_cdecl("bediz_webcam_status")
@@ -238,6 +295,8 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private var statusText = ""
     private let destination: URL
     private let cameraPosition: CGPoint?
+    private let cameraSize: CGFloat
+    private let cameraMirrored: Bool
     private var webcam: WebcamSource?
     private let maxNanoseconds: UInt64
     private let diskReserve: UInt64
@@ -270,11 +329,14 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         case off, system, microphone
     }
 
-    init(destination: URL, cameraPosition: CGPoint?, webcam: WebcamSource?, maxSeconds: UInt32, diskReserve: UInt64,
+    init(destination: URL, cameraPosition: CGPoint?, cameraSize: CGFloat, cameraMirrored: Bool,
+         webcam: WebcamSource?, maxSeconds: UInt32, diskReserve: UInt64,
          audioSource: AudioSource, audioBitsPerSecond: Int,
          voiceProcessing: Bool, countdownSeconds: UInt32) {
         self.destination = destination
         self.cameraPosition = cameraPosition
+        self.cameraSize = cameraSize
+        self.cameraMirrored = cameraMirrored
         self.webcam = webcam
         self.maxNanoseconds = UInt64(maxSeconds) * 1_000_000_000
         self.diskReserve = diskReserve
@@ -664,15 +726,11 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
                               over frame: CVPixelBuffer, into target: CVPixelBuffer, using context: CIContext) {
         let screen = CIImage(cvPixelBuffer: frame)
         // Core Image's origin is at the bottom left of the captured frame.
-        let box = webcamBounds(in: screen.extent, at: CGPoint(x: position.x, y: 1 - position.y))
+        let box = webcamBounds(in: screen.extent, at: CGPoint(x: position.x, y: 1 - position.y),
+                               sizeRatio: cameraSize)
         let diameter = box.width
         let center = CGPoint(x: box.midX, y: box.midY)
-        let scale = diameter / min(camera.extent.width, camera.extent.height)
-        let transform = CGAffineTransform(
-            a: scale, b: 0, c: 0, d: scale,
-            tx: center.x - camera.extent.midX * scale, ty: center.y - camera.extent.midY * scale
-        )
-        let face = camera.transformed(by: transform).cropped(to: box)
+        let face = fillCamera(camera, box: box, mirrored: cameraMirrored)
         let mask = CIFilter(name: "CIRadialGradient", parameters: [
             "inputCenter": CIVector(cgPoint: center),
             "inputRadius0": max(0, diameter / 2 - 1),
@@ -772,6 +830,7 @@ private func recorder(_ handle: UnsafeRawPointer) -> Recorder {
 public func bediz_record_start(
     _ path: UnsafePointer<CChar>, _ display: UInt32, _ window: UInt32,
     _ cursor: Int32, _ webcamPreview: UnsafeRawPointer?, _ cameraX: Double, _ cameraY: Double,
+    _ cameraSize: Double, _ cameraMirrored: Int32,
     _ outputWidth: UInt32, _ outputHeight: UInt32, _ bitsPerSecond: UInt32,
     _ maxSeconds: UInt32, _ diskReserve: UInt64, _ audioSource: UInt32, _ audioBitsPerSecond: UInt32,
     _ voiceProcessing: Int32, _ countdownSeconds: UInt32
@@ -779,7 +838,8 @@ public func bediz_record_start(
     let destination = URL(fileURLWithPath: String(cString: path))
     let webcam = webcamPreview.map { Unmanaged<WebcamPreview>.fromOpaque($0).takeUnretainedValue().source }
     let position = webcam.map { _ in CGPoint(x: cameraX, y: cameraY) }
-    let job = Recorder(destination: destination, cameraPosition: position, webcam: webcam, maxSeconds: maxSeconds,
+    let job = Recorder(destination: destination, cameraPosition: position, cameraSize: cameraSize,
+                       cameraMirrored: cameraMirrored != 0, webcam: webcam, maxSeconds: maxSeconds,
                        diskReserve: diskReserve, audioSource: Recorder.AudioSource(rawValue: audioSource) ?? .off,
                        audioBitsPerSecond: Int(audioBitsPerSecond),
                        voiceProcessing: voiceProcessing != 0, countdownSeconds: countdownSeconds)

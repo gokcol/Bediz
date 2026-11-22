@@ -1,3 +1,7 @@
+use crate::{
+    appearance::{self, Icon},
+    capture_panel::CaptureLook,
+};
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -57,20 +61,27 @@ impl VideoTarget {
         }
     }
 
-    pub(crate) fn ui(&mut self, ui: &mut egui::Ui) -> bool {
-        let label = |target| match target {
-            Self::Window => "Window",
-            Self::FullScreen => "Full screen",
-        };
-        let mut changed = false;
-        egui::ComboBox::from_id_salt("video-target")
-            .selected_text(label(*self))
-            .show_ui(ui, |ui| {
-                for target in [Self::Window, Self::FullScreen] {
-                    changed |= ui.selectable_value(self, target, label(target)).changed();
-                }
-            });
-        changed
+    pub(crate) fn ui(&mut self, ui: &mut egui::Ui, look: &CaptureLook) -> bool {
+        appearance::segmented_with_palette(
+            ui,
+            "video-target",
+            self,
+            &[
+                (
+                    Self::Window,
+                    "Window",
+                    Some(Icon::View),
+                    "Record a single window",
+                ),
+                (
+                    Self::FullScreen,
+                    "Full screen",
+                    Some(Icon::Fit),
+                    "Record this entire display",
+                ),
+            ],
+            look.palette,
+        )
     }
 }
 
@@ -114,8 +125,12 @@ impl AudioQuality {
         }
     }
 
-    fn label(self) -> String {
-        format!("{} kbps", self.rate() / 1000)
+    fn label(self) -> &'static str {
+        match self {
+            Self::Compact => "64 kbps",
+            Self::Standard => "96 kbps",
+            Self::High => "128 kbps",
+        }
     }
 }
 
@@ -123,6 +138,7 @@ impl AudioQuality {
 #[serde(default)]
 pub(crate) struct VideoPreferences {
     pub target: VideoTarget,
+    pub presenter_camera: bool,
     quality: Quality,
     max_minutes: u32,
     audio_source: AudioSource,
@@ -135,6 +151,7 @@ impl Default for VideoPreferences {
     fn default() -> Self {
         Self {
             target: VideoTarget::default(),
+            presenter_camera: true,
             quality: Quality::Balanced,
             max_minutes: 30,
             audio_source: Default::default(),
@@ -264,22 +281,26 @@ pub(crate) fn preferences_ui(
     prefs: &mut VideoPreferences,
     root: &Path,
     region: Option<[u32; 2]>,
+    look: &CaptureLook,
 ) -> bool {
-    let mut changed = false;
+    let mut changed = ui
+        .horizontal_wrapped(|ui| {
+            heading(ui, look, Icon::Video, "Resolution");
+            appearance::segmented_with_palette(
+                ui,
+                "recording-quality",
+                &mut prefs.quality,
+                &[
+                    (Quality::Compact, "720p", None, Quality::Compact.label()),
+                    (Quality::Balanced, "1080p", None, Quality::Balanced.label()),
+                    (Quality::High, "4K", None, Quality::High.label()),
+                ],
+                look.palette,
+            )
+        })
+        .inner;
     ui.horizontal(|ui| {
-        ui.label("Quality");
-        egui::ComboBox::from_id_salt("recording-quality")
-            .selected_text(prefs.quality.label())
-            .show_ui(ui, |ui| {
-                for quality in Quality::ALL {
-                    changed |= ui
-                        .selectable_value(&mut prefs.quality, quality, quality.label())
-                        .changed();
-                }
-            });
-    });
-    ui.horizontal(|ui| {
-        ui.label("Maximum duration");
+        ui.label("Maximum recording time");
         changed |= ui
             .add(
                 egui::DragValue::new(&mut prefs.max_minutes)
@@ -288,57 +309,59 @@ pub(crate) fn preferences_ui(
             )
             .changed();
     });
-    ui.horizontal(|ui| {
-        ui.label("Audio");
-        egui::ComboBox::from_id_salt("recording-audio-source")
-            .selected_text(prefs.audio_source.label())
-            .show_ui(ui, |ui| {
-                for source in AudioSource::ALL {
-                    changed |= ui
-                        .selectable_value(&mut prefs.audio_source, source, source.label())
-                        .changed();
-                }
-            });
-    });
-    ui.add_enabled_ui(prefs.audio_source != AudioSource::Off, |ui| {
-        ui.horizontal(|ui| {
-            ui.label("Audio quality");
-            egui::ComboBox::from_id_salt("recording-audio-quality")
-                .selected_text(prefs.audio_quality.label())
-                .show_ui(ui, |ui| {
-                    for quality in AudioQuality::ALL {
-                        changed |= ui
-                            .selectable_value(&mut prefs.audio_quality, quality, quality.label())
-                            .changed();
-                    }
-                });
-        });
-    });
+    ui.separator();
+    changed |= ui
+        .horizontal_wrapped(|ui| {
+            heading(ui, look, Icon::Microphone, "Audio");
+            appearance::segmented_with_palette(
+                ui,
+                "recording-audio-source",
+                &mut prefs.audio_source,
+                &AudioSource::ALL.map(|source| (source, source.label(), None, "")),
+                look.palette,
+            )
+        })
+        .inner;
+    if prefs.audio_source != AudioSource::Off {
+        changed |= ui
+            .horizontal_wrapped(|ui| {
+                ui.label("Audio quality");
+                appearance::segmented_with_palette(
+                    ui,
+                    "recording-audio-quality",
+                    &mut prefs.audio_quality,
+                    &AudioQuality::ALL.map(|quality| (quality, quality.label(), None, "")),
+                    look.palette,
+                )
+            })
+            .inner;
+    }
     if prefs.audio_source == AudioSource::Microphone {
         changed |= ui
             .checkbox(&mut prefs.reduce_noise, "Reduce background noise")
             .on_hover_text("Use macOS voice processing for the microphone.")
             .changed();
     }
-    ui.horizontal(|ui| {
-        ui.label("Start countdown");
-        let label = |seconds| {
-            if seconds == 0 {
-                "Off".into()
-            } else {
-                format!("{seconds} s")
-            }
-        };
-        egui::ComboBox::from_id_salt("recording-countdown")
-            .selected_text(label(prefs.countdown_seconds.min(10)))
-            .show_ui(ui, |ui| {
-                for seconds in [0, 3, 5, 10] {
-                    changed |= ui
-                        .selectable_value(&mut prefs.countdown_seconds, seconds, label(seconds))
-                        .changed();
-                }
-            });
-    });
+    ui.separator();
+    changed |= ui
+        .horizontal_wrapped(|ui| {
+            heading(ui, look, Icon::Timer, "Countdown");
+            appearance::segmented_with_palette(
+                ui,
+                "recording-countdown",
+                &mut prefs.countdown_seconds,
+                &[
+                    (0, "Off", None, ""),
+                    (3, "3 s", None, ""),
+                    (5, "5 s", None, ""),
+                    (10, "10 s", None, ""),
+                ],
+                look.palette,
+            )
+        })
+        .inner;
+    ui.separator();
+    heading(ui, look, Icon::Save, "Recording size");
     let free = sampled_space(ui, root);
     if let Some([width, height]) = region {
         let plan = prefs.plan(width, height);
@@ -381,7 +404,7 @@ pub(crate) fn preferences_ui(
             }
         }
     } else {
-        ui.weak("Select a region to estimate the MP4 size.");
+        ui.weak("Choose a recording target to estimate the MP4 size.");
     }
     match free {
         Some(bytes) => ui.weak(format!("{} available · 256 MB reserve", space_label(bytes))),
@@ -389,6 +412,15 @@ pub(crate) fn preferences_ui(
     }
     .on_hover_text(root.join("Recordings").display().to_string());
     changed
+}
+
+pub(super) fn heading(ui: &mut egui::Ui, look: &CaptureLook, icon: Icon, label: &str) {
+    ui.horizontal(|ui| {
+        let (tile, _) = ui.allocate_exact_size(egui::Vec2::splat(22.), egui::Sense::hover());
+        ui.painter().rect_filled(tile, 6., look.palette.cream);
+        appearance::icon(ui.painter(), tile.center(), icon, look.palette.ginger, 14.);
+        ui.label(egui::RichText::new(label).strong());
+    });
 }
 
 #[cfg(test)]
@@ -401,6 +433,10 @@ mod tests {
             serde_json::from_str(r#"{"target":"Region","max_minutes":15}"#).unwrap();
         assert_eq!(preferences.target, VideoTarget::Window);
         assert_eq!(preferences.max_minutes, 15);
+        assert!(preferences.presenter_camera);
+        let turned_off: VideoPreferences =
+            serde_json::from_str(r#"{"presenter_camera":false}"#).unwrap();
+        assert!(!turned_off.presenter_camera);
     }
 
     #[test]

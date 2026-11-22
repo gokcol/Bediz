@@ -229,6 +229,9 @@ impl EditorState {
                 "Dim or blur everything outside the focus area",
             ),
         ];
+        if self.locked_reference {
+            tools.retain(|(tool, _, _)| !matches!(tool, Tool::Crop | Tool::CutOut));
+        }
         tools.sort_by_key(|(_, label, _)| {
             self.toolbar_order
                 .iter()

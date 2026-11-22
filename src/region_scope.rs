@@ -284,7 +284,8 @@ impl EditorState {
         scale: f32,
     ) {
         let Some(region) = self.area else { return };
-        if self.tool != Tool::Area
+        if self.locked_reference
+            || self.tool != Tool::Area
             || self.area_drag.is_some()
             || self.gesture.is_some()
             || !self.area_mask.is_empty()

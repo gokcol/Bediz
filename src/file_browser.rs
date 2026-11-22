@@ -130,7 +130,7 @@ impl MyImageApp {
         match action {
             #[cfg(target_os = "macos")]
             LibraryAction::Open(path) if crate::library::is_recording(&path) => {
-                if let Err(error) = video_session::play(&path) {
+                if let Err(error) = self.play_video(ctx, &path, false) {
                     self.error = Some(error);
                 }
             }

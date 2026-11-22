@@ -4,6 +4,9 @@ use super::*;
 #[path = "video/options.rs"]
 mod options;
 pub(crate) use options::{VideoPreferences, VideoTarget, preferences_ui};
+#[path = "video/setup.rs"]
+mod setup;
+pub(super) use setup::{VideoPanel, show_video_panel};
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     hash::{BuildHasher, RandomState},
@@ -15,19 +18,17 @@ use std::{
 
 #[derive(Clone, Copy, Default, PartialEq)]
 pub(super) enum Webcam {
-    #[default]
-    Off,
     TopLeft,
     TopRight,
     BottomLeft,
+    #[default]
     BottomRight,
     Free,
     Random,
 }
 
 impl Webcam {
-    const ALL: [Self; 7] = [
-        Self::Off,
+    const ALL: [Self; 6] = [
         Self::TopLeft,
         Self::TopRight,
         Self::BottomLeft,
@@ -38,7 +39,6 @@ impl Webcam {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Off => "Off",
             Self::TopLeft => "Top left",
             Self::TopRight => "Top right",
             Self::BottomLeft => "Bottom left",
@@ -48,85 +48,90 @@ impl Webcam {
         }
     }
 
-    fn position(self, free: Vec2, random: Vec2) -> Option<Vec2> {
+    fn position(self, free: Vec2, random: Vec2) -> Vec2 {
         match self {
-            Self::Off => None,
-            Self::TopLeft => Some(Vec2::ZERO),
-            Self::TopRight => Some(Vec2::X),
-            Self::BottomLeft => Some(Vec2::Y),
-            Self::BottomRight => Some(Vec2::splat(1.)),
-            Self::Free => Some(free),
-            Self::Random => Some(random),
+            Self::TopLeft => Vec2::ZERO,
+            Self::TopRight => Vec2::X,
+            Self::BottomLeft => Vec2::Y,
+            Self::BottomRight => Vec2::splat(1.),
+            Self::Free => free,
+            Self::Random => random,
         }
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum BubbleSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl BubbleSize {
+    fn ratio(self) -> f32 {
+        match self {
+            Self::Small => 0.16,
+            Self::Medium => 0.22,
+            Self::Large => 0.30,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct CameraFraming {
+    size: BubbleSize,
+    mirrored: bool,
+}
+
 pub(super) struct WebcamSetup {
+    pub enabled: bool,
     pub mode: Webcam,
+    framing: CameraFraming,
     free: Vec2,
     random: Vec2,
     drag_offset: Option<Vec2>,
     preview: Option<WebcamPreview>,
     pub preview_error: Option<String>,
+    preview_texture: Option<egui::TextureHandle>,
+    preview_pixels: Vec<u8>,
+    preview_refresh: Option<Instant>,
 }
 
 impl Default for WebcamSetup {
     fn default() -> Self {
         Self {
-            mode: Webcam::Off,
+            enabled: true,
+            mode: Webcam::default(),
+            framing: CameraFraming::default(),
             free: Vec2::splat(0.5),
             random: Vec2::splat(0.5),
             drag_offset: None,
             preview: None,
             preview_error: None,
+            preview_texture: None,
+            preview_pixels: Vec::new(),
+            preview_refresh: None,
         }
     }
 }
 
 impl WebcamSetup {
-    pub fn menu(&mut self, ui: &mut egui::Ui) {
-        let response = ui
-            .menu_button("     ▾", |ui| {
-                ui.strong("Camera overlay");
-                for mode in Webcam::ALL {
-                    if ui
-                        .selectable_value(&mut self.mode, mode, mode.label())
-                        .clicked()
-                    {
-                        self.drag_offset = None;
-                        if mode == Webcam::Random {
-                            let bits = RandomState::new().hash_one("bediz-webcam-position");
-                            self.random = Vec2::new(bits as u32 as f32, (bits >> 32) as u32 as f32)
-                                / u32::MAX as f32;
-                        }
-                        ui.close();
-                    }
-                }
-            })
-            .response;
-        let label = format!("Camera overlay: {}", self.mode.label());
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, ui.is_enabled(), &label)
-        });
-        appearance::icon(
-            ui.painter(),
-            response.rect.left_center() + Vec2::new(16., 0.),
-            Icon::Camera,
-            if self.mode == Webcam::Off {
-                ui.visuals().weak_text_color()
-            } else {
-                appearance::palette(ui.ctx()).accent
-            },
-            18.,
-        );
-        response.on_hover_text(label);
+    fn choose_position(&mut self, mode: Webcam) {
+        self.mode = mode;
+        self.drag_offset = None;
+        if mode == Webcam::Random {
+            let bits = RandomState::new().hash_one("bediz-webcam-position");
+            self.random =
+                Vec2::new(bits as u32 as f32, (bits >> 32) as u32 as f32) / u32::MAX as f32;
+        }
     }
 
-    fn bubble_geometry(rect: Rect) -> (Pos2, Vec2, f32) {
+    fn bubble_geometry(&self, rect: Rect) -> (Pos2, Vec2, f32) {
         // Match Recorder.swift; x and y express travel inside the selected
         // frame, with the circle kept clear of its edges at all positions.
         let smaller = rect.width().min(rect.height());
-        let diameter = smaller * 0.22;
+        let diameter = smaller * self.framing.size.ratio();
         let inset = smaller * 0.035;
         (
             rect.min + Vec2::splat(inset + diameter * 0.5),
@@ -142,10 +147,10 @@ impl WebcamSetup {
         bar: Rect,
         events: &mut Vec<egui::Event>,
     ) {
-        if self.mode != Webcam::Free {
+        if !self.enabled || self.mode != Webcam::Free {
             return;
         }
-        let (origin, travel, radius) = Self::bubble_geometry(rect);
+        let (origin, travel, radius) = self.bubble_geometry(rect);
         let bubble = origin + travel * self.free;
         if ctx
             .input(|i| i.pointer.hover_pos())
@@ -191,61 +196,78 @@ impl WebcamSetup {
     }
 
     pub fn paint(&self, painter: &egui::Painter, rect: Rect) {
-        let Some(position) = self.mode.position(self.free, self.random) else {
+        if !self.enabled {
             return;
-        };
-        let (origin, travel, radius) = Self::bubble_geometry(rect);
+        }
+        let position = self.native_position();
+        let (origin, travel, radius) = self.bubble_geometry(rect);
         let center = origin + travel * position;
         let palette = appearance::palette(painter.ctx());
-        painter.circle_filled(center, radius, palette.navy.gamma_multiply(0.92));
-        painter.circle_stroke(
-            center,
-            radius,
-            Stroke::new(1.4, Color32::from_white_alpha(190)),
-        );
-        appearance::icon(
+        self.paint_circle(
             painter,
-            center,
-            Icon::Video,
-            Color32::WHITE,
-            (radius * 1.12).min(28.),
+            Rect::from_center_size(center, Vec2::splat(radius * 2.)),
+            palette.navy,
+            Color32::from_white_alpha(190),
         );
+    }
+
+    fn paint_circle(&self, painter: &egui::Painter, rect: Rect, fill: Color32, border: Color32) {
+        let center = rect.center();
+        let radius = rect.width() * 0.5;
+        if let Some(texture) = &self.preview_texture {
+            let mut mesh = egui::Mesh::with_texture(texture.id());
+            // Match the circular crop in the encoded MP4.
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: center,
+                uv: egui::pos2(0.5, 0.5),
+                color: Color32::WHITE,
+            });
+            for i in 0..=48 {
+                let offset = Vec2::angled(std::f32::consts::TAU * i as f32 / 48.);
+                mesh.vertices.push(egui::epaint::Vertex {
+                    pos: center + offset * radius,
+                    uv: egui::pos2(0.5, 0.5) + offset * 0.5,
+                    color: Color32::WHITE,
+                });
+                if i < 48 {
+                    mesh.add_triangle(0, i + 1, i + 2);
+                }
+            }
+            painter.add(egui::Shape::mesh(mesh));
+        } else {
+            painter.circle_filled(center, radius, fill);
+            appearance::icon(
+                painter,
+                center,
+                Icon::Video,
+                border,
+                (radius * 1.12).min(28.),
+            );
+        }
+        painter.circle_stroke(center, radius, Stroke::new(1.4, border));
     }
 
     fn native_position(&self) -> Vec2 {
-        self.mode
-            .position(self.free, self.random)
-            .unwrap_or(Vec2::splat(-1.))
+        self.mode.position(self.free, self.random)
     }
 
-    pub fn update_preview(
-        &mut self,
-        ctx: &egui::Context,
-        screen: &DisplayInfo,
-        frame: Option<Rect>,
-        menu_open: bool,
-    ) {
-        let Some(frame) = frame.filter(|_| self.mode != Webcam::Off) else {
+    pub fn update_preview(&mut self, ctx: &egui::Context, active: bool, demo: bool) {
+        if !self.enabled || !active || demo {
             self.preview = None;
             self.preview_error = None;
+            self.preview_texture = None;
+            self.preview_refresh = None;
             return;
-        };
-        let position = self.native_position();
+        }
         let preview = self.preview.get_or_insert_with(WebcamPreview::new);
         let (status, message) = preview.status();
         self.preview_error = (status < 0).then_some(message);
-        if menu_open || status <= 0 {
-            preview.hide();
-        } else {
-            let scale = ctx.zoom_factor();
-            let target = Rect::from_min_size(
-                egui::pos2(screen.x as f32, screen.y as f32) + frame.min.to_vec2() * scale,
-                frame.size() * scale,
-            );
-            preview.show(target, position, None);
-        }
-        if status == 0 {
-            ctx.request_repaint_after(Duration::from_millis(80));
+        let delay = Duration::from_millis(if status < 0 { 500 } else { 80 });
+        ctx.request_repaint_after_for(delay, egui::ViewportId::ROOT);
+        if status > 0 {
+            self.refresh_preview_texture(ctx);
+        } else if status < 0 {
+            self.preview_texture = None;
         }
     }
 }
@@ -258,7 +280,7 @@ impl WebcamPreview {
         Self(NonNull::new(unsafe { bediz_webcam_create() }).expect("Retained Swift preview"))
     }
 
-    fn show(&self, target: Rect, position: Vec2, window: Option<u32>) {
+    fn show(&self, target: Rect, position: Vec2, window: Option<u32>, framing: CameraFraming) {
         // SAFETY: The native preview owns one retained reference until Drop.
         unsafe {
             bediz_webcam_show(
@@ -270,12 +292,10 @@ impl WebcamPreview {
                 f64::from(position.x),
                 f64::from(position.y),
                 window.unwrap_or(0),
+                f64::from(framing.size.ratio()),
+                i32::from(framing.mirrored),
             );
         }
-    }
-
-    fn hide(&self) {
-        self.show(Rect::ZERO, Vec2::ZERO, None);
     }
 
     fn status(&self) -> (i32, String) {
@@ -302,6 +322,7 @@ struct LiveWebcam {
     target: Rect,
     position: Vec2,
     window: Option<u32>,
+    framing: CameraFraming,
 }
 
 unsafe extern "C" {
@@ -315,8 +336,17 @@ unsafe extern "C" {
         camera_x: f64,
         camera_y: f64,
         window: u32,
+        size_ratio: f64,
+        mirrored: i32,
     );
     fn bediz_webcam_status(handle: *const c_void, message: *mut c_char, capacity: usize) -> i32;
+    fn bediz_webcam_copy_preview(
+        handle: *const c_void,
+        rgba: *mut u8,
+        capacity: usize,
+        side: usize,
+        mirrored: i32,
+    ) -> i32;
     fn bediz_webcam_release(handle: *const c_void);
     fn bediz_record_start(
         path: *const c_char,
@@ -326,6 +356,8 @@ unsafe extern "C" {
         webcam: *const c_void,
         camera_x: f64,
         camera_y: f64,
+        camera_size: f64,
+        camera_mirrored: i32,
         output_width: u32,
         output_height: u32,
         bits_per_second: u32,
@@ -339,7 +371,12 @@ unsafe extern "C" {
     fn bediz_record_status(handle: *mut c_void, out: *mut c_char, capacity: usize) -> i32;
     fn bediz_record_command(handle: *mut c_void, command: i32);
     fn bediz_record_release(handle: *mut c_void);
-    fn bediz_play_video(path: *const c_char);
+    fn bediz_play_video(
+        path: *const c_char,
+        render_artwork: extern "C" fn(*const c_char, *const c_char) -> bool,
+        edit: bool,
+    );
+    fn bediz_video_prepare_to_quit() -> bool;
     fn bediz_record_thumbnail(
         movie: *const c_char,
         poster: *const c_char,
@@ -417,7 +454,8 @@ impl Recording {
             .map_err(|_| "The recording path contains an invalid character.")?;
         let camera = screen.webcam.native_position();
         let display = &screen.display;
-        let webcam = (screen.webcam.mode != Webcam::Off).then(|| LiveWebcam {
+        let framing = screen.webcam.framing;
+        let webcam = screen.webcam.enabled.then(|| LiveWebcam {
             preview: screen
                 .webcam
                 .preview
@@ -429,6 +467,7 @@ impl Recording {
             ),
             position: camera,
             window,
+            framing,
         });
         let webcam_ptr = webcam.as_ref().map_or(std::ptr::null(), |webcam| {
             webcam.preview.0.as_ptr().cast_const()
@@ -444,6 +483,8 @@ impl Recording {
                 webcam_ptr,
                 f64::from(camera.x),
                 f64::from(camera.y),
+                f64::from(framing.size.ratio()),
+                i32::from(framing.mirrored),
                 plan.width,
                 plan.height,
                 plan.bits_per_second,
@@ -663,9 +704,12 @@ impl MyImageApp {
         if recording.stopping || status == Status::Saving {
             recording.webcam = None;
         } else if let Some(webcam) = &recording.webcam {
-            webcam
-                .preview
-                .show(webcam.target, webcam.position, webcam.window);
+            webcam.preview.show(
+                webcam.target,
+                webcam.position,
+                webcam.window,
+                webcam.framing,
+            );
         }
         let time = recording.duration(status).as_secs();
         let look = self.settings.capture_theme.look();
@@ -804,7 +848,17 @@ impl MyImageApp {
     }
 }
 
-pub(super) fn play(path: &Path) -> Result<(), String> {
+pub(super) fn is_video_path(path: &Path) -> bool {
+    crate::library::is_recording(path)
+        || path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("bedizvideo"))
+}
+
+pub(super) fn play(path: &Path, edit: bool) -> Result<(), String> {
+    if !is_video_path(path) {
+        return Err("Choose an MP4, MOV or Bediz video project.".into());
+    }
     if !path.is_file() {
         return Err(format!(
             "This recording is no longer available at {}.",
@@ -814,8 +868,33 @@ pub(super) fn play(path: &Path) -> Result<(), String> {
     let native_path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| "The video path contains an invalid character.")?;
     // SAFETY: This runs on AppKit's main thread. Swift copies the path synchronously.
-    unsafe { bediz_play_video(native_path.as_ptr()) };
+    unsafe { bediz_play_video(native_path.as_ptr(), render_artwork, edit) };
     Ok(())
+}
+
+pub(super) fn prepare_to_quit() -> bool {
+    // SAFETY: The root app invokes this on AppKit's main thread.
+    unsafe { bediz_video_prepare_to_quit() }
+}
+
+extern "C" fn render_artwork(input: *const c_char, output: *const c_char) -> bool {
+    if input.is_null() || output.is_null() {
+        return false;
+    }
+    // SAFETY: Swift keeps both null-terminated path strings alive for the call.
+    let input = Path::new(std::ffi::OsStr::from_bytes(unsafe {
+        CStr::from_ptr(input).to_bytes()
+    }));
+    let output = Path::new(std::ffi::OsStr::from_bytes(unsafe {
+        CStr::from_ptr(output).to_bytes()
+    }));
+    crate::document::load_project(input)
+        .and_then(|document| crate::render::flatten(&document))
+        .is_ok_and(|artwork| {
+            artwork
+                .save_with_format(output, image::ImageFormat::Png)
+                .is_ok()
+        })
 }
 
 pub(crate) fn thumbnail(path: &Path, width: u32, height: u32) -> Result<image::RgbaImage, String> {
@@ -849,20 +928,25 @@ mod tests {
         let bounds = Rect::from_min_size(Pos2::new(50., 180.), Vec2::new(420., 780.));
         let free = Vec2::new(0.37, 0.81);
         let random = Vec2::new(0.55, 0.14);
-        let (origin, travel, radius) = WebcamSetup::bubble_geometry(bounds);
-        assert_eq!(Webcam::Off.position(free, random), None);
-        assert_eq!(Webcam::Free.position(free, random), Some(free));
-        for (mode, anchor) in [
-            (Webcam::TopLeft, Vec2::ZERO),
-            (Webcam::TopRight, Vec2::X),
-            (Webcam::BottomLeft, Vec2::Y),
-            (Webcam::BottomRight, Vec2::splat(1.)),
-            (Webcam::Free, free),
-            (Webcam::Random, random),
-        ] {
-            assert_eq!(mode.position(free, random), Some(anchor));
-            let bubble = Rect::from_center_size(origin + travel * anchor, Vec2::splat(radius * 2.));
-            assert!(bounds.contains_rect(bubble));
+        let mut setup = WebcamSetup::default();
+        assert!(setup.enabled);
+        for size in [BubbleSize::Small, BubbleSize::Medium, BubbleSize::Large] {
+            setup.framing.size = size;
+            let (origin, travel, radius) = setup.bubble_geometry(bounds);
+            assert!((radius * 2. - bounds.width() * size.ratio()).abs() < 0.001);
+            for (mode, anchor) in [
+                (Webcam::TopLeft, Vec2::ZERO),
+                (Webcam::TopRight, Vec2::X),
+                (Webcam::BottomLeft, Vec2::Y),
+                (Webcam::BottomRight, Vec2::splat(1.)),
+                (Webcam::Free, free),
+                (Webcam::Random, random),
+            ] {
+                assert_eq!(mode.position(free, random), anchor);
+                let bubble =
+                    Rect::from_center_size(origin + travel * anchor, Vec2::splat(radius * 2.));
+                assert!(bounds.contains_rect(bubble));
+            }
         }
     }
 
@@ -870,11 +954,12 @@ mod tests {
     fn dragging_the_webcam_consumes_pointer_events_and_clamps_to_the_region() {
         let ctx = egui::Context::default();
         let mut setup = WebcamSetup {
+            enabled: true,
             mode: Webcam::Free,
             ..WebcamSetup::default()
         };
         let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(500., 300.));
-        let (origin, travel, _) = WebcamSetup::bubble_geometry(rect);
+        let (origin, travel, _) = setup.bubble_geometry(rect);
         let pointer = |pos, pressed| egui::Event::PointerButton {
             pos,
             button: egui::PointerButton::Primary,

@@ -531,6 +531,10 @@ pub enum Icon {
     Down,
     Capture,
     Camera,
+    #[cfg(target_os = "macos")]
+    Microphone,
+    #[cfg(target_os = "macos")]
+    Timer,
     Scan,
     Library,
     View,
@@ -714,6 +718,38 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
     let r = Rect::from_center_size(center, Vec2::splat(size));
     let point = |x, y| r.min + Vec2::new(x * size, y * size);
     match kind {
+        #[cfg(target_os = "macos")]
+        Icon::Microphone => {
+            p.rect_stroke(
+                Rect::from_min_max(point(0.34, 0.08), point(0.66, 0.64)),
+                4.,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            p.line(
+                vec![
+                    point(0.21, 0.43),
+                    point(0.21, 0.59),
+                    point(0.30, 0.76),
+                    point(0.50, 0.81),
+                    point(0.70, 0.76),
+                    point(0.79, 0.59),
+                    point(0.79, 0.43),
+                ],
+                s,
+            );
+            p.line_segment([point(0.50, 0.81), point(0.50, 0.96)], s);
+            p.line_segment([point(0.33, 0.96), point(0.67, 0.96)], s);
+        }
+        #[cfg(target_os = "macos")]
+        Icon::Timer => {
+            let dial = point(0.50, 0.56);
+            p.circle_stroke(dial, size * 0.37, s);
+            p.line_segment([point(0.38, 0.04), point(0.62, 0.04)], s);
+            p.line_segment([point(0.50, 0.04), point(0.50, 0.18)], s);
+            p.line_segment([dial, point(0.50, 0.32)], s);
+            p.line_segment([dial, point(0.66, 0.62)], s);
+        }
         Icon::Camera => {
             p.line(
                 vec![
@@ -1590,7 +1626,16 @@ pub fn segmented<T: PartialEq + Copy>(
     value: &mut T,
     items: &[(T, &str, Option<Icon>, &str)],
 ) -> bool {
-    let p = palette(ui.ctx());
+    segmented_with_palette(ui, name, value, items, palette(ui.ctx()))
+}
+
+pub(crate) fn segmented_with_palette<T: PartialEq + Copy>(
+    ui: &mut egui::Ui,
+    name: &str,
+    value: &mut T,
+    items: &[(T, &str, Option<Icon>, &str)],
+    p: Palette,
+) -> bool {
     let font = egui::FontId::proportional(12.5);
     let widths: Vec<f32> = items
         .iter()
@@ -1631,7 +1676,7 @@ pub fn segmented<T: PartialEq + Copy>(
         let width = ui
             .ctx()
             .animate_value_with_time(id.with("w"), cells[selected].width(), 0.12);
-        satin(
+        satin_with_palette(
             ui.painter(),
             Rect::from_min_size(
                 egui::pos2(track.left() + left, cells[selected].top()),
@@ -1640,6 +1685,7 @@ pub fn segmented<T: PartialEq + Copy>(
             6.,
             true,
             false,
+            p,
         );
     }
     let mut changed = false;
@@ -1772,6 +1818,15 @@ pub fn checkbox(
 
 /// The single most important action on a surface: a vivid capture-red satin button.
 pub fn capture_button(ui: &mut egui::Ui, label: &str, size: Vec2) -> egui::Response {
+    capture_button_with_icon(ui, label, size, Icon::Capture)
+}
+
+pub fn capture_button_with_icon(
+    ui: &mut egui::Ui,
+    label: &str,
+    size: Vec2,
+    glyph: Icon,
+) -> egui::Response {
     let text = ui.painter().layout_no_wrap(
         label.into(),
         egui::FontId::proportional(if size.y < 36. { 13.5 } else { 14.5 }),
@@ -1814,7 +1869,7 @@ pub fn capture_button(ui: &mut egui::Ui, label: &str, size: Vec2) -> egui::Respo
         icon(
             ui.painter(),
             egui::pos2(left + 9., rect.center().y + nudge),
-            Icon::Capture,
+            glyph,
             Color32::WHITE,
             18.,
         );

@@ -322,12 +322,13 @@ pub fn ui(
                                 ui.label("Save an MP4 in the Recordings folder");
                                 #[cfg(target_os = "macos")]
                                 {
+                                    let look = settings.capture_theme.look();
                                     ui.horizontal(|ui| {
                                         ui.label("Record");
-                                        result.changed |= settings.video.target.ui(ui);
+                                        result.changed |= settings.video.target.ui(ui, &look);
                                     });
                                     result.changed |= crate::app::video_session::preferences_ui(
-                                        ui, &mut settings.video, &settings.output_dir, None,
+                                        ui, &mut settings.video, &settings.output_dir, None, &look,
                                     );
                                     if appearance::action_button(ui, "Change save folder…", appearance::Icon::Open, true, false).clicked() {
                                         result.action = Some(Action::ChooseFolder);

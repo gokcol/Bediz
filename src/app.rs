@@ -12,6 +12,9 @@ mod capture_launcher;
 mod capture_output;
 #[path = "capture_session.rs"]
 mod capture_session;
+#[cfg(target_os = "macos")]
+#[path = "video/frame_annotation.rs"]
+mod frame_annotation;
 #[path = "screen_text.rs"]
 mod screen_text;
 #[path = "updates_ui.rs"]
@@ -86,6 +89,14 @@ enum WorkEvent {
     StoragePrepared(Result<crate::storage_move::PreparedMove, String>),
     StorageProgress(usize, usize),
     StorageFinished(usize, Vec<String>),
+    #[cfg(target_os = "macos")]
+    VideoFrameOpened(frame_annotation::Request, Result<Document, String>),
+    #[cfg(target_os = "macos")]
+    VideoFrameArtwork(
+        frame_annotation::Request,
+        i64,
+        Result<frame_annotation::Artwork, String>,
+    ),
 }
 
 #[path = "file_browser.rs"]
@@ -134,6 +145,8 @@ struct Selection {
     pointer_ready: bool,
     #[cfg(target_os = "macos")]
     webcam: video_session::WebcamSetup,
+    #[cfg(target_os = "macos")]
+    video_panel: Option<video_session::VideoPanel>,
     #[cfg(target_os = "macos")]
     video_target: video_session::VideoTarget,
 }
@@ -201,6 +214,8 @@ pub struct MyImageApp {
     scroll_session: Option<ScrollSession>,
     #[cfg(target_os = "macos")]
     recording: Option<video_session::Recording>,
+    #[cfg(target_os = "macos")]
+    frame_reference: Option<frame_annotation::Reference>,
     busy: bool,
     opening_image: bool,
     recent_browse_forward: bool,
@@ -352,6 +367,8 @@ impl MyImageApp {
             scroll_session: None,
             #[cfg(target_os = "macos")]
             recording: None,
+            #[cfg(target_os = "macos")]
+            frame_reference: None,
             busy: false,
             opening_image: false,
             recent_browse_forward: true,
@@ -411,17 +428,37 @@ impl MyImageApp {
     }
 
     #[cfg(target_os = "macos")]
-    fn open_video(&mut self) {
+    fn open_video(&mut self, ctx: &egui::Context) {
         if let Some(path) = rfd::FileDialog::new()
-            .set_title("Open video")
-            .add_filter("MP4 video", &["mp4"])
+            .set_title("Open video or video project")
+            .add_filter(
+                "Video and Bediz video projects",
+                &["mp4", "mov", "bedizvideo"],
+            )
             .pick_file()
         {
-            match video_session::play(&path) {
-                Ok(()) => self.remember_recent(path),
-                Err(error) => self.error = Some(error),
-            }
+            self.open_video_path(ctx, path);
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn open_video_path(&mut self, ctx: &egui::Context, path: PathBuf) {
+        match self.play_video(ctx, &path, true) {
+            Ok(()) if crate::library::is_recording(&path) => self.remember_recent(path),
+            Ok(()) => {}
+            Err(error) => self.error = Some(error),
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn play_video(
+        &self,
+        ctx: &egui::Context,
+        path: &std::path::Path,
+        edit: bool,
+    ) -> Result<(), String> {
+        frame_annotation::connect(ctx, self.work_tx.clone());
+        video_session::play(path, edit)
     }
 
     fn create_image(&mut self, ctx: &egui::Context, spec: crate::templates::Spec) {
@@ -896,17 +933,21 @@ impl MyImageApp {
     }
 
     fn open_path(&mut self, ctx: &egui::Context, path: PathBuf, edit: bool) {
-        if self.busy
-            || self.save_as_panel.open
-            || self.editor.has_modal()
-            || !self.can_replace_image(
-                ctx,
-                PendingAction::OpenPath {
-                    path: path.clone(),
-                    edit,
-                },
-            )
-        {
+        if self.busy || self.save_as_panel.open || self.editor.has_modal() {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        if video_session::is_video_path(&path) {
+            self.open_video_path(ctx, path);
+            return;
+        }
+        if !self.can_replace_image(
+            ctx,
+            PendingAction::OpenPath {
+                path: path.clone(),
+                edit,
+            },
+        ) {
             return;
         }
         self.begin_open(ctx, path, edit);
@@ -1255,6 +1296,14 @@ impl MyImageApp {
         }
         while let Ok(event) = self.work_rx.try_recv() {
             match event {
+                #[cfg(target_os = "macos")]
+                WorkEvent::VideoFrameOpened(request, result) => {
+                    self.open_frame_reference(ctx, request, result)
+                }
+                #[cfg(target_os = "macos")]
+                WorkEvent::VideoFrameArtwork(request, duration, result) => {
+                    self.frame_artwork_ready(ctx, request, duration, result)
+                }
                 WorkEvent::Recovery(event) => self.recovery_event(ctx, event),
                 WorkEvent::StoragePrepared(result) => {
                     self.storage_prepared(ctx, result);
@@ -1663,6 +1712,10 @@ impl MyImageApp {
     }
 
     fn request_quit(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "macos")]
+        if self.focus_frame_reference(ctx) {
+            return;
+        }
         if self.screen_text.open {
             self.close_screen_text(ctx);
         }
@@ -1684,6 +1737,10 @@ impl MyImageApp {
             return;
         }
         if !self.can_replace_image(ctx, PendingAction::Quit) {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        if !video_session::prepare_to_quit() {
             return;
         }
         if let Some(cancel) = self.capture_cancel.take() {
@@ -1922,6 +1979,17 @@ impl MyImageApp {
         }
     }
     fn home_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        #[derive(Clone, Copy)]
+        enum Start {
+            OpenImage,
+            CaptureImage,
+            Paste,
+            Create,
+            #[cfg(target_os = "macos")]
+            OpenVideo,
+            #[cfg(target_os = "macos")]
+            RecordVideo,
+        }
         if ui.is_enabled()
             && !self.busy
             && ui.input_mut(|input| {
@@ -1946,9 +2014,13 @@ impl MyImageApp {
                     ui.label(egui::RichText::new("Start here").size(24.).strong());
                     ui.add_space(2.);
                     ui.label(
-                        egui::RichText::new("Drop an image anywhere, or pick a way to begin.")
-                            .size(14.)
-                            .color(appearance::palette(ui.ctx()).muted),
+                        egui::RichText::new(if cfg!(target_os = "macos") {
+                            "Drop an image or video here."
+                        } else {
+                            "Drop an image anywhere, or pick a way to begin."
+                        })
+                        .size(14.)
+                        .color(appearance::palette(ui.ctx()).muted),
                     );
                     ui.add_space(22.);
                     let columns = if ui.available_width() >= 600. { 2 } else { 1 };
@@ -1956,28 +2028,48 @@ impl MyImageApp {
                     let width = ((ui.available_width() - gap).min(606.) / columns as f32).min(296.);
                     let actions = [
                         (
+                            Start::OpenImage,
                             "Open image",
                             "Browse your files",
                             Icon::Open,
                             appearance::palette(ui.ctx()).navy,
                         ),
                         (
-                            "Capture",
+                            Start::CaptureImage,
+                            "Capture image",
                             "Region, window or screen",
                             Icon::Capture,
                             appearance::palette(ui.ctx()).ginger,
                         ),
                         (
+                            Start::Paste,
                             "Paste image",
                             "From your clipboard",
                             Icon::Copy,
                             appearance::surface(ui.ctx()),
                         ),
                         (
+                            Start::Create,
                             "Create",
                             "Start from a template",
                             Icon::Create,
                             appearance::palette(ui.ctx()).cream,
+                        ),
+                        #[cfg(target_os = "macos")]
+                        (
+                            Start::OpenVideo,
+                            "Open video",
+                            "Edit or annotate a video",
+                            Icon::Video,
+                            appearance::surface(ui.ctx()),
+                        ),
+                        #[cfg(target_os = "macos")]
+                        (
+                            Start::RecordVideo,
+                            "Record video",
+                            "Record a window or display",
+                            Icon::Capture,
+                            appearance::palette(ui.ctx()).ginger,
                         ),
                     ];
                     ui.allocate_ui_with_layout(
@@ -1985,11 +2077,9 @@ impl MyImageApp {
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
-                            for (row, chips) in actions.chunks(columns).enumerate() {
+                            for chips in actions.chunks(columns) {
                                 ui.horizontal(|ui| {
-                                    for (col, &(title, hint, icon, color)) in
-                                        chips.iter().enumerate()
-                                    {
+                                    for &(action, title, hint, icon, color) in chips {
                                         if appearance::start_chip(
                                             ui,
                                             title,
@@ -2002,11 +2092,31 @@ impl MyImageApp {
                                         )
                                         .clicked()
                                         {
-                                            match row * columns + col {
-                                                0 => self.open_image(ctx),
-                                                1 => self.view = View::Capture,
-                                                2 => self.paste_new_image(ctx),
-                                                _ => self.view = View::Create,
+                                            match action {
+                                                Start::OpenImage => self.open_image(ctx),
+                                                Start::CaptureImage => {
+                                                    if !self.settings.capture_mode.makes_image() {
+                                                        self.settings.capture_mode =
+                                                            capture::CaptureMode::Region;
+                                                        self.persist_settings();
+                                                    }
+                                                    self.view = View::Capture;
+                                                }
+                                                Start::Paste => self.paste_new_image(ctx),
+                                                Start::Create => self.view = View::Create,
+                                                #[cfg(target_os = "macos")]
+                                                Start::OpenVideo => self.open_video(ctx),
+                                                #[cfg(target_os = "macos")]
+                                                Start::RecordVideo => {
+                                                    if self.settings.capture_mode
+                                                        != capture::CaptureMode::Video
+                                                    {
+                                                        self.settings.capture_mode =
+                                                            capture::CaptureMode::Video;
+                                                        self.persist_settings();
+                                                    }
+                                                    self.view = View::Capture;
+                                                }
                                             }
                                         }
                                     }
@@ -2115,9 +2225,9 @@ impl MyImageApp {
                     self.open_project(ctx);
                 }
                 #[cfg(target_os = "macos")]
-                if app_menu::row(ui, "Open Video…", Icon::Video, true, "").clicked() {
+                if app_menu::row(ui, "Open Video or Timeline…", Icon::Video, true, "").clicked() {
                     ui.close();
-                    self.open_video();
+                    self.open_video(ctx);
                 }
                 ui.separator();
                 if app_menu::row(
@@ -2175,7 +2285,7 @@ impl MyImageApp {
         }
     }
 
-    /// Open an image or project dropped on the window; show where it will land.
+    /// Open a dropped file; show where it will land.
     fn dropped_files(&mut self, ctx: &egui::Context) {
         const TYPES: [&str; 12] = [
             "myimage", "snagx", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif", "heif",
@@ -2218,6 +2328,11 @@ impl MyImageApp {
             return;
         };
         if !ready {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        if video_session::is_video_path(&path) {
+            self.open_video_path(ctx, path);
             return;
         }
         let supported = path
@@ -2423,6 +2538,8 @@ impl eframe::App for MyImageApp {
             }
         }
         self.handle_events(ctx);
+        #[cfg(target_os = "macos")]
+        self.frame_reference_ui(ctx);
         self.poll_external_open(ctx);
         let recording_active = self.recording_active();
         if let Some(desktop) = &mut self.desktop {

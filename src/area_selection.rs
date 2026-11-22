@@ -247,7 +247,7 @@ impl EditorState {
         {
             return;
         }
-        let scoped = if moving && handle.is_none() && self.move_pixels {
+        let scoped = if !self.locked_reference && moving && handle.is_none() && self.move_pixels {
             match self.scoped_layers(document) {
                 Ok(layers) => layers,
                 Err(error) => {
@@ -281,7 +281,7 @@ impl EditorState {
             mask,
             pixel_mask,
             handle,
-            moves_pixels: self.move_pixels,
+            moves_pixels: self.move_pixels && !self.locked_reference,
             scoped,
             scoped_indices: Vec::new(),
             area_before,
@@ -320,7 +320,7 @@ impl EditorState {
             &index
         };
         let mut expanded = document.clone();
-        if !crate::canvas::extend_for_annotations(&mut expanded, indices)? {
+        if !self.extend_for_annotations(&mut expanded, indices)? {
             return Ok(None);
         }
         let bounds = expanded.geometry.view_rect(original_size(document));
@@ -347,6 +347,9 @@ impl EditorState {
         scale: f32,
         viewport: Rect,
     ) -> Result<Option<(Document, Rect)>, String> {
+        if self.locked_reference {
+            return Ok(None);
+        }
         let Some(drag) = self
             .area_drag
             .as_mut()
@@ -556,9 +559,7 @@ impl EditorState {
         };
         if drag.scoped.is_some() {
             if !drag.scoped_indices.is_empty() {
-                if let Err(error) =
-                    crate::canvas::extend_for_annotations(document, &drag.scoped_indices)
-                {
+                if let Err(error) = self.extend_for_annotations(document, &drag.scoped_indices) {
                     document.annotations = drag.before.annotations;
                     document.geometry = drag.before.geometry;
                     self.area = drag.area_before;
@@ -597,7 +598,7 @@ impl EditorState {
                     // A move back to its original position may have removed the
                     // temporary layer above. In that case there is no growth.
                     if let Some(index) = drag.index.filter(|&i| i < document.annotations.len()) {
-                        crate::canvas::extend_for_annotations(document, &[index])?;
+                        self.extend_for_annotations(document, &[index])?;
                     }
                 }
                 Ok(())
@@ -655,6 +656,11 @@ impl EditorState {
                 | AnnotationKind::Spotlight
                 | AnnotationKind::Simplify
         ) {
+            return;
+        }
+        if self.locked_reference && kind == AnnotationKind::DeleteArea {
+            self.image_error =
+                Some("The video frame is locked. Select an annotation to delete it.".into());
             return;
         }
         if self.selected.is_some() && !self.can_edit_selection(document) {

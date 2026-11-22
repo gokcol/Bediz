@@ -4,7 +4,19 @@ fn main() {
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
         return;
     }
-    let sources = ["src/video/Recorder.swift", "src/video/Player.swift"];
+    let sources = [
+        "src/video/Recorder.swift",
+        "src/video/Player.swift",
+        "src/video/EditProject.swift",
+        "src/video/EditRender.swift",
+        "src/video/EditDesignPanel.swift",
+        "src/video/EditTimeline.swift",
+        "src/video/VideoExport.swift",
+        "src/video/VideoExportPanel.swift",
+        "src/video/VideoSubtitles.swift",
+        "src/video/VideoSpeech.swift",
+        "src/video/VideoSubtitlePanel.swift",
+    ];
     for source in sources {
         println!("cargo:rerun-if-changed={source}");
     }

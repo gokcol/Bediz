@@ -461,7 +461,12 @@ impl EditorState {
                 ui.close();
             }
             let pixels = self.area.is_some();
-            let enabled = self.selected.is_none() || self.can_edit_selection(document);
+            let enabled = if pixels {
+                !self.locked_reference
+                    && (self.selected.is_none() || self.can_edit_selection(document))
+            } else {
+                self.can_edit_selection(document)
+            };
             let label = if pixels {
                 "Delete selected area"
             } else {
@@ -486,8 +491,10 @@ impl EditorState {
             }
             ui.separator();
         }
-        self.image_menu(ui, document, history);
-        ui.separator();
+        if !self.locked_reference {
+            self.image_menu(ui, document, history);
+            ui.separator();
+        }
         self.edit_actions(ui, document, history);
         ui.horizontal(|ui| {
             ui.label("Select:");

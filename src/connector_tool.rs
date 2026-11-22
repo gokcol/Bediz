@@ -67,7 +67,8 @@ impl EditorState {
         let created = document.annotations.len();
         document.annotations.push(arrow);
         crate::connectors::sync(document);
-        if let Err(e) = crate::canvas::extend_for_annotations(document, &[created])
+        if let Err(e) = self
+            .extend_for_annotations(document, &[created])
             .and_then(|_| crate::document::validate_document(document))
         {
             document.annotations = before.annotations;

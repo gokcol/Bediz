@@ -36,7 +36,8 @@ impl EditorState {
         history: &mut EditHistory,
     ) -> bool {
         let index = document.annotations.len() - 1;
-        if let Err(error) = crate::canvas::extend_for_annotations(document, &[index])
+        if let Err(error) = self
+            .extend_for_annotations(document, &[index])
             .and_then(|_| crate::document::validate_document(document))
         {
             document.annotations = before.annotations;
@@ -69,7 +70,7 @@ impl EditorState {
             return Ok(None);
         }
         let mut expanded = document.clone();
-        if !crate::canvas::extend_for_annotations(&mut expanded, &indices)? {
+        if !self.extend_for_annotations(&mut expanded, &indices)? {
             return Ok(None);
         }
         let screen = object_preview_rect(&expanded, document, rect, scale);
@@ -83,6 +84,9 @@ impl EditorState {
         scale: f32,
         viewport: Rect,
     ) -> Result<Option<(Document, Rect)>, String> {
+        if self.locked_reference {
+            return Ok(None);
+        }
         let indices = self.object_preview_indices(document);
         let Some(gesture) = self.gesture.as_mut() else {
             return Ok(None);

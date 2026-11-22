@@ -12,6 +12,9 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
+        if self.locked_reference {
+            return;
+        }
         self.finish_gesture(document, history);
         self.inspector.show(InspectorPanel::Effects);
     }

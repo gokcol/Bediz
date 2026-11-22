@@ -51,7 +51,7 @@ impl EditorState {
                 document.annotations.remove(draft.index);
             }
             let indices = if removed { vec![] } else { vec![draft.index] };
-            if let Err(error) = crate::canvas::extend_for_annotations(document, &indices) {
+            if let Err(error) = self.extend_for_annotations(document, &indices) {
                 document.annotations = draft.before.annotations;
                 document.geometry = draft.before.geometry;
                 self.image_error = Some(error);

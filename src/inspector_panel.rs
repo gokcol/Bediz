@@ -191,7 +191,11 @@ pub(super) enum HeaderAction {
     Show(Panel),
 }
 
-pub(super) fn header(ui: &mut egui::Ui, preferences: Preferences) -> Option<HeaderAction> {
+pub(super) fn header(
+    ui: &mut egui::Ui,
+    preferences: Preferences,
+    image_effects: bool,
+) -> Option<HeaderAction> {
     use crate::appearance::{self, TileTone};
 
     let mut action = None;
@@ -200,6 +204,9 @@ pub(super) fn header(ui: &mut egui::Ui, preferences: Preferences) -> Option<Head
         let height = 24.;
         ui.spacing_mut().item_spacing.x = gap;
         for panel in Panel::ALL {
+            if panel == Panel::Effects && !image_effects {
+                continue;
+            }
             let selected = preferences.panel == panel;
             let tab = ui.add_sized([28., height], egui::Button::new("").frame(false));
             tab.widget_info(|| {

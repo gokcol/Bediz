@@ -353,7 +353,7 @@ pub fn is_recording(path: &Path) -> bool {
     cfg!(target_os = "macos")
         && path
             .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4") || ext.eq_ignore_ascii_case("mov"))
 }
 
 /// Decode a single visible entry. Call from a bounded worker, never the UI thread.

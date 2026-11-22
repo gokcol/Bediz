@@ -283,6 +283,7 @@ pub fn default_toolbar() -> Vec<String> {
 }
 
 pub struct EditorState {
+    locked_reference: bool,
     tool: Tool,
     shape_kind: AnnotationKind,
     shapes_3d: bool,
@@ -359,6 +360,7 @@ pub struct EditorState {
 impl Default for EditorState {
     fn default() -> Self {
         Self {
+            locked_reference: false,
             tool: Tool::Area,
             shape_kind: AnnotationKind::Rectangle,
             shapes_3d: false,
@@ -436,6 +438,23 @@ impl Default for EditorState {
 }
 
 impl EditorState {
+    #[cfg(target_os = "macos")]
+    pub(crate) fn lock_reference(&mut self) {
+        self.locked_reference = true;
+        self.move_pixels = false;
+    }
+
+    fn extend_for_annotations(
+        &self,
+        document: &mut Document,
+        indices: &[usize],
+    ) -> Result<bool, String> {
+        if self.locked_reference {
+            Ok(false)
+        } else {
+            crate::canvas::extend_for_annotations(document, indices)
+        }
+    }
     pub fn with_presets(path: Result<std::path::PathBuf, String>) -> Self {
         Self {
             stamps: stamp_panel::StampState::new(
@@ -563,7 +582,7 @@ impl EditorState {
         };
         crate::connectors::sync(document);
         let indices = gesture.changed_objects(document);
-        if let Err(error) = crate::canvas::extend_for_annotations(document, &indices) {
+        if let Err(error) = self.extend_for_annotations(document, &indices) {
             document.annotations = gesture.before.annotations;
             document.geometry = gesture.before.geometry;
             self.image_error = Some(error);
@@ -788,7 +807,9 @@ impl EditorState {
         ui.spacing_mut().item_spacing = Vec2::new(6., 5.);
         ui.spacing_mut().button_padding = Vec2::new(7., 4.);
         ui.spacing_mut().interact_size.y = 24.;
-        if let Some(action) = inspector_panel::header(ui, self.inspector.preferences) {
+        if let Some(action) =
+            inspector_panel::header(ui, self.inspector.preferences, !self.locked_reference)
+        {
             self.finish_properties(document, history);
             match action {
                 inspector_panel::HeaderAction::Close => self.inspector.close(),
@@ -1120,6 +1141,9 @@ impl EditorState {
         history: &mut EditHistory,
         geometry: ImageGeometry,
     ) -> bool {
+        if self.locked_reference {
+            return false;
+        }
         if let Err(error) = geometry.validate(original_size(document)) {
             self.image_error = Some(error);
             return false;
@@ -1520,11 +1544,12 @@ impl EditorState {
                         .intersect(ui.clip_rect()),
                     Some(region_scope::bar_id()),
                 );
-                let (canvas_resizing, painted_resize) = if self.precision_active() {
-                    (false, false)
-                } else {
-                    self.canvas_resize_ui(ui, document, history, rect, scale, viewport)
-                };
+                let (canvas_resizing, painted_resize) =
+                    if self.locked_reference || self.precision_active() {
+                        (false, false)
+                    } else {
+                        self.canvas_resize_ui(ui, document, history, rect, scale, viewport)
+                    };
                 if painted_resize {
                     return;
                 }
@@ -2526,15 +2551,17 @@ impl EditorState {
     }
 
     fn keyboard(&mut self, ui: &mut egui::Ui, document: &mut Document, history: &mut EditHistory) {
-        if ui.input_mut(|i| {
-            i.consume_key(
-                Modifiers {
-                    shift: true,
-                    ..Modifiers::COMMAND
-                },
-                Key::R,
-            )
-        }) {
+        if !self.locked_reference
+            && ui.input_mut(|i| {
+                i.consume_key(
+                    Modifiers {
+                        shift: true,
+                        ..Modifiers::COMMAND
+                    },
+                    Key::R,
+                )
+            })
+        {
             self.open_resize(document, history);
             return;
         }
@@ -2616,7 +2643,7 @@ impl EditorState {
             let delta = source_delta(delta, document);
             let before = document.edit_state();
             move_selection(document, &before.annotations, &indices, delta);
-            if let Err(error) = crate::canvas::extend_for_annotations(document, &indices) {
+            if let Err(error) = self.extend_for_annotations(document, &indices) {
                 document.annotations = before.annotations;
                 document.geometry = before.geometry;
                 self.image_error = Some(error);

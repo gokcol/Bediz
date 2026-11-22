@@ -256,11 +256,12 @@ impl EditorState {
         }
         crate::connectors::remap(&mut candidate.annotations[first..], &document.annotations);
         crate::connectors::sync(&mut candidate);
-        if let Err(error) = crate::canvas::extend_for_annotations(
-            &mut candidate,
-            &(first..first + indices.len()).collect::<Vec<_>>(),
-        )
-        .and_then(|_| crate::document::validate_document(&candidate))
+        if let Err(error) = self
+            .extend_for_annotations(
+                &mut candidate,
+                &(first..first + indices.len()).collect::<Vec<_>>(),
+            )
+            .and_then(|_| crate::document::validate_document(&candidate))
         {
             self.image_error = Some(format!("Cannot duplicate: {error}"));
             return;

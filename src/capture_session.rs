@@ -437,6 +437,8 @@ impl SelectionSession {
                     #[cfg(target_os = "macos")]
                     webcam: Default::default(),
                     #[cfg(target_os = "macos")]
+                    video_panel: None,
+                    #[cfg(target_os = "macos")]
                     video_target: Default::default(),
                 })
                 .collect(),
@@ -655,6 +657,8 @@ impl MyImageApp {
         desktop_pointer: Option<Pos2>,
     ) -> Option<SelectionAction> {
         let menu_was_open = egui::Popup::is_any_open(ctx);
+        #[cfg(target_os = "macos")]
+        let setup_was_open = selection.video_panel.is_some();
         if ctx.input(|i| i.viewport().close_requested())
             || ctx.input(|i| i.key_pressed(egui::Key::Escape))
         {
@@ -698,6 +702,10 @@ impl MyImageApp {
         let old_mode = mode;
         #[cfg(target_os = "macos")]
         let old_target = self.settings.video.target;
+        #[cfg(target_os = "macos")]
+        {
+            selection.webcam.enabled = self.settings.video.presenter_camera;
+        }
         if !menu_was_open
             && ctx.input(|i| i.key_pressed(egui::Key::Space))
             && matches!(mode, CaptureMode::Region | CaptureMode::Window)
@@ -769,22 +777,17 @@ impl MyImageApp {
                                 }
                                 #[cfg(target_os = "macos")]
                                 if mode == CaptureMode::Video {
-                                    destination_changed |= self.settings.video.target.ui(ui);
-                                    selection.webcam.menu(ui);
-                                    let response = ui.menu_button("     ▾", |ui| {
-                                        ui.set_min_width(286.);
-                                        let region = match self.settings.video.target {
-                                            video_session::VideoTarget::Window => selection.window_id.and_then(|id| video_session::window_size(selection, id)),
-                                            video_session::VideoTarget::FullScreen => Some([selection.image.width(), selection.image.height()]),
-                                        };
-                                        destination_changed |= video_session::preferences_ui(
-                                            ui, &mut self.settings.video, &self.settings.output_dir, region,
-                                        );
-                                    }).response;
-                                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Recording options"));
-                                    appearance::icon(ui.painter(), response.rect.left_center() + Vec2::new(16., 0.),
-                                        appearance::Icon::Settings, look.palette.ink, 17.);
-                                    response.on_hover_text("Recording quality, maximum duration, and disk space");
+                                    use video_session::VideoPanel;
+                                    destination_changed |= self.settings.video.target.ui(ui, &look);
+                                    for (panel, label, icon, active) in [
+                                        (VideoPanel::Camera, "Presenter camera", appearance::Icon::Video, selection.webcam.enabled),
+                                        (VideoPanel::Recording, "Recording options", appearance::Icon::Settings, false),
+                                    ] {
+                                        let open = selection.video_panel == Some(panel);
+                                        if capture_icon(ui, label, icon, open || active).clicked() {
+                                            selection.video_panel = (!open).then_some(panel);
+                                        }
+                                    }
                                 }
                                 if mode.makes_image() {
                                     let previous = self.settings.capture_destination;
@@ -807,7 +810,9 @@ impl MyImageApp {
                                             }
                                         }).response.on_hover_text("Output size after capture or copy. Selection stays at full resolution.");
                                 }
-                                if capture_icon(ui, "Magnifier", appearance::Icon::Search, selection.magnifier).clicked() {
+                                if mode != CaptureMode::Video
+                                    && capture_icon(ui, "Magnifier", appearance::Icon::Search, selection.magnifier).clicked()
+                                {
                                     selection.magnifier = !selection.magnifier;
                                 }
                                 if capture_icon(ui, "Reset selection", appearance::Icon::Refresh, false).clicked() {
@@ -843,7 +848,7 @@ impl MyImageApp {
                                         && !selection.multi.rects.is_empty());
                                 if ui
                                     .add_enabled_ui(ready, |ui| {
-                                        appearance::capture_button(
+                                        appearance::capture_button_with_icon(
                                             ui,
                                             if mode == CaptureMode::Scrolling {
                                                 "Start scrolling"
@@ -855,6 +860,7 @@ impl MyImageApp {
                                                 self.settings.capture_destination.capture_label()
                                             },
                                             Vec2::new(0., 30.),
+                                            if mode == CaptureMode::Video { appearance::Icon::Video } else { appearance::Icon::Capture },
                                         )
                                     })
                                     .inner
@@ -896,6 +902,22 @@ impl MyImageApp {
         #[cfg(not(target_os = "macos"))]
         let target_mode = mode;
         let menu_interaction = menu_was_open || egui::Popup::is_any_open(ctx);
+        #[cfg(target_os = "macos")]
+        let menu_interaction = {
+            if mode == CaptureMode::Video && !placing_overlay && !cancel {
+                destination_changed |=
+                    video_session::show_video_panel(ctx, selection, &mut self.settings, bar);
+            } else {
+                selection.video_panel = None;
+            }
+            selection.webcam.update_preview(
+                ctx,
+                mode == CaptureMode::Video && !placing_overlay && !cancel,
+                self.demo,
+            );
+            // A click dismissing a panel should not also select the window beneath it.
+            menu_interaction || setup_was_open || selection.video_panel.is_some()
+        };
         let mut confirm = scroll
             || accepted.take().is_some()
             || (!menu_interaction && ctx.input(|i| i.key_pressed(egui::Key::Enter)));
@@ -916,7 +938,7 @@ impl MyImageApp {
                 // A stationary pointer can paint guides on the first frame.
                 // Only actual viewport input above enables a click or a drag.
                 let pointer = pointer.filter(|_| !menu_interaction);
-                if response.hovered() && target_mode != CaptureMode::Window {
+                if response.hovered() && mode != CaptureMode::Video && target_mode != CaptureMode::Window {
                     ctx.set_cursor_icon(
                         pointer.map_or(egui::CursorIcon::Crosshair, |p| {
                             if mode == CaptureMode::MultiRegion && let Some(rect) = selection.multi.rects.iter().rev().find(|r| r.expand(7.).contains(p)) {
@@ -955,7 +977,7 @@ impl MyImageApp {
                 };
                 #[cfg(target_os = "macos")]
                 if !menu_interaction && let Some(rect) = video_frame(selection.window_id) {
-                    selection.webcam.drag(ctx, rect, bar, &mut selection_events);
+                    selection.webcam.drag(ctx, rect.intersect(bounds), bar, &mut selection_events);
                 }
                 if ctx.input(|i| {
                     i.events
@@ -1083,14 +1105,6 @@ impl MyImageApp {
                         .flatten()
                 });
                 let painter = ui.painter();
-                #[cfg(target_os = "macos")]
-                if !self.demo {
-                    selection.webcam.update_preview(
-                        ctx, &selection.display,
-                        (!placing_overlay).then(|| video_frame(selection.window_id)).flatten(),
-                        menu_interaction,
-                    );
-                }
                 painter.image(
                     selection.texture.id(),
                     bounds,
@@ -1156,12 +1170,6 @@ impl MyImageApp {
                         painter.circle_filled(p, 4., Color32::WHITE);
                         painter.circle_stroke(p, 4., Stroke::new(1., appearance::palette(ui.ctx()).accent));
                     }
-                    #[cfg(target_os = "macos")]
-                    if mode == CaptureMode::Video && chosen.is_some() && !selection.drag.active
-                        && let Some(frame) = video_frame(selection.window_id)
-                    {
-                        selection.webcam.paint(painter, frame);
-                    }
                     let label = if target_mode == CaptureMode::Window || chosen.is_none() {
                         selection
                             .windows
@@ -1191,7 +1199,13 @@ impl MyImageApp {
                         Color32::WHITE,
                     );
                 }
-                if let Some(p) = pointer.filter(|p| !bar.contains(*p))
+                #[cfg(target_os = "macos")]
+                if video_mode && !placing_overlay {
+                    let camera_frame = video_frame(selection.window_id).unwrap_or(bounds);
+                    selection.webcam.paint(painter, camera_frame.intersect(bounds));
+                }
+                if mode != CaptureMode::Video
+                    && let Some(p) = pointer.filter(|p| !bar.contains(*p))
                     && chosen.is_none()
                 {
                     let stroke = Stroke::new(1., Color32::from_white_alpha(170));
@@ -1229,7 +1243,8 @@ impl MyImageApp {
                     #[cfg(not(target_os = "macos"))]
                     let camera_error: Option<&str> = None;
                     #[cfg(target_os = "macos")]
-                    let free = selection.webcam.mode == video_session::Webcam::Free && chosen.is_some();
+                    let free = selection.webcam.enabled
+                        && selection.webcam.mode == video_session::Webcam::Free && chosen.is_some();
                     #[cfg(not(target_os = "macos"))]
                     let free = false;
                     if let Some(error) = camera_error {
@@ -1890,7 +1905,7 @@ impl MyImageApp {
     }
 }
 
-fn capture_icon(
+pub(super) fn capture_icon(
     ui: &mut egui::Ui,
     label: &str,
     icon: appearance::Icon,
@@ -2160,6 +2175,135 @@ mod tests {
                 .unwrap();
             assert!(size.x < 620. && size.y < 60., "{mode:?}: {size:?}");
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn video_panels_accept_direct_choices_without_confirming_capture() {
+        use video_session::VideoPanel;
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        app.settings.capture_mode = CaptureMode::Video;
+        let mut screen = test_screens(&ctx, CaptureMode::Video).screens.remove(0);
+        let mut time = 0.;
+        {
+            let mut frame = |events| {
+                time += 0.03;
+                ctx.enable_accesskit();
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| assert_eq!(app.selection_overlay_ui(ctx, &mut screen, None), None),
+                )
+            };
+            for _ in 0..5 {
+                frame(vec![]);
+            }
+            let mut click = |label| {
+                frame(vec![]);
+                frame(vec![]);
+                let at = frame(vec![])
+                    .platform_output
+                    .accesskit_update
+                    .unwrap()
+                    .nodes
+                    .iter()
+                    .find_map(|(_, node)| {
+                        (node.label() == Some(label))
+                            .then(|| node.bounds())
+                            .flatten()
+                    })
+                    .map(|bounds| {
+                        Pos2::new(
+                            ((bounds.x0 + bounds.x1) * 0.5) as f32,
+                            ((bounds.y0 + bounds.y1) * 0.5) as f32,
+                        )
+                    })
+                    .unwrap_or_else(|| panic!("Missing video control {label}"));
+                for pressed in [true, false] {
+                    frame(vec![
+                        egui::Event::PointerMoved(at),
+                        pointer_button(at, pressed),
+                    ]);
+                }
+            };
+            click("Full screen");
+            click("Recording options");
+            click("4K");
+            click("Microphone");
+            click("128 kbps");
+            click("5 s");
+            click("Close setup panel");
+            click("Presenter camera");
+            click("Include presenter camera");
+            click("Include presenter camera");
+            click("Top left");
+            click("Large");
+            click("Mirror camera");
+            let nodes = frame(vec![])
+                .platform_output
+                .accesskit_update
+                .unwrap()
+                .nodes;
+            let control_bounds = |label| {
+                nodes
+                    .iter()
+                    .find_map(|(_, node)| {
+                        (node.label() == Some(label))
+                            .then(|| node.bounds())
+                            .flatten()
+                    })
+                    .unwrap()
+            };
+            assert!(control_bounds("Large").y1 < control_bounds("Top left").y0);
+            for label in ["Large", "Mirror camera"] {
+                assert_eq!(
+                    nodes.iter().find_map(|(_, node)| {
+                        (node.label() == Some(label))
+                            .then(|| node.toggled())
+                            .flatten()
+                    }),
+                    Some(egui::accesskit::Toggled::True),
+                    "{label} should be selected"
+                );
+            }
+        }
+        let preferences = serde_json::to_value(app.settings.video).unwrap();
+        assert_eq!(preferences["target"], "FullScreen");
+        assert_eq!(preferences["quality"], "High");
+        assert_eq!(preferences["audio_source"], "Microphone");
+        assert_eq!(preferences["audio_quality"], "High");
+        assert_eq!(preferences["countdown_seconds"], 5);
+        assert!(screen.video_panel == Some(VideoPanel::Camera));
+        assert!(screen.webcam.enabled && screen.webcam.mode == video_session::Webcam::TopLeft);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn video_window_selection_paints_no_region_guides() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        app.settings.capture_mode = CaptureMode::Video;
+        app.settings.video.target = video_session::VideoTarget::Window;
+        let mut screen = test_screens(&ctx, CaptureMode::Video).screens.remove(0);
+        screen.placement_frames = SELECTION_PLACEMENT_FRAMES;
+        let output = ctx.run(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800., 600.))),
+                events: vec![egui::Event::PointerMoved(Pos2::new(250., 150.))],
+                ..Default::default()
+            },
+            |ctx| assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none()),
+        );
+        assert!(!output.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::LineSegment { stroke, .. } if stroke.color == Color32::from_white_alpha(170)
+        )));
+        assert!(screen.webcam.enabled && screen.drag.bounds().is_none());
     }
 
     #[cfg(target_os = "macos")]
@@ -3352,6 +3496,8 @@ mod tests {
             pointer_ready: true,
             #[cfg(target_os = "macos")]
             webcam: Default::default(),
+            #[cfg(target_os = "macos")]
+            video_panel: None,
             #[cfg(target_os = "macos")]
             video_target: Default::default(),
         };

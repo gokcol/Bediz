@@ -1,6 +1,6 @@
 {
   "version": "4.0.0",
-  "build": 154,
+  "build": 164,
   "store_version": "3.2.3.0",
   "changes": [
     "Use Select to click objects or drag a rectangular pixel region. A region drag can start in the workspace margin.",
@@ -50,6 +50,25 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "Auto Subtitles transcribes timeline audio on macOS 26 and later. Use English or download another supported language, edit the cues, copy the transcript, or save an SRT file.",
+    "Subtitles follow cuts and moves and can be included in the exported video.",
+    "Start Here can open a video for annotation or set up a screen recording. Drop an MP4 or MOV onto Bediz to open its timeline.",
+    "Export MP4 or MOV in phone, tablet, web, square, HD, 4K or custom sizes. Choose H.264, HEVC or ProRes and AAC, Apple Lossless, PCM or no audio where supported.",
+    "The timeline pencil reopens saved frame annotations as editable Bediz objects. Sending them back replaces the existing layer at its original timing.",
+    "Annotate This Frame opens the paused video frame as a locked reference in the Bediz editor. Draw with the annotation tools, choose a duration, and send the artwork back to the timeline.",
+    "Use the snowflake on the video timeline to hold the picture at the playhead. Set the duration of the inserted freeze frame.",
+    "Place a cursor spotlight in the annotation preview. Keep it fixed or move it between two chosen points.",
+    "Set audio fade-in and fade-out durations in clip settings. Hear the fades in the player and in exported MP4s.",
+    "Open the film icon in the video player to split clips, cut, copy, paste or delete time ranges. Enter a time or nudge the playhead by one millisecond.",
+    "Insert editable title, information, chapter, photo, end credits or blank pages anywhere on the timeline. Choose each page’s duration and transition.",
+    "Add timed text, callouts, arrows, shapes and Bediz artwork. Set each annotation’s position, start and duration.",
+    "Save an editable Bediz video project or export a new MP4 with source audio.",
+    "The video player has a clearer timeline, a prominent play and pause button, and compact speed, audio, and full-screen controls.",
+    "The presenter camera panel fits size controls beside the preview and places the layout icons directly below.",
+    "Video setup highlights whole windows and displays. The presenter camera is on by default and previews as soon as video setup opens.",
+    "The Bediz player keeps the timeline and playback controls visible, with frame stepping, speed, volume and full screen.",
+    "Choose video target, resolution, audio and countdown directly in the redesigned recording controls.",
+    "Preview the presenter camera before choosing a target. Set its placement, bubble size and mirroring in the camera panel.",
     "Choose Video in Capture Now to record a window or a full display as an MP4, with pause, resume, and stop controls.",
     "See your optional live webcam bubble inside the recording frame. Use any corner, drag it freely, or let Bediz choose a random position.",
     "Set recording quality and a maximum duration, and check estimated file size against the available drive space.",

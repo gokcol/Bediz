@@ -215,6 +215,11 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
+        if self.locked_reference {
+            self.image_error =
+                Some("The video frame is locked. Use Copy to keep the selected pixels.".into());
+            return;
+        }
         if self.clipboard_job.is_some() {
             return;
         }
@@ -638,11 +643,8 @@ impl EditorState {
         let mut candidate = document.clone();
         candidate.annotations.extend(annotations);
         let check = if expand {
-            crate::canvas::extend_for_annotations(
-                &mut candidate,
-                &(first..first + count).collect::<Vec<_>>(),
-            )
-            .map(|_| ())
+            self.extend_for_annotations(&mut candidate, &(first..first + count).collect::<Vec<_>>())
+                .map(|_| ())
         } else {
             Ok(())
         }

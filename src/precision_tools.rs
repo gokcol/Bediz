@@ -453,7 +453,8 @@ impl EditorState {
         label.layer.name = "Dimension label".into();
         document.annotations.extend([line, label]);
         let indices = [first, first + 1];
-        if let Err(error) = crate::canvas::extend_for_annotations(document, &indices)
+        if let Err(error) = self
+            .extend_for_annotations(document, &indices)
             .and_then(|_| crate::document::validate_document(document))
         {
             document.annotations = before.annotations;
