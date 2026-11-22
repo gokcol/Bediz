@@ -3,6 +3,7 @@
   "build": 149,
   "store_version": "3.2.1.0",
   "changes": [
+    "Annotation line-width controls reach 96 px.",
     "Bediz runs under its current name in Windows Task Manager and macOS Activity Monitor.",
     "Extract Text prepares selected pixels with fewer copies while preserving the current recognition settings.",
     "The capture shortcut notice now offers Retry, Change shortcut, and Dismiss.",

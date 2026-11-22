@@ -739,6 +739,8 @@ struct QuickProperties {
     viewport: Rect,
     bar: Rect,
 }
+const LINE_WIDTH_CONTROL_MAX: f32 = 96.;
+
 impl QuickProperties {
     fn popup(
         self,
@@ -1048,7 +1050,7 @@ impl EditorState {
                     egui::emath::format_with_decimals_in_range(self.stroke_width as f64, 0..=1)
                 ));
                 ui.spacing_mut().slider_width = 132.;
-                let maximum = self.stroke_width.max(64.);
+                let maximum = self.stroke_width.max(LINE_WIDTH_CONTROL_MAX);
                 let response = ui
                     .scope(|ui| {
                         ui.spacing_mut().interact_size.y = 22.;
@@ -1243,7 +1245,7 @@ impl EditorState {
         changed |= palette(ui, &mut self.color);
         changed |= opacity(ui, &mut self.color);
         if kind == AnnotationKind::Arrow || kind.is_shape() || kind == AnnotationKind::Freehand {
-            let maximum = self.stroke_width.max(64.);
+            let maximum = self.stroke_width.max(LINE_WIDTH_CONTROL_MAX);
             changed |= slider(ui, &mut self.stroke_width, 0.1..=maximum, "Width", " px");
             if kind != AnnotationKind::Arrow {
                 ui.horizontal(|ui| {
