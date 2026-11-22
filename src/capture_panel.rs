@@ -312,12 +312,27 @@ pub fn ui(
                                 ui.spacing_mut().item_spacing = Vec2::new(18., 6.);
                                 result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| appearance::toggle(ui, &mut settings.include_pointer, "Include pointer")
                                     .on_hover_text("Show the mouse pointer in the saved capture. Turn off for a clean image.").changed()).inner;
-                                result.changed |= appearance::toggle(ui, &mut settings.capture_on_release, "Capture immediately after selection")
-                                    .on_hover_text("Off by default: adjust the selection, then click Capture. When enabled, releasing a region or clicking a window captures immediately. Multiple regions still wait for Capture or Enter.").changed();
+                                result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Video, |ui| appearance::toggle(ui, &mut settings.capture_on_release, "Capture immediately after selection")
+                                    .on_hover_text("Off by default: adjust the selection, then click Capture. When enabled, releasing a region or clicking a window captures immediately. Multiple regions still wait for Capture or Enter.").changed()).inner;
                             });
                             ui.strong("After capture");
                             if settings.capture_mode == CaptureMode::Text {
                                 ui.label("Copy text to clipboard · no image saved");
+                            } else if settings.capture_mode == CaptureMode::Video {
+                                ui.label("Save an MP4 in the Recordings folder");
+                                #[cfg(target_os = "macos")]
+                                {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Record");
+                                        result.changed |= settings.video.target.ui(ui);
+                                    });
+                                    result.changed |= crate::app::video_session::preferences_ui(
+                                        ui, &mut settings.video, &settings.output_dir, None,
+                                    );
+                                    if appearance::action_button(ui, "Change save folder…", appearance::Icon::Open, true, false).clicked() {
+                                        result.action = Some(Action::ChooseFolder);
+                                    }
+                                }
                             } else {
                             let destinations = CaptureDestination::ALL.map(|destination| (
                                 destination, destination.label(),
@@ -365,7 +380,7 @@ pub fn ui(
                         ui.label(egui::RichText::new(if cfg!(target_os="macos") { "Also ⌃⇧. / ⌘⇧." } else { "Also Ctrl + Shift + ." }).size(12.).color(look.palette.muted));
                         ui.visuals_mut().widgets.noninteractive.bg_stroke.color = look.palette.border;
                         ui.separator();
-                        ui.label(egui::RichText::new(if settings.capture_mode == CaptureMode::Text { "Text is copied directly. Your editor and Library stay unchanged." } else { settings.capture_destination.hint() }).size(12.).color(look.palette.muted));
+                        ui.label(egui::RichText::new(if settings.capture_mode == CaptureMode::Text { "Text is copied directly. Your editor and Library stay unchanged." } else if settings.capture_mode == CaptureMode::Video { "Choose your webcam position after selecting the area." } else { settings.capture_destination.hint() }).size(12.).color(look.palette.muted));
                         });
                     });
                 });
@@ -400,6 +415,13 @@ pub(super) fn mode_icon(painter: &egui::Painter, mode: CaptureMode, rect: Rect, 
     );
     let stroke = Stroke::new(crate::icon_style::current(painter.ctx()).width(), color);
     match mode {
+        CaptureMode::Video => appearance::icon(
+            painter,
+            rect.center(),
+            appearance::Icon::Video,
+            color,
+            rect.width(),
+        ),
         CaptureMode::Text => appearance::icon(
             painter,
             rect.center(),

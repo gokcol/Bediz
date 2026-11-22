@@ -266,11 +266,25 @@ impl LibraryPanel {
         let mut entries = Vec::new();
         let mut seen = HashSet::new();
         for path in paths.iter().take(24) {
-            if crate::project_store::is_project(path)
+            if (crate::project_store::is_project(path) || library::is_recording(path))
                 && !self.preferences.hidden_recents.contains(path)
                 && !self.missing_paths.contains(path)
                 && seen.insert(path.clone())
             {
+                let kind = if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("myimage"))
+                {
+                    EntryKind::Project
+                } else {
+                    EntryKind::Image
+                };
+                #[cfg(target_os = "macos")]
+                let kind = if library::is_recording(path) {
+                    EntryKind::Recording
+                } else {
+                    kind
+                };
                 entries.push(LibraryEntry {
                     path: path.clone(),
                     name: path
@@ -279,14 +293,7 @@ impl LibraryPanel {
                         .to_string_lossy()
                         .into_owned(),
                     date: chrono::Local::now().date_naive(),
-                    kind: if path
-                        .extension()
-                        .is_some_and(|e| e.eq_ignore_ascii_case("myimage"))
-                    {
-                        EntryKind::Project
-                    } else {
-                        EntryKind::Image
-                    },
+                    kind,
                     modified: None,
                     created: None,
                     bytes: 0,
@@ -466,9 +473,35 @@ impl LibraryPanel {
                         if normal_click && !is_active {
                             chosen = Some(LibraryAction::Open(entry.path.clone()));
                         }
+                        let recording = library::is_recording(&entry.path);
                         if !ui.input(|i| i.modifiers.ctrl) {
                             response.context_menu(|ui| {
-                                if let Some(a) = self.file_menu(ui, &entry.path, true) {
+                                if recording {
+                                    for (label, icon, action) in [
+                                        (
+                                            "Play recording",
+                                            appearance::Icon::Play,
+                                            LibraryAction::Open(entry.path.clone()),
+                                        ),
+                                        (
+                                            "Reveal in Finder",
+                                            appearance::Icon::Open,
+                                            LibraryAction::Reveal(entry.path.clone()),
+                                        ),
+                                        (
+                                            "Move to Trash…",
+                                            appearance::Icon::Trash,
+                                            LibraryAction::Trash(vec![entry.path.clone()]),
+                                        ),
+                                    ] {
+                                        if appearance::action_button(ui, label, icon, true, false)
+                                            .clicked()
+                                        {
+                                            chosen = Some(action);
+                                            ui.close();
+                                        }
+                                    }
+                                } else if let Some(a) = self.file_menu(ui, &entry.path, true) {
                                     chosen = Some(a);
                                 }
                             });
@@ -536,6 +569,19 @@ impl LibraryPanel {
                                 appearance::Icon::View,
                                 appearance::palette(ui.ctx()).muted,
                                 20.,
+                            );
+                        }
+                        if recording {
+                            let corner = image_rect.right_bottom() - Vec2::splat(3.);
+                            let badge = Rect::from_min_max(corner - Vec2::new(31., 16.), corner);
+                            ui.painter()
+                                .rect_filled(badge, 4., Color32::from_black_alpha(182));
+                            ui.painter().text(
+                                badge.center(),
+                                egui::Align2::CENTER_CENTER,
+                                "MP4",
+                                FontId::proportional(9.),
+                                Color32::WHITE,
                             );
                         }
                         if selected || is_active {

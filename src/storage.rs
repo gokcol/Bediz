@@ -111,6 +111,8 @@ pub struct Settings {
     pub capture_destination: crate::capture::CaptureDestination,
     pub include_pointer: bool,
     pub capture_on_release: bool,
+    #[cfg(target_os = "macos")]
+    pub video: crate::app::video_session::VideoPreferences,
     pub recent_files: Vec<PathBuf>,
     pub recents_open: bool,
     pub confirm_trash: bool,
@@ -152,6 +154,8 @@ impl Default for Settings {
             capture_destination: Default::default(),
             include_pointer: false,
             capture_on_release: false,
+            #[cfg(target_os = "macos")]
+            video: Default::default(),
             recent_files: Vec::new(),
             recents_open: true,
             confirm_trash: true,
@@ -233,11 +237,15 @@ fn selection_mode<'de, D: serde::Deserializer<'de>>(
 ) -> Result<crate::capture::CaptureMode, D::Error> {
     use crate::capture::CaptureMode;
     let mode = CaptureMode::deserialize(deserializer)?;
-    Ok(if mode == CaptureMode::Scrolling {
-        CaptureMode::Region
-    } else {
-        mode
-    })
+    Ok(
+        if mode == CaptureMode::Scrolling
+            || (mode == CaptureMode::Video && !cfg!(target_os = "macos"))
+        {
+            CaptureMode::Region
+        } else {
+            mode
+        },
+    )
 }
 
 pub fn load_settings() -> Result<Settings, String> {

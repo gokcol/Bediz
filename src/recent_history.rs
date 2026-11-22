@@ -61,8 +61,16 @@ impl MyImageApp {
         }
     }
 
+    fn recent_project_paths(&self) -> Vec<PathBuf> {
+        self.library
+            .recent_paths(&self.settings.recent_files)
+            .into_iter()
+            .filter(|path| !crate::library::is_recording(path))
+            .collect()
+    }
+
     pub(super) fn remember_browse_direction(&mut self, next: &std::path::Path) {
-        let paths = self.library.recent_paths(&self.settings.recent_files);
+        let paths = self.recent_project_paths();
         let active = self.project_path.as_ref().or(self.last_path.as_ref());
         if let (Some(previous), Some(next)) = (
             paths.iter().position(|p| Some(p) == active),
@@ -86,7 +94,7 @@ impl MyImageApp {
         let Some(loader) = &self.image_loader else {
             return;
         };
-        let paths = self.library.recent_paths(&self.settings.recent_files);
+        let paths = self.recent_project_paths();
         let active = self.project_path.as_ref().or(self.last_path.as_ref());
         let Some(index) = paths.iter().position(|p| Some(p) == active) else {
             return;
@@ -151,7 +159,7 @@ impl MyImageApp {
         }) else {
             return;
         };
-        let visible = self.library.recent_paths(&self.settings.recent_files);
+        let visible = self.recent_project_paths();
         let active = self.project_path.as_ref().or(self.last_path.as_ref());
         let Some(index) = visible.iter().position(|path| Some(path) == active) else {
             return;
@@ -173,7 +181,7 @@ impl MyImageApp {
         active: &std::path::Path,
         removed: &[PathBuf],
     ) -> std::collections::VecDeque<PathBuf> {
-        let visible = self.library.recent_paths(&self.settings.recent_files);
+        let visible = self.recent_project_paths();
         let pivot = visible.iter().position(|path| path == active);
         let (before, after) = match pivot {
             Some(index) => (&visible[..index], &visible[index + 1..]),

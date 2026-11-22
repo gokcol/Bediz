@@ -16,6 +16,9 @@ mod capture_session;
 mod screen_text;
 #[path = "updates_ui.rs"]
 mod updates_ui;
+#[cfg(target_os = "macos")]
+#[path = "video_session.rs"]
+pub(crate) mod video_session;
 use crate::{
     appearance::{self, Icon},
     capture::{self, DisplayInfo},
@@ -129,6 +132,10 @@ struct Selection {
     magnifier: bool,
     magnifier_preview: crate::capture_magnifier::CaptureMagnifier,
     pointer_ready: bool,
+    #[cfg(target_os = "macos")]
+    webcam: video_session::WebcamSetup,
+    #[cfg(target_os = "macos")]
+    video_target: video_session::VideoTarget,
 }
 
 /// Keep geometry in desktop units, independent of the capture window's DPI:
@@ -192,6 +199,8 @@ pub struct MyImageApp {
     capture_copy_retry: Option<CaptureOutput>,
     selection: Option<SelectionSession>,
     scroll_session: Option<ScrollSession>,
+    #[cfg(target_os = "macos")]
+    recording: Option<video_session::Recording>,
     busy: bool,
     opening_image: bool,
     recent_browse_forward: bool,
@@ -341,6 +350,8 @@ impl MyImageApp {
             capture_copy_retry: None,
             selection: None,
             scroll_session: None,
+            #[cfg(target_os = "macos")]
+            recording: None,
             busy: false,
             opening_image: false,
             recent_browse_forward: true,
@@ -512,8 +523,20 @@ impl MyImageApp {
         ctx.send_viewport_cmd(ViewportCommand::Focus);
     }
 
+    fn recording_active(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        return self.recording.is_some();
+        #[cfg(not(target_os = "macos"))]
+        false
+    }
+
     fn begin_capture(&mut self, ctx: &egui::Context) {
         self.close_capture_launcher(ctx);
+        #[cfg(target_os = "macos")]
+        if let Some(recording) = &mut self.recording {
+            recording.focus(ctx);
+            return;
+        }
         self.calico.stop();
         if self.scroll_session.is_some() {
             self.capture_scroll_section(ctx);
@@ -605,6 +628,7 @@ impl MyImageApp {
                         | capture::CaptureMode::Window
                         | capture::CaptureMode::FullScreen
                         | capture::CaptureMode::Scrolling
+                        | capture::CaptureMode::Video
                 );
                 let windows = if needs_windows && !demo {
                     match capture::windows() {
@@ -615,6 +639,7 @@ impl MyImageApp {
                                 capture::CaptureMode::Region
                                     | capture::CaptureMode::MultiRegion
                                     | capture::CaptureMode::FullScreen
+                                    | capture::CaptureMode::Video
                             ) =>
                         {
                             Vec::new()
@@ -810,6 +835,11 @@ impl MyImageApp {
         }
         if selection.mode == capture::CaptureMode::Scrolling {
             self.start_scroll_session(ctx, selection, rect);
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        if selection.mode == capture::CaptureMode::Video {
+            self.start_recording(ctx, &selection, rect, None);
             return;
         }
         let shape = self.shape;
@@ -1152,6 +1182,11 @@ impl MyImageApp {
                 | DesktopEvent::CaptureSettings
                 | DesktopEvent::Library => {
                     self.close_capture_launcher(ctx);
+                    #[cfg(target_os = "macos")]
+                    if let Some(recording) = &mut self.recording {
+                        recording.focus(ctx);
+                        continue;
+                    }
                     if let Some(session) = &self.scroll_session {
                         session.focus(ctx);
                         continue;
@@ -1616,6 +1651,11 @@ impl MyImageApp {
             self.close_screen_text(ctx);
         }
         self.close_capture_launcher(ctx);
+        #[cfg(target_os = "macos")]
+        if let Some(recording) = &mut self.recording {
+            recording.focus(ctx);
+            return;
+        }
         if let Some(session) = &mut self.scroll_session {
             session.message = "Finish or cancel the scrolling capture before quitting.".into();
             session.focus(ctx);
@@ -2362,11 +2402,13 @@ impl eframe::App for MyImageApp {
         }
         self.handle_events(ctx);
         self.poll_external_open(ctx);
+        let recording_active = self.recording_active();
         if let Some(desktop) = &mut self.desktop {
             desktop.set_capture_active(
                 self.pending_capture.is_some()
                     || self.selection.is_some()
-                    || self.scroll_session.is_some(),
+                    || self.scroll_session.is_some()
+                    || recording_active,
             );
         }
         self.poll_update_service(ctx, frame);
@@ -2384,6 +2426,7 @@ impl eframe::App for MyImageApp {
                 !self.displays.is_empty()
                     && !self.busy
                     && !self.screen_text.open
+                    && !recording_active
                     && self.pending_capture.is_none()
                     && self.selection.is_none()
                     && self.capture_hotkey_editor.is_none()
@@ -2429,6 +2472,13 @@ impl eframe::App for MyImageApp {
         if self.selection.is_some() {
             self.selection_ui(ctx);
             if self.selection.is_some() {
+                return;
+            }
+        }
+        #[cfg(target_os = "macos")]
+        if self.recording.is_some() {
+            self.recording_ui(ctx);
+            if self.recording.is_some() {
                 return;
             }
         }

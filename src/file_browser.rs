@@ -128,6 +128,12 @@ impl MyImageApp {
 
     pub(super) fn library_action(&mut self, ctx: &egui::Context, action: LibraryAction) {
         match action {
+            #[cfg(target_os = "macos")]
+            LibraryAction::Open(path) if crate::library::is_recording(&path) => {
+                if let Err(error) = video_session::play(&path) {
+                    self.error = Some(error);
+                }
+            }
             LibraryAction::Open(p) => self.open_path(ctx, p, true),
             LibraryAction::Copy(path) => self.copy_library_image(ctx, path),
             LibraryAction::Storage => self.file_dialog = Some(FileDialog::Storage),

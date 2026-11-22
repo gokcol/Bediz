@@ -57,17 +57,24 @@ pub enum CaptureMode {
     FullScreen,
     Scrolling,
     Text,
+    Video,
 }
 impl CaptureMode {
     // Scrolling is a post-selection action. Keep the legacy variant readable
     // for compatibility, but never offer it as a selection mode.
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 5 + cfg!(target_os = "macos") as usize] = [
         Self::Region,
         Self::MultiRegion,
         Self::Window,
         Self::FullScreen,
         Self::Text,
+        #[cfg(target_os = "macos")]
+        Self::Video,
     ];
+
+    pub fn makes_image(self) -> bool {
+        !matches!(self, Self::Text | Self::Video)
+    }
     pub fn label(self) -> &'static str {
         match self {
             Self::Region => "Region",
@@ -76,6 +83,7 @@ impl CaptureMode {
             Self::FullScreen => "Full screen",
             Self::Scrolling => "Scrolling",
             Self::Text => "Text",
+            Self::Video => "Video",
         }
     }
     pub fn hint(self) -> &'static str {
@@ -88,6 +96,9 @@ impl CaptureMode {
             Self::FullScreen => "Click the screen to capture, or choose a fixed display.",
             Self::Scrolling => {
                 "Click a window or select part of it. Scroll down, then finish. Sections are collected automatically."
+            }
+            Self::Video => {
+                "Record a region, a window, or a full display. Adjust video, webcam, and audio options before recording."
             }
             Self::Text => {
                 "Select a screen region and copy its text. No image or project is created."

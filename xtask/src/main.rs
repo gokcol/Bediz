@@ -349,7 +349,8 @@ fn bundle(
         "Validate app metadata",
     )?;
     let mut sign = Command::new("/usr/bin/codesign");
-    sign.args(["--force", "--sign", signing_identity]);
+    sign.args(["--force", "--sign", signing_identity, "--entitlements"])
+        .arg(workspace.join("packaging/macos/entitlements.plist"));
     if std::env::var_os("MYIMAGE_DISTRIBUTION").is_some() {
         if signing_identity == "-" {
             return Err("Distribution cannot use an ad-hoc signature".into());

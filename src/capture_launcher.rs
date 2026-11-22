@@ -95,6 +95,11 @@ impl MyImageApp {
         }
     }
     pub(super) fn toggle_capture_launcher(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "macos")]
+        if let Some(recording) = &mut self.recording {
+            recording.focus(ctx);
+            return;
+        }
         if self.capture_launcher.is_some() {
             self.close_capture_launcher(ctx);
             return;
@@ -583,6 +588,7 @@ fn launcher_content(
                 CaptureMode::FullScreen => "Capture a whole display",
                 CaptureMode::Scrolling => "Scroll a window to capture all of it",
                 CaptureMode::Text => "Copy the text in a region",
+                CaptureMode::Video => "Record a region, window, or display to MP4",
             },
         );
         if tile.clicked() {
@@ -627,7 +633,8 @@ fn launcher_content(
         .on_hover_cursor(egui::CursorIcon::PointingHand);
 
     let send_track = at(FIELD_X, 135., FIELD_W, 26.);
-    if settings.capture_mode == CaptureMode::Text {
+    if !settings.capture_mode.makes_image() {
+        let video = settings.capture_mode == CaptureMode::Video;
         ui.painter().rect(
             send_track,
             8,
@@ -638,14 +645,18 @@ fn launcher_content(
         appearance::icon(
             ui.painter(),
             send_track.left_center() + Vec2::new(16., 0.),
-            Icon::TextSize,
+            if video { Icon::Video } else { Icon::TextSize },
             p.ginger,
             15.,
         );
         ui.painter().text(
             send_track.left_center() + Vec2::new(32., 0.),
             egui::Align2::LEFT_CENTER,
-            "Text → clipboard · no image saved",
+            if video {
+                "MP4 · Recordings folder"
+            } else {
+                "Text → clipboard · no image saved"
+            },
             egui::FontId::proportional(12.),
             p.ink,
         );
@@ -703,7 +714,7 @@ fn launcher_content(
             "Resize the finished image before saving or copying",
         )
     });
-    ui.add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| {
+    ui.add_enabled_ui(settings.capture_mode.makes_image(), |ui| {
         if let Some(i) = segmented(
             ui,
             at(FIELD_X, 201., FIELD_W, 26.),
@@ -729,13 +740,17 @@ fn launcher_content(
             )
         })
         .inner;
-    changed |= switch(
-        ui,
-        at(166., 234., 156., 26.),
-        &mut settings.capture_on_release,
-        "Capture on release",
-        "Capture on release, without confirming",
-    );
+    changed |= ui
+        .add_enabled_ui(settings.capture_mode != CaptureMode::Video, |ui| {
+            switch(
+                ui,
+                at(166., 234., 156., 26.),
+                &mut settings.capture_on_release,
+                "Capture on release",
+                "Capture on release, without confirming",
+            )
+        })
+        .inner;
 
     ui.painter().line_segment(
         [
@@ -758,6 +773,8 @@ fn launcher_content(
                     ui.is_enabled(),
                     if settings.capture_mode == CaptureMode::Text {
                         "Select region to copy text"
+                    } else if settings.capture_mode == CaptureMode::Video {
+                        "Select area to record"
                     } else {
                         "Capture now"
                     },
@@ -810,6 +827,8 @@ fn launcher_content(
                 capture_rect.center() - Vec2::new(0., 12.) + nudge,
                 if settings.capture_mode == CaptureMode::Text {
                     Icon::TextSize
+                } else if settings.capture_mode == CaptureMode::Video {
+                    Icon::Video
                 } else {
                     Icon::Capture
                 },
@@ -821,6 +840,8 @@ fn launcher_content(
                 egui::Align2::CENTER_CENTER,
                 if settings.capture_mode == CaptureMode::Text {
                     "Copy text"
+                } else if settings.capture_mode == CaptureMode::Video {
+                    "Set up video"
                 } else {
                     "Capture"
                 },

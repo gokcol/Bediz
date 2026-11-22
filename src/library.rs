@@ -22,6 +22,8 @@ const THUMBNAIL_HEIGHT: u32 = 256;
 pub enum EntryKind {
     Image,
     Project,
+    #[cfg(target_os = "macos")]
+    Recording,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -347,11 +349,30 @@ fn capture_date(root: &Path, path: &Path) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year as i32, month, day)
 }
 
+pub fn is_recording(path: &Path) -> bool {
+    cfg!(target_os = "macos")
+        && path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4"))
+}
+
 /// Decode a single visible entry. Call from a bounded worker, never the UI thread.
 /// An annotated project is rendered at up to four times tile resolution instead
 /// of allocating another full-size image and annotation overlay for every tile.
 pub fn thumbnail(entry: &LibraryEntry) -> Result<Thumbnail, String> {
     match entry.kind {
+        #[cfg(target_os = "macos")]
+        EntryKind::Recording => {
+            let image = crate::app::video_session::thumbnail(
+                &entry.path,
+                THUMBNAIL_WIDTH,
+                THUMBNAIL_HEIGHT,
+            )?;
+            Ok(Thumbnail {
+                original_size: [image.width(), image.height()],
+                image,
+            })
+        }
         EntryKind::Image => {
             let image = decode_image(&entry.path)?;
             let original_size = [image.width(), image.height()];

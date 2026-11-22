@@ -87,7 +87,7 @@ pub fn migrate(settings: &Settings) -> Result<Migration, String> {
         .map(|e| e.path.clone())
         .collect();
     for path in &settings.recent_files {
-        if path.is_file() {
+        if !library::is_recording(path) && path.is_file() {
             let list = if is_project(path) {
                 &mut projects
             } else {
@@ -170,7 +170,7 @@ pub fn remap_settings(settings: &mut Settings, links: &BTreeMap<PathBuf, PathBuf
         .recent_files
         .iter()
         .map(remap)
-        .filter(|p| is_project(p) && seen.insert(p.clone()))
+        .filter(|p| (is_project(p) || library::is_recording(p)) && seen.insert(p.clone()))
         .collect();
     settings.library.favorites = settings.library.favorites.iter().map(remap).collect();
     settings.library.hidden_recents = settings.library.hidden_recents.iter().map(remap).collect();

@@ -523,6 +523,9 @@ pub enum Icon {
     Refresh,
     Pause,
     Play,
+    #[cfg(target_os = "macos")]
+    Stop,
+    Video,
     List,
     Up,
     Down,
@@ -1304,6 +1307,30 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
                     Stroke::new(3., color),
                 );
             }
+        }
+        #[cfg(target_os = "macos")]
+        Icon::Stop => {
+            p.rect_filled(
+                Rect::from_center_size(center, Vec2::splat(size * 0.61)),
+                2.,
+                color,
+            );
+        }
+        Icon::Video => {
+            let body = Rect::from_center_size(
+                center - Vec2::new(size * 0.12, 0.),
+                Vec2::new(size * 0.56, size * 0.56),
+            );
+            p.rect_stroke(body, 2., s, egui::StrokeKind::Inside);
+            p.line(
+                vec![
+                    body.right_center() - Vec2::new(0., size * 0.11),
+                    center + Vec2::new(0.42, -0.29) * size,
+                    center + Vec2::new(0.42, 0.29) * size,
+                    body.right_center() + Vec2::new(0., size * 0.11),
+                ],
+                s,
+            );
         }
         Icon::Play => {
             p.add(egui::Shape::convex_polygon(

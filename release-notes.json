@@ -1,6 +1,6 @@
 {
-  "version": "3.2.0",
-  "build": 147,
+  "version": "4.0.0",
+  "build": 148,
   "store_version": "3.2.1.0",
   "changes": [
     "Extract Text prepares selected pixels with fewer copies while preserving the current recognition settings.",
@@ -47,6 +47,12 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "Capture Now can record a region, window, or full display as an MP4, with pause, resume, and stop controls.",
+    "Add an optional webcam bubble in any corner, drag it freely, or let Bediz choose a random position.",
+    "Set recording quality and a maximum duration, and check estimated file size against the available drive space.",
+    "Record microphone or system audio with adjustable AAC quality and optional microphone noise reduction.",
+    "Start recording immediately or after a 3-, 5-, or 10-second countdown.",
+    "Play finished recordings from their thumbnails in Recents.",
     "Use system symbol fonts to display arrow keys and shortcut symbols in interface labels.",
     "Dismiss capture with Esc and return to the editor without resizing its window. Open completed captures as soon as their project is saved.",
     "Show capture guides immediately over full-screen apps while keeping the current app active.",

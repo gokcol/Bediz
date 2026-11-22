@@ -17,11 +17,15 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>3.2.0</string>
+    <string>4.0.0</string>
     <key>CFBundleVersion</key>
-    <string>147</string>
+    <string>148</string>
     <key>BedizOpenProtocol</key>
     <string>1</string>
+    <key>NSCameraUsageDescription</key>
+    <string>Bediz uses the camera when you enable the webcam for a screen recording.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>Bediz uses the microphone when you choose it as the audio source for a screen recording.</string>
     <key>LSMinimumSystemVersion</key>
     <string>14.0</string>
     <key>NSHighResolutionCapable</key>

@@ -414,6 +414,10 @@ impl SelectionSession {
                     magnifier: true,
                     magnifier_preview: Default::default(),
                     pointer_ready: false,
+                    #[cfg(target_os = "macos")]
+                    webcam: Default::default(),
+                    #[cfg(target_os = "macos")]
+                    video_target: Default::default(),
                 })
                 .collect(),
         }
@@ -515,6 +519,14 @@ impl MyImageApp {
                 screen.window_id = None;
                 screen.hover_cycle = 0;
             }
+            #[cfg(target_os = "macos")]
+            if screen.mode == CaptureMode::Video
+                && screen.video_target != self.settings.video.target
+            {
+                screen.video_target = self.settings.video.target;
+                screen.drag = RegionDrag::default();
+                screen.window_id = None;
+            }
             let placing = screen.placement_frames < SELECTION_PLACEMENT_FRAMES;
             needs_placement_frame |= placing;
             let first_reveal = !placing && screen.reveal_time.is_none();
@@ -572,6 +584,11 @@ impl MyImageApp {
                     self.status = "Capture canceled".into();
                 }
                 SelectionAction::Window(request) => {
+                    #[cfg(target_os = "macos")]
+                    if screen.mode == CaptureMode::Video {
+                        self.start_window_recording(ctx, &screen, request.id);
+                        return;
+                    }
                     self.capture_selected_window(ctx, screen, request)
                 }
                 SelectionAction::Regions(regions) => {
@@ -664,6 +681,8 @@ impl MyImageApp {
         let can_drag = selection.pointer_ready || selection.drag.active;
         let mut mode = selection.mode;
         let old_mode = mode;
+        #[cfg(target_os = "macos")]
+        let old_target = self.settings.video.target;
         if !menu_was_open
             && ctx.input(|i| i.key_pressed(egui::Key::Space))
             && matches!(mode, CaptureMode::Region | CaptureMode::Window)
@@ -731,7 +750,36 @@ impl MyImageApp {
                                 crate::capture_panel::mode_icon(ui.painter(), mode,
                                     Rect::from_center_size(mode_menu.rect.left_center() + Vec2::new(16., 0.), Vec2::splat(18.)), look.palette.ink);
                                 mode_menu.on_hover_text(format!("{} · Change capture mode (Space: Region / Window)", mode.label()));
-                                if mode != CaptureMode::Text {
+                                #[cfg(target_os = "macos")]
+                                if mode == CaptureMode::Video {
+                                    destination_changed |= self.settings.video.target.ui(ui);
+                                    selection.webcam.menu(ui);
+                                    let response = ui.menu_button("     ▾", |ui| {
+                                        ui.set_min_width(286.);
+                                        let b = ctx.content_rect();
+                                        let region = selection.drag.bounds().and_then(|r| {
+                                            selection::selection_to_pixels(
+                                                [r.left() - b.left(), r.top() - b.top()],
+                                                [r.right() - b.left(), r.bottom() - b.top()],
+                                                [b.width(), b.height()],
+                                                [selection.image.width(), selection.image.height()],
+                                            )
+                                        }).map(|r| [r.width, r.height]);
+                                        let region = match self.settings.video.target {
+                                            video_session::VideoTarget::Region => region,
+                                            video_session::VideoTarget::Window => selection.window_id.and_then(|id| video_session::window_size(selection, id)),
+                                            video_session::VideoTarget::FullScreen => Some([selection.image.width(), selection.image.height()]),
+                                        };
+                                        destination_changed |= video_session::preferences_ui(
+                                            ui, &mut self.settings.video, &self.settings.output_dir, region,
+                                        );
+                                    }).response;
+                                    response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "Recording options"));
+                                    appearance::icon(ui.painter(), response.rect.left_center() + Vec2::new(16., 0.),
+                                        appearance::Icon::Settings, look.palette.ink, 17.);
+                                    response.on_hover_text("Recording quality, maximum duration, and disk space");
+                                }
+                                if mode.makes_image() {
                                     let previous = self.settings.capture_destination;
                                     let destination_menu = ui.menu_button("     ▾", |ui| {
                                         for choice in capture::CaptureDestination::ALL {
@@ -777,7 +825,12 @@ impl MyImageApp {
                                     }).inner;
                                     if response.clicked() { scroll = true; }
                                 }
+                                #[cfg(target_os = "macos")]
+                                let full_video = mode == CaptureMode::Video && self.settings.video.target == video_session::VideoTarget::FullScreen;
+                                #[cfg(not(target_os = "macos"))]
+                                let full_video = false;
                                 let ready = mode == CaptureMode::FullScreen
+                                    || full_video
                                     || selection.drag.bounds().is_some()
                                     || (mode == CaptureMode::MultiRegion
                                         && !selection.multi.rects.is_empty());
@@ -789,6 +842,8 @@ impl MyImageApp {
                                                 "Start scrolling"
                                             } else if mode == CaptureMode::Text {
                                                 "Copy text"
+                                            } else if mode == CaptureMode::Video {
+                                                "Record"
                                             } else {
                                                 self.settings.capture_destination.capture_label()
                                             },
@@ -820,6 +875,19 @@ impl MyImageApp {
             selection.hover_cycle = 0;
             self.settings.capture_mode = mode;
         }
+        #[cfg(target_os = "macos")]
+        let target_mode = if mode == CaptureMode::Video {
+            selection.video_target = self.settings.video.target;
+            if old_target != selection.video_target {
+                selection.drag = RegionDrag::default();
+                selection.window_id = None;
+            }
+            selection.video_target.mode()
+        } else {
+            mode
+        };
+        #[cfg(not(target_os = "macos"))]
+        let target_mode = mode;
         let menu_interaction = menu_was_open || egui::Popup::is_any_open(ctx);
         let mut confirm = scroll
             || accepted.take().is_some()
@@ -841,7 +909,7 @@ impl MyImageApp {
                 // A stationary pointer can paint guides on the first frame.
                 // Only actual viewport input above enables a click or a drag.
                 let pointer = pointer.filter(|_| !menu_interaction);
-                if response.hovered() && mode != CaptureMode::Window {
+                if response.hovered() && target_mode != CaptureMode::Window {
                     ctx.set_cursor_icon(
                         pointer.map_or(egui::CursorIcon::Crosshair, |p| {
                             if mode == CaptureMode::MultiRegion && let Some(rect) = selection.multi.rects.iter().rev().find(|r| r.expand(7.).contains(p)) {
@@ -849,6 +917,12 @@ impl MyImageApp {
                             } else { selection.drag.cursor(p) }
                         }),
                     );
+                }
+                #[cfg(target_os = "macos")]
+                if mode == CaptureMode::Video && !menu_interaction && !selection.drag.active
+                    && let Some(rect) = (target_mode == CaptureMode::FullScreen).then_some(bounds).or(selection.drag.bounds())
+                {
+                    selection.webcam.drag(ctx, rect.intersect(bounds), bar, &mut selection_events);
                 }
                 let window_rect = |w: &capture::WindowInfo| {
                     Rect::from_min_size(
@@ -888,7 +962,7 @@ impl MyImageApp {
                     .unwrap_or_default();
                 let hovered_window = (!candidates.is_empty())
                     .then(|| candidates[selection.hover_cycle % candidates.len()]);
-                if mode == CaptureMode::Window && response.hovered() {
+                if target_mode == CaptureMode::Window && response.hovered() {
                     ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
                 if !placing_overlay && !menu_interaction && selection.pointer_ready && mode == CaptureMode::Region
@@ -908,9 +982,10 @@ impl MyImageApp {
                         let windows: Vec<_> = selection.windows.iter().map(|w| (w.id, window_rect(w))).collect();
                         selection.multi.update(&mut selection.drag, &selection_events, bounds, bar, &windows);
                     }
-                } else if mode == CaptureMode::Window {
+                } else if target_mode == CaptureMode::Window {
                     if !placing_overlay && selection.pointer_ready && !menu_interaction
                         && response.clicked()
+                        && (mode != CaptureMode::Video || selection_events.iter().any(|event| matches!(event, egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed: false, .. })))
                         && let Some(w) = hovered_window
                     {
                         let rect = window_rect(w).intersect(bounds);
@@ -919,8 +994,8 @@ impl MyImageApp {
                         selection.window_id = Some(w.id);
                         selection.drag.completed = true;
                     }
-                } else if mode == CaptureMode::FullScreen {
-                    confirm |= !placing_overlay && !menu_interaction && selection.pointer_ready && response.clicked()
+                } else if target_mode == CaptureMode::FullScreen {
+                    confirm |= mode != CaptureMode::Video && !placing_overlay && !menu_interaction && selection.pointer_ready && response.clicked()
                         && pointer.is_some_and(|p| !bar.contains(p));
                 } else if !placing_overlay && can_drag && !menu_interaction && mode == CaptureMode::Scrolling {
                     let windows: Vec<_> = selection
@@ -935,9 +1010,8 @@ impl MyImageApp {
                         &windows,
                         &mut selection.window_id,
                     );
-                } else if !placing_overlay && can_drag && !menu_interaction && mode == CaptureMode::Text {
-                    // Text capture is a free rectangle. A click or modifier must
-                    // not silently snap to a window or become an image capture.
+                } else if !placing_overlay && can_drag && !menu_interaction && matches!(mode, CaptureMode::Text | CaptureMode::Video) {
+                    // Text and video begin with a free rectangle.
                     selection.drag.update(
                         &selection_events,
                         bounds,
@@ -964,7 +1038,11 @@ impl MyImageApp {
                 confirm |= !placing_overlay
                     && !menu_interaction
                     && capture_on_completion(self.settings.capture_on_release, mode, selection.drag.completed);
-                let chosen = selection.drag.bounds().map(|r| r.intersect(bounds));
+                let chosen = if mode == CaptureMode::Video && target_mode == CaptureMode::FullScreen {
+                    Some(bounds)
+                } else {
+                    selection.drag.bounds().map(|r| r.intersect(bounds))
+                };
                 // Enter capture at the desktop's original brightness. Hover
                 // outlines must not darken the entire screen before the user
                 // makes a selection. Ease in the outside shade only once a
@@ -983,8 +1061,8 @@ impl MyImageApp {
                     selection.shade_started_at = None;
                     0
                 };
-                let selected = (mode == CaptureMode::FullScreen).then_some(bounds).or(chosen).or_else(|| {
-                    (mode != CaptureMode::Text && !selection.drag.active)
+                let selected = (target_mode == CaptureMode::FullScreen).then_some(bounds).or(chosen).or_else(|| {
+                    ((mode.makes_image() || target_mode == CaptureMode::Window) && !selection.drag.active)
                         .then(|| hovered_window.map(|w| window_rect(w).intersect(bounds)))
                         .flatten()
                 });
@@ -1037,7 +1115,7 @@ impl MyImageApp {
                         Stroke::new(2., Color32::from_rgb(85, 232, 212)),
                         egui::StrokeKind::Inside,
                     );
-                    for p in (mode != CaptureMode::Window && chosen.is_some())
+                    for p in (target_mode != CaptureMode::Window && target_mode != CaptureMode::FullScreen && chosen.is_some())
                         .then_some([
                             rect.left_top(),
                             rect.right_top(),
@@ -1054,7 +1132,11 @@ impl MyImageApp {
                         painter.circle_filled(p, 4., Color32::WHITE);
                         painter.circle_stroke(p, 4., Stroke::new(1., appearance::palette(ui.ctx()).accent));
                     }
-                    let label = if mode == CaptureMode::Window || chosen.is_none() {
+                    #[cfg(target_os = "macos")]
+                    if mode == CaptureMode::Video && chosen.is_some() && !selection.drag.active {
+                        selection.webcam.paint(painter, rect);
+                    }
+                    let label = if target_mode == CaptureMode::Window || chosen.is_none() {
                         selection
                             .windows
                             .iter()
@@ -1103,7 +1185,7 @@ impl MyImageApp {
                     );
                 }
                 if selection.magnifier
-                    && !matches!(mode, CaptureMode::Window | CaptureMode::FullScreen)
+                    && !matches!(target_mode, CaptureMode::Window | CaptureMode::FullScreen)
                     && (chosen.is_none() || selection.drag.active)
                     && let Some(p) = pointer.filter(|p| !bar.contains(*p))
                 {
@@ -1115,6 +1197,20 @@ impl MyImageApp {
                     "Click this screen to capture it · Move to any other screen to choose it · Esc cancels"
                 } else if mode == CaptureMode::MultiRegion {
                     "Drag to add regions · Drag a region to adjust · Delete removes · Enter captures"
+                } else if mode == CaptureMode::Video {
+                    #[cfg(target_os = "macos")]
+                    let free = selection.webcam.mode == video_session::Webcam::Free && chosen.is_some();
+                    #[cfg(not(target_os = "macos"))]
+                    let free = false;
+                    if free {
+                        "Drag the webcam circle to position it · Record or Enter starts video · Esc cancels"
+                    } else if target_mode == CaptureMode::FullScreen {
+                        "Record this display · Choose a webcam position · Esc cancels"
+                    } else if target_mode == CaptureMode::Window {
+                        "Click a window to select it · Record or Enter starts video · Esc cancels"
+                    } else {
+                        "Drag an area · Choose a webcam position · Record or Enter starts video"
+                    }
                 } else if mode == CaptureMode::Text && self.settings.capture_on_release {
                     "Drag and release to copy text · Esc cancels"
                 } else if mode == CaptureMode::Text {
@@ -1151,7 +1247,7 @@ impl MyImageApp {
                             [rect.right() - bounds.left(), rect.bottom() - bounds.top()],
                             [bounds.width(), bounds.height()],
                             [selection.image.width(), selection.image.height()]));
-                    } else if mode == CaptureMode::FullScreen {
+                    } else if target_mode == CaptureMode::FullScreen {
                         accepted = Some(selection::PixelRect { x: 0, y: 0,
                             width: selection.image.width(), height: selection.image.height() });
                     } else if mode == CaptureMode::MultiRegion {
@@ -1161,7 +1257,7 @@ impl MyImageApp {
                                 [rect.right()-bounds.left(), rect.bottom()-bounds.top()],
                                 [bounds.width(), bounds.height()],
                                 [selection.image.width(), selection.image.height()])).collect();
-                    } else if matches!(mode, CaptureMode::Window | CaptureMode::Scrolling) {
+                    } else if matches!(target_mode, CaptureMode::Window | CaptureMode::Scrolling) {
                         if let Some(w) = selection
                             .windows
                             .iter()
@@ -2034,6 +2130,42 @@ mod tests {
                 .unwrap();
             assert!(size.x < 620. && size.y < 60., "{mode:?}: {size:?}");
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn full_display_video_waits_for_confirmation_and_uses_retina_dimensions() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        app.settings.capture_mode = CaptureMode::Video;
+        app.settings.capture_on_release = true;
+        app.settings.video.target = video_session::VideoTarget::FullScreen;
+        let mut screen = test_screens(&ctx, CaptureMode::Video).screens.remove(1);
+        let point = Pos2::new(250., 220.);
+        let click = |pressed| egui::Event::PointerButton {
+            pos: point,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        assert_eq!(
+            overlay_frame(
+                &mut app,
+                &ctx,
+                &mut screen,
+                vec![egui::Event::PointerMoved(point), click(true), click(false)]
+            ),
+            None
+        );
+        assert_eq!(
+            overlay_frame(&mut app, &ctx, &mut screen, vec![key(egui::Key::Enter)]),
+            Some(SelectionAction::Region(selection::PixelRect {
+                x: 0,
+                y: 0,
+                width: 1600,
+                height: 1200
+            }))
+        );
     }
 
     #[test]
@@ -3154,6 +3286,10 @@ mod tests {
             magnifier: false,
             magnifier_preview: Default::default(),
             pointer_ready: true,
+            #[cfg(target_os = "macos")]
+            webcam: Default::default(),
+            #[cfg(target_os = "macos")]
+            video_target: Default::default(),
         };
         let mut frame = |events| {
             ctx.run(
