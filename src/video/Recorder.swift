@@ -301,6 +301,7 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private let maxNanoseconds: UInt64
     private let diskReserve: UInt64
     private let audioSource: AudioSource
+    private let audioSampleRate: Int
     private let audioBitsPerSecond: Int
     private let voiceProcessing: Bool
     private let countdownNanoseconds: UInt64
@@ -331,7 +332,7 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
 
     init(destination: URL, cameraPosition: CGPoint?, cameraSize: CGFloat, cameraMirrored: Bool,
          webcam: WebcamSource?, maxSeconds: UInt32, diskReserve: UInt64,
-         audioSource: AudioSource, audioBitsPerSecond: Int,
+         audioSource: AudioSource, audioSampleRate: Int, audioBitsPerSecond: Int,
          voiceProcessing: Bool, countdownSeconds: UInt32) {
         self.destination = destination
         self.cameraPosition = cameraPosition
@@ -341,6 +342,7 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         self.maxNanoseconds = UInt64(maxSeconds) * 1_000_000_000
         self.diskReserve = diskReserve
         self.audioSource = audioSource
+        self.audioSampleRate = audioSampleRate
         self.audioBitsPerSecond = audioBitsPerSecond
         self.voiceProcessing = voiceProcessing
         self.countdownNanoseconds = UInt64(countdownSeconds) * 1_000_000_000
@@ -474,12 +476,21 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         ])
         writer.add(input)
         if audioSource != .off {
-            let audio = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+            let channels: UInt32 = audioSource == .microphone ? 1 : 2
+            let rates = supportedAACBitRates(sampleRate: audioSampleRate, channels: channels)
+            guard let bitrate = rates.last(where: { $0 <= audioBitsPerSecond }) ?? rates.first else {
+                throw RecorderError("The recorder could not use the selected AAC sample rate.")
+            }
+            let audioSettings: [String: Any] = [
                 AVFormatIDKey: kAudioFormatMPEG4AAC,
-                AVSampleRateKey: 48_000,
-                AVNumberOfChannelsKey: audioSource == .microphone ? 1 : 2,
-                AVEncoderBitRateKey: audioBitsPerSecond,
-            ])
+                AVSampleRateKey: audioSampleRate,
+                AVNumberOfChannelsKey: channels,
+                AVEncoderBitRateKey: bitrate,
+            ]
+            guard writer.canApply(outputSettings: audioSettings, forMediaType: .audio) else {
+                throw RecorderError("The recorder could not use the selected AAC audio settings.")
+            }
+            let audio = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
             audio.expectsMediaDataInRealTime = true
             guard writer.canAdd(audio) else {
                 throw RecorderError("The recorder could not use the selected AAC audio settings.")
@@ -832,7 +843,7 @@ public func bediz_record_start(
     _ cursor: Int32, _ webcamPreview: UnsafeRawPointer?, _ cameraX: Double, _ cameraY: Double,
     _ cameraSize: Double, _ cameraMirrored: Int32,
     _ outputWidth: UInt32, _ outputHeight: UInt32, _ bitsPerSecond: UInt32,
-    _ maxSeconds: UInt32, _ diskReserve: UInt64, _ audioSource: UInt32, _ audioBitsPerSecond: UInt32,
+    _ maxSeconds: UInt32, _ diskReserve: UInt64, _ audioSource: UInt32, _ audioSampleRate: UInt32, _ audioBitsPerSecond: UInt32,
     _ voiceProcessing: Int32, _ countdownSeconds: UInt32
 ) -> UnsafeMutableRawPointer {
     let destination = URL(fileURLWithPath: String(cString: path))
@@ -841,6 +852,7 @@ public func bediz_record_start(
     let job = Recorder(destination: destination, cameraPosition: position, cameraSize: cameraSize,
                        cameraMirrored: cameraMirrored != 0, webcam: webcam, maxSeconds: maxSeconds,
                        diskReserve: diskReserve, audioSource: Recorder.AudioSource(rawValue: audioSource) ?? .off,
+                       audioSampleRate: Int(audioSampleRate),
                        audioBitsPerSecond: Int(audioBitsPerSecond),
                        voiceProcessing: voiceProcessing != 0, countdownSeconds: countdownSeconds)
     job.start(displayID: display, windowID: window, cursor: cursor != 0,

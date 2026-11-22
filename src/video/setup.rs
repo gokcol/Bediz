@@ -26,6 +26,7 @@ pub(in crate::app) fn show_video_panel(
     let Some(panel) = screen.video_panel else {
         return false;
     };
+    let menu_was_open = egui::Popup::is_any_open(ctx);
     let look = settings.capture_theme.look();
     let viewport = ctx.content_rect().shrink(10.);
     let width = viewport.width().clamp(180., 344.);
@@ -103,12 +104,14 @@ pub(in crate::app) fn show_video_panel(
             })
             .inner
     });
-    let pressed_outside = ctx.input(|i| {
-        i.pointer.any_pressed()
-            && i.pointer.interact_pos().is_some_and(|point| {
-                !toolbar.contains(point) && !view.response.rect.contains(point)
-            })
-    });
+    let pressed_outside = !menu_was_open
+        && !egui::Popup::is_any_open(ctx)
+        && ctx.input(|i| {
+            i.pointer.any_pressed()
+                && i.pointer.interact_pos().is_some_and(|point| {
+                    !toolbar.contains(point) && !view.response.rect.contains(point)
+                })
+        });
     let (changed, close) = view.inner;
     if close || pressed_outside {
         screen.video_panel = None;

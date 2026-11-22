@@ -18,27 +18,55 @@ const MAX_MINUTES: u32 = 240;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 enum Quality {
+    Height240,
+    Height360,
+    Height480,
+    Height640,
     Compact,
     #[default]
     Balanced,
+    Cinema2K,
+    Qhd,
     High,
 }
 
 impl Quality {
-    const ALL: [Self; 3] = [Self::Compact, Self::Balanced, Self::High];
+    const ALL: [Self; 9] = [
+        Self::Height240,
+        Self::Height360,
+        Self::Height480,
+        Self::Height640,
+        Self::Compact,
+        Self::Balanced,
+        Self::Cinema2K,
+        Self::Qhd,
+        Self::High,
+    ];
 
     fn label(self) -> &'static str {
         match self {
-            Self::Compact => "Compact · up to 720p",
-            Self::Balanced => "Balanced · up to 1080p",
-            Self::High => "High · up to 4K",
+            Self::Height240 => "240p",
+            Self::Height360 => "360p",
+            Self::Height480 => "480p",
+            Self::Height640 => "640p",
+            Self::Compact => "720p",
+            Self::Balanced => "1080p",
+            Self::Cinema2K => "2K DCI",
+            Self::Qhd => "1440p QHD",
+            Self::High => "4K UHD",
         }
     }
 
     fn settings(self) -> (u32, u32, f64) {
         match self {
+            Self::Height240 => (426, 240, 0.075),
+            Self::Height360 => (640, 360, 0.075),
+            Self::Height480 => (854, 480, 0.075),
+            Self::Height640 => (1138, 640, 0.075),
             Self::Compact => (1280, 720, 0.075),
             Self::Balanced => (1920, 1080, 0.11),
+            Self::Cinema2K => (2048, 1080, 0.12),
+            Self::Qhd => (2560, 1440, 0.13),
             Self::High => (3840, 2160, 0.15),
         }
     }
@@ -117,19 +145,58 @@ enum AudioQuality {
 impl AudioQuality {
     const ALL: [Self; 3] = [Self::Compact, Self::Standard, Self::High];
 
-    fn rate(self) -> u32 {
+    fn rate(self, sample_rate: AudioSampleRate) -> u32 {
+        let rates = sample_rate.bitrates();
+        1_000 * rates[self as usize]
+    }
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+enum AudioSampleRate {
+    Hz8000 = 8_000,
+    Hz12000 = 12_000,
+    Hz16000 = 16_000,
+    Hz22050 = 22_050,
+    Hz24000 = 24_000,
+    Hz32000 = 32_000,
+    Hz44100 = 44_100,
+    #[default]
+    Hz48000 = 48_000,
+}
+
+impl AudioSampleRate {
+    const ALL: [Self; 8] = [
+        Self::Hz8000,
+        Self::Hz12000,
+        Self::Hz16000,
+        Self::Hz22050,
+        Self::Hz24000,
+        Self::Hz32000,
+        Self::Hz44100,
+        Self::Hz48000,
+    ];
+
+    fn bitrates(self) -> [u32; 3] {
         match self {
-            Self::Compact => 64_000,
-            Self::Standard => 96_000,
-            Self::High => 128_000,
+            Self::Hz8000 => [16, 24, 32],
+            Self::Hz12000 => [24, 32, 48],
+            Self::Hz16000 => [32, 48, 64],
+            Self::Hz22050 | Self::Hz24000 | Self::Hz32000 => [48, 64, 96],
+            Self::Hz44100 | Self::Hz48000 => [64, 96, 128],
         }
     }
 
     fn label(self) -> &'static str {
         match self {
-            Self::Compact => "64 kbps",
-            Self::Standard => "96 kbps",
-            Self::High => "128 kbps",
+            Self::Hz8000 => "8 kHz",
+            Self::Hz12000 => "12 kHz",
+            Self::Hz16000 => "16 kHz",
+            Self::Hz22050 => "22.05 kHz",
+            Self::Hz24000 => "24 kHz",
+            Self::Hz32000 => "32 kHz",
+            Self::Hz44100 => "44.1 kHz",
+            Self::Hz48000 => "48 kHz",
         }
     }
 }
@@ -143,6 +210,7 @@ pub(crate) struct VideoPreferences {
     max_minutes: u32,
     audio_source: AudioSource,
     audio_quality: AudioQuality,
+    audio_sample_rate: AudioSampleRate,
     reduce_noise: bool,
     countdown_seconds: u32,
 }
@@ -156,6 +224,7 @@ impl Default for VideoPreferences {
             max_minutes: 30,
             audio_source: Default::default(),
             audio_quality: Default::default(),
+            audio_sample_rate: Default::default(),
             reduce_noise: false,
             countdown_seconds: 0,
         }
@@ -168,6 +237,7 @@ pub(super) struct RecordingPlan {
     pub bits_per_second: u32,
     pub max_seconds: u32,
     pub audio_source: u32,
+    pub audio_sample_rate: u32,
     pub audio_bits_per_second: u32,
     pub voice_processing: bool,
     pub countdown_seconds: u32,
@@ -191,12 +261,13 @@ impl VideoPreferences {
             bits_per_second,
             max_seconds: self.max_minutes.clamp(1, MAX_MINUTES) * 60,
             audio_source: self.audio_source as u32,
+            audio_sample_rate: self.audio_sample_rate as u32,
             voice_processing: self.audio_source == AudioSource::Microphone && self.reduce_noise,
             countdown_seconds: self.countdown_seconds.min(10),
             audio_bits_per_second: if self.audio_source == AudioSource::Off {
                 0
             } else {
-                self.audio_quality.rate()
+                self.audio_quality.rate(self.audio_sample_rate)
             },
         }
     }
@@ -283,22 +354,23 @@ pub(crate) fn preferences_ui(
     region: Option<[u32; 2]>,
     look: &CaptureLook,
 ) -> bool {
-    let mut changed = ui
-        .horizontal_wrapped(|ui| {
-            heading(ui, look, Icon::Video, "Resolution");
-            appearance::segmented_with_palette(
-                ui,
-                "recording-quality",
-                &mut prefs.quality,
-                &[
-                    (Quality::Compact, "720p", None, Quality::Compact.label()),
-                    (Quality::Balanced, "1080p", None, Quality::Balanced.label()),
-                    (Quality::High, "4K", None, Quality::High.label()),
-                ],
-                look.palette,
-            )
-        })
-        .inner;
+    let quality = prefs.quality;
+    ui.horizontal(|ui| {
+        heading(ui, look, Icon::Video, "Resolution");
+        egui::ComboBox::from_id_salt("recording-quality")
+            .selected_text(prefs.quality.label())
+            .show_ui(ui, |ui| {
+                ui.set_min_width(124.);
+                for choice in Quality::ALL {
+                    let (width, height, _) = choice.settings();
+                    ui.selectable_value(&mut prefs.quality, choice, choice.label())
+                        .on_hover_text(format!(
+                            "Up to {width} × {height}. Keeps the target’s aspect ratio."
+                        ));
+                }
+            });
+    });
+    let mut changed = quality != prefs.quality;
     ui.horizontal(|ui| {
         ui.label("Maximum recording time");
         changed |= ui
@@ -323,18 +395,34 @@ pub(crate) fn preferences_ui(
         })
         .inner;
     if prefs.audio_source != AudioSource::Off {
-        changed |= ui
-            .horizontal_wrapped(|ui| {
-                ui.label("Audio quality");
-                appearance::segmented_with_palette(
-                    ui,
-                    "recording-audio-quality",
-                    &mut prefs.audio_quality,
-                    &AudioQuality::ALL.map(|quality| (quality, quality.label(), None, "")),
-                    look.palette,
-                )
-            })
-            .inner;
+        let old_sample_rate = prefs.audio_sample_rate;
+        let old_quality = prefs.audio_quality;
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Sample rate");
+            egui::ComboBox::from_id_salt("recording-audio-sample-rate")
+                .selected_text(prefs.audio_sample_rate.label())
+                .show_ui(ui, |ui| {
+                    for sample_rate in AudioSampleRate::ALL {
+                        ui.selectable_value(
+                            &mut prefs.audio_sample_rate,
+                            sample_rate,
+                            sample_rate.label(),
+                        );
+                    }
+                });
+            ui.label("AAC bitrate");
+            let label = |quality: AudioQuality| {
+                format!("{} kbps", quality.rate(prefs.audio_sample_rate) / 1_000)
+            };
+            egui::ComboBox::from_id_salt("recording-audio-quality")
+                .selected_text(label(prefs.audio_quality))
+                .show_ui(ui, |ui| {
+                    for quality in AudioQuality::ALL {
+                        ui.selectable_value(&mut prefs.audio_quality, quality, label(quality));
+                    }
+                });
+        });
+        changed |= old_sample_rate != prefs.audio_sample_rate || old_quality != prefs.audio_quality;
     }
     if prefs.audio_source == AudioSource::Microphone {
         changed |= ui
@@ -433,6 +521,7 @@ mod tests {
             serde_json::from_str(r#"{"target":"Region","max_minutes":15}"#).unwrap();
         assert_eq!(preferences.target, VideoTarget::Window);
         assert_eq!(preferences.max_minutes, 15);
+        assert_eq!(preferences.plan(1920, 1080).audio_sample_rate, 48_000);
         assert!(preferences.presenter_camera);
         let turned_off: VideoPreferences =
             serde_json::from_str(r#"{"presenter_camera":false}"#).unwrap();
@@ -460,5 +549,19 @@ mod tests {
         assert_eq!(plan.recommended_seconds(DISK_RESERVE), 0);
         let free = DISK_RESERVE + plan.estimated_bytes();
         assert_eq!(plan.recommended_seconds(free), u64::from(plan.max_seconds));
+    }
+
+    #[test]
+    fn compact_recording_uses_the_selected_resolution_and_audio_rate() {
+        let prefs = VideoPreferences {
+            quality: Quality::Height640,
+            audio_source: AudioSource::Microphone,
+            audio_sample_rate: AudioSampleRate::Hz8000,
+            ..Default::default()
+        };
+        let plan = prefs.plan(2560, 1440);
+        assert_eq!((plan.width, plan.height), (1136, 640));
+        assert_eq!(plan.audio_sample_rate, 8_000);
+        assert_eq!(plan.audio_bits_per_second, 24_000);
     }
 }

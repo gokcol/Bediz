@@ -1,6 +1,6 @@
 {
   "version": "4.0.0",
-  "build": 165,
+  "build": 166,
   "store_version": "3.2.3.0",
   "changes": [
     "Use Select to click objects or drag a rectangular pixel region. A region drag can start in the workspace margin.",
@@ -50,6 +50,7 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "The recording setup offers 240p through 4K in a resolution dropdown and audio sample rates from 8 to 48 kHz. The recording size estimate follows your settings.",
     "Export video at 240p, 360p, 480p, 640p, 2K DCI, or 1440p QHD. Audio sample rates start at 8 kHz, and AAC offers the bitrates supported by each rate.",
     "Auto Subtitles transcribes timeline audio on macOS 26 and later. Use English or download another supported language, edit the cues, copy the transcript, or save an SRT file.",
     "Subtitles follow cuts and moves and can be included in the exported video.",

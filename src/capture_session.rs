@@ -2213,7 +2213,7 @@ mod tests {
                     .nodes
                     .iter()
                     .find_map(|(_, node)| {
-                        (node.label() == Some(label))
+                        (node.label() == Some(label) || node.value() == Some(label))
                             .then(|| node.bounds())
                             .flatten()
                     })
@@ -2233,9 +2233,13 @@ mod tests {
             };
             click("Full screen");
             click("Recording options");
-            click("4K");
+            click("1080p");
+            click("640p");
             click("Microphone");
-            click("128 kbps");
+            click("48 kHz");
+            click("8 kHz");
+            click("24 kbps");
+            click("32 kbps");
             click("5 s");
             click("Close setup panel");
             click("Presenter camera");
@@ -2274,8 +2278,9 @@ mod tests {
         }
         let preferences = serde_json::to_value(app.settings.video).unwrap();
         assert_eq!(preferences["target"], "FullScreen");
-        assert_eq!(preferences["quality"], "High");
+        assert_eq!(preferences["quality"], "Height640");
         assert_eq!(preferences["audio_source"], "Microphone");
+        assert_eq!(preferences["audio_sample_rate"], "Hz8000");
         assert_eq!(preferences["audio_quality"], "High");
         assert_eq!(preferences["countdown_seconds"], 5);
         assert!(screen.video_panel == Some(VideoPanel::Camera));

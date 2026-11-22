@@ -2,6 +2,18 @@
 import AudioToolbox
 import UniformTypeIdentifiers
 
+func supportedAACBitRates(sampleRate: Int, channels: UInt32) -> [Int] {
+    guard let source = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: channels),
+          let output = AVAudioFormat(settings: [
+            AVFormatIDKey: kAudioFormatMPEG4AAC,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: channels,
+          ]),
+          let encoder = AVAudioConverter(from: source, to: output)
+    else { return [] }
+    return (encoder.applicableEncodeBitRates ?? []).map(\.intValue).filter { $0 > 0 }.sorted()
+}
+
 enum VideoContainer: String, CaseIterable {
     case mp4 = "MP4"
     case mov = "MOV"
@@ -119,16 +131,8 @@ struct VideoExportOptions {
     private static let aacRatesBySampleRate: [Int: [Int]] = {
         var rates: [Int: [Int]] = [:]
         for sampleRate in sampleRates {
-            guard let source = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 2),
-                  let output = AVAudioFormat(settings: [
-                    AVFormatIDKey: kAudioFormatMPEG4AAC,
-                    AVSampleRateKey: sampleRate,
-                    AVNumberOfChannelsKey: 2,
-                  ]),
-                  let encoder = AVAudioConverter(from: source, to: output)
-            else { continue }
-            rates[sampleRate] = (encoder.applicableEncodeBitRates ?? [])
-                .map(\.intValue).filter { $0 > 0 && $0.isMultiple(of: 1_000) }.map { $0 / 1_000 }.sorted()
+            rates[sampleRate] = supportedAACBitRates(sampleRate: sampleRate, channels: 2)
+                .filter { $0.isMultiple(of: 1_000) }.map { $0 / 1_000 }
         }
         return rates
     }()
