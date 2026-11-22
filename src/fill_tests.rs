@@ -70,6 +70,39 @@ fn connected_fill_respects_solid_lines_and_four_connectivity() {
     let out = render::flatten(&d).unwrap();
     assert_eq!(out.get_pixel(1, 1), &Rgba([255; 4]));
 }
+
+#[test]
+fn growing_and_shrinking_fill_edges_keep_the_selection_and_survive_saving() {
+    let mut d = filled(canvas(), Point { x: 10., y: 10. }, 0, false);
+    let fill = &mut d.annotations[0];
+    // A deliberately narrow lasso clips the grown edge at x=15.
+    fill.area_mask = vec![
+        Point { x: 0., y: 0. },
+        Point { x: 0.375, y: 0. },
+        Point { x: 0.375, y: 1. },
+        Point { x: 0., y: 1. },
+    ];
+    fill.fill_edge = 1;
+    fill.fill_region =
+        Some(fill::build(&d.image, fill, Point { x: 10., y: 10. }, 0, false).unwrap());
+    let out = render::flatten(&d).unwrap();
+    assert_eq!(out.get_pixel(5, 10), &Rgba(d.annotations[0].color));
+    assert_eq!(out.get_pixel(15, 10), d.image.get_pixel(15, 10));
+    let folder = tempfile::tempdir().unwrap();
+    let project = folder.path().join("grown.myimage");
+    document::save_project(&d, &project).unwrap();
+    let mut d = document::load_project(&project).unwrap();
+    assert_eq!(d.annotations[0].fill_edge, 1);
+    assert_eq!(render::flatten(&d).unwrap(), out);
+
+    let fill = &mut d.annotations[0];
+    fill.fill_edge = -1;
+    fill.fill_region =
+        Some(fill::build(&d.image, fill, Point { x: 10., y: 10. }, 0, false).unwrap());
+    let out = render::flatten(&d).unwrap();
+    assert_eq!(out.get_pixel(6, 10), d.image.get_pixel(6, 10));
+    assert_eq!(out.get_pixel(7, 10), &Rgba(d.annotations[0].color));
+}
 #[test]
 fn global_fill_and_tolerance_are_explicit_and_seed_relative() {
     let d = filled(canvas(), Point { x: 10., y: 10. }, 0, true);

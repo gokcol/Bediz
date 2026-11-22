@@ -3,6 +3,61 @@ use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
 impl EditorState {
+    pub(super) fn compact_object_actions(
+        &mut self,
+        ui: &mut egui::Ui,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
+        use inspector_widgets::Glyph;
+        use object_properties::quick_glyph;
+        ui.horizontal(|ui| {
+            if quick_glyph(ui, "Duplicate", Glyph::Copy).clicked() {
+                self.duplicate_selection(document, history);
+                ui.close();
+            }
+            if quick_glyph(ui, "Select all annotations", Glyph::All).clicked() {
+                self.select_all_annotations(document, history);
+                ui.close();
+            }
+            if self
+                .selected
+                .is_some_and(|i| document.annotations[i].group_id.is_some())
+                && quick_glyph(ui, "Ungroup", Glyph::Group(true)).clicked()
+            {
+                self.ungroup_selection(document, history);
+                ui.close();
+            }
+            if quick_glyph(ui, "Delete selected", Glyph::App(DialogIcon::Trash)).clicked() {
+                self.delete(document, history);
+                ui.close();
+            }
+            self.compact_snap_toggle(ui);
+        });
+        ui.separator();
+        ui.horizontal(|ui| {
+            for (label, front, extreme) in annotation_layers::STACK_ORDER_ACTIONS {
+                let can_move = self.selected.is_some_and(|index| {
+                    if front {
+                        index + 1 < document.annotations.len()
+                    } else {
+                        index > 0
+                    }
+                });
+                if ui
+                    .add_enabled_ui(can_move, |ui| {
+                        quick_glyph(ui, label, Glyph::Order { front, extreme })
+                    })
+                    .inner
+                    .clicked()
+                {
+                    self.reorder_layer(document, history, front, extreme);
+                    ui.close();
+                }
+            }
+        });
+    }
+
     pub(super) fn selected_indices(&self, document: &Document) -> Vec<usize> {
         let mut indices: Vec<_> = self
             .selected
@@ -35,6 +90,18 @@ impl EditorState {
         let primary = indices.pop();
         self.select(primary, document);
         self.additional = indices;
+    }
+
+    pub(super) fn select_all_annotations(
+        &mut self,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
+        self.finish_gesture(document, history);
+        self.deselect_pixels();
+        self.tool = Tool::Select;
+        self.set_selection((0..document.annotations.len()).collect(), document);
+        self.focus_canvas = true;
     }
 
     pub(super) fn choose_annotation(
@@ -111,9 +178,7 @@ impl EditorState {
                 )
                 .clicked()
             {
-                self.tool = Tool::Select;
-                self.set_selection((0..document.annotations.len()).collect(), document);
-                self.focus_canvas = true;
+                self.select_all_annotations(document, history);
             }
         });
         self.layout_controls(ui, document, history);

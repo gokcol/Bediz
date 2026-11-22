@@ -302,7 +302,6 @@ pub struct EditorState {
     additional: Vec<usize>,
     focus_canvas: bool,
     canvas_focus_ids: Option<[egui::Id; 2]>,
-    object_press: bool,
     snapping: bool,
     snap_guides: Vec<annotation_layout::SnapGuide>,
     color: [u8; 4],
@@ -351,7 +350,7 @@ pub struct EditorState {
 impl Default for EditorState {
     fn default() -> Self {
         Self {
-            tool: Tool::Select,
+            tool: Tool::Area,
             shape_kind: AnnotationKind::Rectangle,
             shapes_3d: false,
             area: None,
@@ -378,7 +377,6 @@ impl Default for EditorState {
             additional: Vec::new(),
             focus_canvas: false,
             canvas_focus_ids: None,
-            object_press: false,
             snapping: true,
             snap_guides: Vec::new(),
             color: [230, 66, 55, 255],
@@ -428,7 +426,6 @@ impl Default for EditorState {
 impl EditorState {
     pub fn with_presets(path: Result<std::path::PathBuf, String>) -> Self {
         Self {
-            tool: Tool::Area,
             stamps: stamp_panel::StampState::new(
                 path.clone().map(|p| p.with_file_name("signatures.json")),
             ),
@@ -449,7 +446,6 @@ impl EditorState {
         presets.dialog = None;
         let generation = self.text_editor_generation.wrapping_add(1);
         *self = Self::default();
-        self.tool = Tool::Area;
         self.text_editor_generation = generation;
         self.presets = presets;
         self.stamps = stamps;
@@ -524,7 +520,7 @@ impl EditorState {
         self.canvas_size = None;
         self.image_error = None;
         if self.tool == Tool::Crop {
-            self.tool = Tool::Select;
+            self.tool = Tool::Area;
         }
     }
 
@@ -569,6 +565,7 @@ impl EditorState {
     }
 
     fn activate_tool(&mut self, tool: Tool) {
+        self.cancel_fill_picker();
         if self.inspector.is(InspectorPanel::Effects) {
             self.inspector.select(InspectorPanel::Styles);
         }
@@ -621,9 +618,6 @@ impl EditorState {
         if !self.property_interacting {
             self.finish_properties(document, history);
         }
-        if self.tool == Tool::Select {
-            self.tool = Tool::Area;
-        }
         if self.focus_text
             && self.text_dialog.is_none()
             && let Some(index) = self.selected
@@ -633,7 +627,7 @@ impl EditorState {
         self.poll_extra_tools(ui.ctx(), document, history);
         self.poll_fill(ui.ctx(), document, history);
         self.poll_text_extraction(document);
-        self.poll_color_sample(ui.ctx(), document);
+        self.poll_color_sample(ui.ctx(), document, history);
         self.poll_retouch(ui.ctx(), document);
         let clipboard_was_busy = self.clipboard_job.is_some();
         self.poll_clipboard(document, history);
@@ -789,7 +783,10 @@ impl EditorState {
                 .show(ui, |ui| self.image_effects_panel(ui, document, history));
             return;
         }
-        if self.precision_active() && self.inspector.is(InspectorPanel::Styles) {
+        if self.precision_active()
+            && !self.fill_picker_active()
+            && self.inspector.is(InspectorPanel::Styles)
+        {
             egui::ScrollArea::vertical()
                 .id_salt("precision-tools-panel")
                 .auto_shrink([false, false])
@@ -829,7 +826,7 @@ impl EditorState {
             egui::Layout::bottom_up(egui::Align::Min),
             |ui| {
                 if footer {
-                    self.selection_footer(ui, document, history);
+                    self.selection_footer(ui, document);
                     ui.separator();
                 }
                 ui.allocate_ui_with_layout(
@@ -1020,7 +1017,7 @@ impl EditorState {
         let geometry = with_crop(document, Some(crop.rect));
         if self.apply_geometry(document, history, geometry) {
             self.crop = None;
-            self.tool = Tool::Select;
+            self.tool = Tool::Area;
         }
     }
 
@@ -1456,7 +1453,6 @@ impl EditorState {
                     margin_response.request_focus();
                     self.finish_annotation_gesture(document, history);
                     self.clear_selection();
-                    self.object_press = false;
                 }
                 self.precision_canvas_input(ui, &response, rect, scale, document, history);
                 if (ui.is_enabled() && !canvas_resizing)
@@ -1467,18 +1463,6 @@ impl EditorState {
                     )
                     && let Some(position) = press
                     && hit_rect.intersect(ui.clip_rect()).contains(position)
-                    && (draw_in_margin
-                        || select_in_margin
-                        || rect.contains(position)
-                        || self.object_target(
-                            object_point(position, rect, scale, document),
-                            scale,
-                            document,
-                        )
-                        || self.over_area_handle(
-                            image_point(position, rect, scale, document),
-                            document,
-                        ))
                     && ui.ctx().layer_id_at(position) == Some(ui.layer_id())
                 {
                     response.request_focus();
@@ -1503,36 +1487,7 @@ impl EditorState {
                             crop.rect = crop_between(point, point, document);
                         }
                     } else if matches!(self.tool, Tool::Area | Tool::CutOut) {
-                        let modifiers = ui.input(|i| i.modifiers);
-                        if self.area.is_none()
-                            && (modifiers.shift
-                                || self.selected.is_some_and(|i| {
-                                    (!document.annotations[i].kind.needs_composite()
-                                        || document.annotations[i].kind.is_studio()
-                                        || !self.additional.is_empty())
-                                        && (hit_document_handle(
-                                            &document.annotations[i],
-                                            point,
-                                            scale,
-                                            document,
-                                        )
-                                        .is_some()
-                                            || hit_document_annotation(document, point, scale)
-                                                .is_some_and(|hit| {
-                                                    self.selected_indices(document).contains(&hit)
-                                                }))
-                                }))
-                        {
-                            self.begin_selection_gesture(
-                                point,
-                                scale,
-                                document,
-                                modifiers.shift,
-                                modifiers.alt,
-                            );
-                        } else {
-                            self.begin_area_drag(point, document);
-                        }
+                        self.begin_area_drag(point, document);
                     } else if self.tool == Tool::Select {
                         let modifiers = ui.input(|i| i.modifiers);
                         self.begin_selection_gesture(
@@ -1543,8 +1498,7 @@ impl EditorState {
                             modifiers.alt,
                         );
                     } else {
-                        let m = ui.input(|i| i.modifiers);
-                        self.begin_tool_gesture(point, scale, document, m.shift, m.alt);
+                        self.begin_tool_gesture(point, document);
                     }
                 }
 
@@ -1566,13 +1520,9 @@ impl EditorState {
                             {
                                 response.request_focus();
                                 self.finish_annotation_gesture(document, history);
-                                let m = ui.input(|i| i.modifiers);
                                 self.begin_tool_gesture(
                                     object_point(pos, rect, scale, document),
-                                    scale,
                                     document,
-                                    m.shift,
-                                    m.alt,
                                 );
                             }
                             egui::Event::PointerMoved(pos) if self.gesture.is_some() => {
@@ -1623,24 +1573,25 @@ impl EditorState {
                     response.request_focus();
                     if let Some(position) = response.interact_pointer_pos() {
                         let point = object_point(position, rect, scale, document);
-                        if self.tool == Tool::Text && !self.object_press {
+                        if self.tool == Tool::Text {
                             let before = document.edit_state();
                             let mut annotation = self.new_annotation(AnnotationKind::Text, point);
                             if annotation.text.is_empty() {
                                 annotation.text = "Text".into();
                             }
                             document.annotations.push(annotation);
-                            self.tool = Tool::Area;
+                            self.tool = Tool::Select;
                             self.open_text_editor(document.annotations.len() - 1, before, document);
                         } else if self.tool == Tool::Wand {
                             self.place_wand(ui.ctx(), point, document);
-                        } else if self.tool == Tool::Step && !self.object_press {
+                        } else if self.tool == Tool::Step {
                             self.stamp_step(point, document, history);
                         } else if self.tool == Tool::Fill {
                             self.place_fill(ui.ctx(), point, document);
-                        } else if self.tool == Tool::Stamp && !self.object_press {
+                        } else if self.tool == Tool::Stamp {
                             self.place_stamp(point, document, history);
-                        } else if response.double_clicked()
+                        } else if self.tool == Tool::Select
+                            && response.double_clicked()
                             && self.selected_indices(document).len() == 1
                             && let Some(index) = self.selected
                         {
@@ -2105,6 +2056,19 @@ impl EditorState {
         if let Some(cursor) = self.active_gesture_cursor(document) {
             return cursor;
         }
+        if self.tool == Tool::Area {
+            return self.area_cursor(at, document);
+        }
+        if self.tool == Tool::Fill {
+            return if self.fill_tool.busy() {
+                CursorIcon::Wait
+            } else {
+                CursorIcon::None
+            };
+        }
+        if self.tool != Tool::Select {
+            return CursorIcon::Crosshair;
+        }
         let selected = self.selected_indices(document);
         let handles = if self.can_edit_selection(document)
             && selected.iter().all(|&i| document.annotations[i].visible())
@@ -2119,41 +2083,16 @@ impl EditorState {
         } else {
             None
         };
-        let hit = hit_document_annotation(document, at, scale);
-        // Select uses both area and object gestures. Its cursor must follow the
-        // same selected-object branch as pointer-down, including group handles.
-        let selected_object = self.area.is_none()
-            && self
-                .selected
-                .and_then(|i| document.annotations.get(i))
-                .is_some_and(|a| {
-                    (!a.kind.needs_composite() || a.kind.is_studio() || !self.additional.is_empty())
-                        && (handles.is_some() || hit.is_some_and(|i| selected.contains(&i)))
-                });
-        if self.tool == Tool::Select
-            || (self.tool == Tool::Area && selected_object)
-            || (self.draws_objects() && self.object_target(at, scale, document))
+        if let Some(handle) = handles {
+            return handle_cursor(handle, document);
+        }
+        if hit_document_annotation(document, at, scale)
+            .is_some_and(|i| annotation_layers::editable(document, &[i]))
         {
-            if let Some(handle) = handles {
-                return handle_cursor(handle, document);
-            }
-            return if hit.is_some_and(|i| annotation_layers::editable(document, &[i])) {
-                CursorIcon::Grab
-            } else {
-                CursorIcon::Default
-            };
+            CursorIcon::Grab
+        } else {
+            CursorIcon::Default
         }
-        if self.tool == Tool::Area {
-            return self.area_cursor(at, document);
-        }
-        if self.tool == Tool::Fill {
-            return if self.fill_tool.busy() {
-                CursorIcon::Wait
-            } else {
-                CursorIcon::None
-            };
-        }
-        CursorIcon::Crosshair
     }
 
     fn new_annotation(&self, kind: AnnotationKind, point: Point) -> Annotation {
@@ -2187,6 +2126,7 @@ impl EditorState {
             area_mask: Vec::new(),
             stamp: None,
             fill_region: None,
+            fill_edge: 0,
             text_style: {
                 let mut style = self.text_style.clone();
                 if kind != AnnotationKind::Text {
@@ -2229,8 +2169,17 @@ impl EditorState {
     }
 
     #[cfg(test)]
+    pub(crate) fn use_object_selection(&mut self) {
+        self.activate_tool(Tool::Select);
+    }
+
+    #[cfg(test)]
     fn begin_gesture(&mut self, point: Point, scale: f32, document: &mut Document) {
-        self.begin_tool_gesture(point, scale, document, false, false);
+        if self.tool == Tool::Select {
+            self.begin_selection_gesture(point, scale, document, false, false);
+        } else {
+            self.begin_tool_gesture(point, document);
+        }
     }
 
     fn draws_objects(&self) -> bool {
@@ -2250,40 +2199,7 @@ impl EditorState {
             )
     }
 
-    fn object_target(&self, at: Point, scale: f32, document: &Document) -> bool {
-        let indices = self.selected_indices(document);
-        (self.can_edit_selection(document)
-            && if indices.len() > 1 {
-                selection_handle(document, &indices, at, scale).is_some()
-            } else {
-                self.selected
-                    .and_then(|i| document.annotations.get(i))
-                    .filter(|a| a.visible())
-                    .and_then(|a| hit_document_handle(a, at, scale, document))
-                    .is_some()
-            })
-            || hit_document_annotation(document, at, scale).is_some()
-    }
-
-    fn begin_tool_gesture(
-        &mut self,
-        point: Point,
-        scale: f32,
-        document: &mut Document,
-        toggle: bool,
-        force_draw: bool,
-    ) {
-        self.object_press =
-            !force_draw && self.draws_objects() && self.object_target(point, scale, document);
-        if self.object_press {
-            self.begin_selection_gesture(point, scale, document, toggle, false);
-            return;
-        }
-
-        if self.tool == Tool::Select {
-            self.begin_selection_gesture(point, scale, document, false, false);
-            return;
-        }
+    fn begin_tool_gesture(&mut self, point: Point, document: &mut Document) {
         if self.tool == Tool::Pen
             && (document.annotations.len() >= crate::document::MAX_ANNOTATIONS
                 || stroke_point_count(document) >= crate::document::MAX_TOTAL_STROKE_POINTS)
@@ -2300,16 +2216,15 @@ impl EditorState {
         {
             self.restore_appearance(kind);
         }
+        if matches!(self.tool, Tool::Text | Tool::Step | Tool::Stamp) {
+            self.clear_selection();
+            return;
+        }
         let before = document.edit_state();
         let kind = if self.tool == Tool::Eraser {
             self.clear_selection();
             Some(GestureKind::Erase { last: point })
-        } else if let Some(kind) = self.tool.kind().filter(|k| {
-            !matches!(
-                k,
-                AnnotationKind::Text | AnnotationKind::Step | AnnotationKind::Stamp
-            )
-        }) {
+        } else if let Some(kind) = self.tool.kind() {
             let index = document.annotations.len();
             document.annotations.push(self.new_annotation(kind, point));
             self.clear_selection();
@@ -2496,7 +2411,9 @@ impl EditorState {
             }
             self.deselect_pixels();
             self.cancel_image_tools();
-            self.tool = Tool::Select;
+            if self.tool != Tool::Select {
+                self.tool = Tool::Area;
+            }
         }
         if self.precision_active() {
             return;
@@ -3723,6 +3640,7 @@ mod tests {
             area_mask: Vec::new(),
             stamp: None,
             fill_region: None,
+            fill_edge: 0,
             text_style: Default::default(),
             callout_style: Default::default(),
             pixel_mask: None,
@@ -3747,7 +3665,7 @@ mod tests {
     }
 
     #[test]
-    fn drawing_tools_select_move_and_bend_existing_arrows_without_new_objects() {
+    fn objects_mode_selects_and_bends_arrows_and_arrow_tool_draws_over_them() {
         let mut a = annotation(AnnotationKind::Arrow);
         a.start = Point { x: 30., y: 160. };
         a.end = Point { x: 260., y: 160. };
@@ -3757,7 +3675,7 @@ mod tests {
             geometry: Default::default(),
         };
         let mut e = EditorState {
-            tool: Tool::Arrow,
+            tool: Tool::Select,
             ..Default::default()
         };
         let mut h = EditHistory::new(d.edit_state());
@@ -3810,12 +3728,11 @@ mod tests {
                 .curve
                 .is_none()
         );
-        e.begin_tool_gesture(
+        e.choose_tool(Tool::Arrow, &mut d, &mut h);
+        e.begin_gesture(
             from_pos(crate::arrow_style::curve_point(&d.annotations[0], 0.5)),
             1.,
             &mut d,
-            false,
-            true,
         );
         assert!(matches!(
             e.gesture.as_ref().unwrap().kind,
@@ -3838,7 +3755,7 @@ mod tests {
             let before = d.edit_state();
             let mut h = EditHistory::new(before.clone());
             let mut e = EditorState {
-                tool: Tool::Arrow,
+                tool: Tool::Select,
                 ..Default::default()
             };
             e.select(Some(0), &d);
@@ -3960,7 +3877,7 @@ mod tests {
                     geometry: Default::default(),
                 };
                 let mut e = EditorState {
-                    tool: Tool::Shape(kind),
+                    tool: Tool::Select,
                     ..Default::default()
                 };
                 e.select(Some(0), &d);
@@ -4395,7 +4312,7 @@ mod tests {
 
     #[test]
     fn selecting_and_deselecting_keeps_canvas_stationary_and_does_not_edit_artwork() {
-        for tool in [Tool::Arrow, Tool::Ellipse] {
+        for initial_inspector_open in [false, true] {
             let ctx = egui::Context::default();
             crate::appearance::apply(&ctx);
             let texture = ctx.load_texture(
@@ -4413,9 +4330,12 @@ mod tests {
             };
             let before = d.edit_state();
             let mut e = EditorState {
-                tool,
+                tool: Tool::Select,
                 ..Default::default()
             };
+            if initial_inspector_open {
+                e.inspector.show(InspectorPanel::Styles);
+            }
             let mut h = EditHistory::new(before.clone());
             let mut preview = crate::privacy_preview::PrivacyPreview::default();
             let mut frame = |e: &mut EditorState, d: &mut Document, h: &mut EditHistory, events| {
@@ -4545,6 +4465,7 @@ mod tests {
             } else {
                 d.annotations[0].start
             };
+            e.choose_tool(Tool::Select, &mut d, &mut h);
             e.begin_gesture(hit, 1., &mut d);
             assert_eq!(e.selected, Some(0), "{tool:?}");
             e.finish_annotation_gesture(&mut d, &mut h);
@@ -4553,7 +4474,7 @@ mod tests {
     }
 
     #[test]
-    fn drawing_mode_click_selects_top_object_without_placing_text_stamps_or_steps() {
+    fn drawing_tools_create_above_existing_artwork_without_moving_it() {
         for tool in [
             Tool::Arrow,
             Tool::Rectangle,
@@ -4562,6 +4483,8 @@ mod tests {
             Tool::Step,
             Tool::Pen,
             Tool::Highlighter,
+            Tool::Blur,
+            Tool::Pixelate,
         ] {
             let ctx = egui::Context::default();
             let texture = ctx.load_texture(
@@ -4595,20 +4518,114 @@ mod tests {
                 &texture,
                 vec![egui::Event::PointerMoved(p), button_event(p, true)],
             );
+            let end = if matches!(tool, Tool::Text | Tool::Stamp | Tool::Step) {
+                p
+            } else {
+                p + Vec2::new(40., 30.)
+            };
             canvas_frame(
                 &mut e,
                 &mut d,
                 &mut h,
                 &ctx,
                 &texture,
-                vec![button_event(p, false)],
+                vec![egui::Event::PointerMoved(end), button_event(end, false)],
             );
-            assert_eq!(e.selected, Some(0), "{tool:?}");
-            assert_eq!(e.tool, tool);
-            assert_eq!(d.edit_state(), before, "{tool:?} must not insert an object");
-            assert!(!h.can_undo());
-            assert!(e.text_dialog.is_none());
+            assert_eq!(d.annotations.len(), 2, "{tool:?} did not add an object");
+            assert_eq!(d.annotations[0], before.annotations[0], "{tool:?}");
+            assert_eq!(Some(d.annotations[1].kind), tool.kind());
+            assert_eq!(e.text_dialog.is_some(), tool == Tool::Text);
+            assert!(h.can_undo() || tool == Tool::Text);
         }
+    }
+
+    #[test]
+    fn region_and_objects_have_separate_selection_and_delete_gestures() {
+        let ctx = egui::Context::default();
+        let texture = ctx.load_texture(
+            "selection modes",
+            egui::ColorImage::new([1, 1], vec![Color32::WHITE]),
+            Default::default(),
+        );
+        let mut layer = annotation(AnnotationKind::Rectangle);
+        layer.start = Point { x: 20., y: 20. };
+        layer.end = Point { x: 80., y: 80. };
+        layer.fill = true;
+        let mut document = Document {
+            image: std::sync::Arc::new(image::RgbaImage::new(200, 200)),
+            annotations: vec![layer.clone()],
+            geometry: Default::default(),
+        };
+        let mut history = EditHistory::new(document.edit_state());
+        let mut editor = EditorState {
+            fit: false,
+            ..Default::default()
+        };
+        assert_eq!(editor.tool, Tool::Area);
+        let start = Pos2::new(70., 70.);
+        let end = Pos2::new(90., 90.);
+        let delete = egui::Event::Key {
+            key: Key::Delete,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        for events in [
+            vec![],
+            vec![egui::Event::PointerMoved(start), button_event(start, true)],
+            vec![button_event(start, false)],
+            vec![button_event(start, true)],
+            vec![egui::Event::PointerMoved(end), button_event(end, false)],
+        ] {
+            canvas_frame(
+                &mut editor,
+                &mut document,
+                &mut history,
+                &ctx,
+                &texture,
+                events,
+            );
+            assert!(editor.selected.is_none());
+        }
+        assert!(editor.area.is_some());
+        canvas_frame(
+            &mut editor,
+            &mut document,
+            &mut history,
+            &ctx,
+            &texture,
+            vec![delete.clone()],
+        );
+        assert_eq!(document.annotations[0], layer);
+        assert_eq!(document.annotations[1].kind, AnnotationKind::DeleteArea);
+        assert!(history.undo(&mut document));
+
+        editor.choose_tool(Tool::Select, &mut document, &mut history);
+        for events in [
+            vec![egui::Event::PointerMoved(start), button_event(start, true)],
+            vec![button_event(start, false)],
+        ] {
+            canvas_frame(
+                &mut editor,
+                &mut document,
+                &mut history,
+                &ctx,
+                &texture,
+                events,
+            );
+        }
+        assert_eq!(editor.selected, Some(0));
+        assert!(editor.area.is_none());
+        canvas_frame(
+            &mut editor,
+            &mut document,
+            &mut history,
+            &ctx,
+            &texture,
+            vec![delete],
+        );
+        assert!(document.annotations.is_empty());
     }
 
     #[test]
@@ -4683,7 +4700,7 @@ mod tests {
         };
         let mut e = EditorState {
             fit: false,
-            tool: Tool::Area,
+            tool: Tool::Select,
             selected: Some(0),
             ..Default::default()
         };
@@ -4699,7 +4716,7 @@ mod tests {
         );
         assert_eq!(
             e.canvas_cursor(Point { x: 80., y: 80. }, 1., &d),
-            CursorIcon::Crosshair
+            CursorIcon::Default
         );
         let start = egui::pos2(110., 110.);
         for events in [

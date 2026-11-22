@@ -677,7 +677,7 @@ pub(super) fn text_controls(
 }
 
 // The canvas bar is a shortcut strip, not a second inspector.
-fn quick_button(
+pub(super) fn quick_button(
     ui: &mut egui::Ui,
     label: &str,
     paint: impl FnOnce(&egui::Ui, Rect),
@@ -686,21 +686,40 @@ fn quick_button(
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
-    if response.hovered()
-        || response.has_focus()
-        || egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response))
-    {
-        ui.painter()
-            .rect_filled(rect, 5, crate::appearance::palette(ui.ctx()).cream);
-    }
+    let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
+    crate::appearance::satin_button(
+        ui,
+        rect,
+        &response,
+        open,
+        crate::appearance::satin_ink(ui.ctx(), crate::appearance::TileTone::Slate),
+    );
     paint(ui, rect.shrink(4.));
-    response.on_hover_text(label)
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(label)
+}
+
+pub(super) fn quick_glyph(
+    ui: &mut egui::Ui,
+    label: &str,
+    glyph: inspector_widgets::Glyph,
+) -> egui::Response {
+    quick_button(ui, label, |ui, rect| {
+        inspector_widgets::paint_glyph(
+            ui.painter(),
+            rect.center(),
+            glyph,
+            ui.visuals().text_color(),
+            17.,
+        );
+    })
 }
 
 fn quick_frame(ui: &egui::Ui) -> egui::Frame {
     egui::Frame::popup(ui.style())
         .fill(crate::appearance::palette(ui.ctx()).paper)
-        .corner_radius(7)
+        .corner_radius(9)
         .inner_margin(4)
         .stroke(Stroke::new(
             0.7,
@@ -710,7 +729,7 @@ fn quick_frame(ui: &egui::Ui) -> egui::Frame {
             offset: [0, 2],
             blur: 8,
             spread: 0,
-            color: Color32::from_black_alpha(22),
+            color: Color32::from_black_alpha(16),
         })
 }
 
@@ -814,6 +833,27 @@ fn quick_popup_position(
 }
 
 impl EditorState {
+    fn object_actions_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        document: &mut Document,
+        history: &mut EditHistory,
+        placement: QuickProperties,
+    ) {
+        let more = quick_button(ui, "Object actions", |ui, rect| {
+            for x in [-5., 0., 5.] {
+                ui.painter().circle_filled(
+                    rect.center() + Vec2::new(x, 0.),
+                    1.25,
+                    ui.visuals().text_color(),
+                );
+            }
+        });
+        placement.popup(ui, &more, Vec2::new(174., 78.), |ui| {
+            self.compact_object_actions(ui, document, history);
+        });
+    }
+
     fn quick_drawing_controls(
         &mut self,
         ui: &mut egui::Ui,
@@ -1165,18 +1205,12 @@ impl EditorState {
             .enumerate()
             .filter_map(|(i, a)| (a.kind == kind && a.visible() && !a.locked()).then_some(i))
             .collect();
-        self.tool = Tool::Area;
+        self.tool = Tool::Select;
         self.deselect_pixels();
         self.set_selection(indices, document);
     }
 
-    pub(super) fn selection_footer(
-        &mut self,
-        ui: &mut egui::Ui,
-        document: &mut Document,
-        history: &mut EditHistory,
-    ) {
-        let indices = self.selected_indices(document);
+    pub(super) fn selection_footer(&mut self, ui: &mut egui::Ui, document: &Document) {
         if let Some(kind) = self.style_kind(document) {
             let count = document
                 .annotations
@@ -1196,31 +1230,6 @@ impl EditorState {
             {
                 self.select_same_kind(document, kind);
             }
-        }
-        if !indices.is_empty() {
-            ui.horizontal(|ui| {
-                ui.menu_button("Arrange ▾", |ui| {
-                    self.selection_controls(ui, document, history);
-                });
-                ui.menu_button("More ▾", |ui| {
-                    self.privacy_actions(ui, document, history);
-                    ui.separator();
-                    if ui.button("Open layers").clicked() {
-                        self.inspector.show(InspectorPanel::Layers);
-                        ui.close();
-                    }
-                    if ui
-                        .add_enabled(
-                            self.can_edit_selection(document),
-                            egui::Button::new("Delete selected"),
-                        )
-                        .clicked()
-                    {
-                        self.delete(document, history);
-                        ui.close();
-                    }
-                });
-            });
         }
     }
 
@@ -1280,14 +1289,16 @@ impl EditorState {
         let initial_size = if quick {
             Vec2::new(
                 if kind == AnnotationKind::Arrow {
-                    200.
+                    232.
                 } else if kind.is_shape() {
-                    168.
+                    200.
                 } else {
-                    104.
+                    136.
                 },
                 38.,
             )
+        } else if indices.len() > 1 {
+            Vec2::new(150., 38.)
         } else {
             Vec2::new(364., 40.)
         };
@@ -1338,33 +1349,57 @@ impl EditorState {
                     ui.spacing_mut().button_padding = Vec2::new(6., 5.);
                     ui.spacing_mut().interact_size.y = 26.;
                     ui.horizontal(|ui| {
-                        if inspector_widgets::tile(
+                        let styles_open = self.inspector.is(InspectorPanel::Styles)
+                            && self.inspector.preferences.expanded;
+                        let (rect, styles) =
+                            ui.allocate_exact_size(Vec2::splat(30.), Sense::click());
+                        styles.widget_info(|| {
+                            egui::WidgetInfo::selected(
+                                egui::WidgetType::Button,
+                                ui.is_enabled(),
+                                styles_open,
+                                "Open Styles",
+                            )
+                        });
+                        let ink = crate::appearance::satin_button(
                             ui,
-                            "Open Styles",
-                            inspector_widgets::Glyph::App(crate::appearance::Icon::Settings),
-                            Vec2::splat(28.),
-                            self.inspector.is(InspectorPanel::Styles)
-                                && self.inspector.preferences.expanded,
-                            false,
-                        )
-                        .on_hover_text("Styles")
-                        .clicked()
+                            rect,
+                            &styles,
+                            styles_open,
+                            crate::appearance::satin_ink(
+                                ui.ctx(),
+                                crate::appearance::TileTone::Slate,
+                            ),
+                        );
+                        for (y, offset) in [(-3., -2.5), (3., 2.5)] {
+                            let center = rect.center() + Vec2::new(0., y);
+                            ui.painter().line_segment(
+                                [center - Vec2::new(6., 0.), center + Vec2::new(6., 0.)],
+                                Stroke::new(1.15, ink),
+                            );
+                            ui.painter()
+                                .circle_filled(center + Vec2::new(offset, 0.), 1.7, ink);
+                        }
+                        if styles
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text("Open Styles")
+                            .clicked()
                         {
                             self.finish_properties(document, history);
                             self.inspector.show(InspectorPanel::Styles);
                         }
                         if indices.len() > 1 {
                             ui.weak(format!("{} selected", indices.len()));
-                            ui.menu_button(
-                                "Arrange ▾",
-                                popup_input(enabled, workspace_opacity, |ui| {
-                                    self.selection_controls(ui, document, history);
-                                }),
-                            );
+                            let arrange =
+                                quick_glyph(ui, "Arrange", inspector_widgets::Glyph::Stack);
+                            placement.popup(ui, &arrange, Vec2::new(210., 74.), |ui| {
+                                self.compact_arrange(ui, document, history);
+                            });
                             return;
                         }
                         if quick {
                             changed |= self.quick_drawing_controls(ui, kind, placement);
+                            self.object_actions_button(ui, document, history, placement);
                             return;
                         }
                         if kind == AnnotationKind::Stamp {
@@ -1508,13 +1543,7 @@ impl EditorState {
                             .response
                             .on_hover_text("Opacity");
                         }
-                        property_menu(ui, "•••", |ui| {
-                            self.selection_controls(ui, document, history);
-                            if ui.button("Delete").clicked() {
-                                self.delete(document, history);
-                                ui.close();
-                            }
-                        });
+                        self.object_actions_button(ui, document, history, placement);
                     });
                 });
             });

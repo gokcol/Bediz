@@ -520,6 +520,7 @@ mod tests {
         ));
         document::save_project(&doc, &paths[0]).unwrap();
         app.install_document_state(doc, Some(paths[0].clone()));
+        app.editor.use_object_selection();
         for _ in 0..3 {
             strip_frame(&mut app, &ctx, vec![]);
         }

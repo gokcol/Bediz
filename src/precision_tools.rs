@@ -12,6 +12,7 @@ pub(super) struct State {
     axis: Axis,
     sample: Option<Sample>,
     sample_job: Option<SampleJob>,
+    fill_picker: Option<Tool>,
     message: Option<String>,
     preview: Option<ColorPreview>,
     preview_job: Option<PreviewJob>,
@@ -54,6 +55,13 @@ struct SampleJob {
     receiver: mpsc::Receiver<Result<Sample, String>>,
     image: Arc<image::RgbaImage>,
     before: EditState,
+    target: SampleTarget,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SampleTarget {
+    Inspector,
+    Fill(Option<usize>),
 }
 
 impl Sample {
@@ -131,11 +139,38 @@ fn px(value: f32) -> String {
 impl EditorState {
     pub(super) fn precision_active(&self) -> bool {
         self.tool == Tool::ConnectedArrow
+            || self.fill_picker_active()
             || self.retouch_active()
             || matches!(
                 self.tool,
                 Tool::StyleBrush | Tool::Measure | Tool::ColorInspector
             )
+    }
+
+    pub(super) fn fill_picker_active(&self) -> bool {
+        self.precision.fill_picker == Some(self.tool)
+    }
+
+    pub(super) fn cancel_fill_picker(&mut self) {
+        self.precision.fill_picker = None;
+        if self
+            .precision
+            .sample_job
+            .as_ref()
+            .is_some_and(|job| matches!(job.target, SampleTarget::Fill(_)))
+        {
+            self.precision.sample_job = None;
+        }
+    }
+
+    pub(super) fn toggle_fill_picker(&mut self) {
+        if self.fill_picker_active() {
+            self.cancel_fill_picker();
+        } else {
+            self.fill_tool.error = None;
+            self.precision.fill_picker = Some(self.tool);
+            self.focus_canvas = true;
+        }
     }
 
     pub(super) fn start_precision_tool(
@@ -164,6 +199,10 @@ impl EditorState {
     }
 
     pub(super) fn stop_precision_tool(&mut self) {
+        if self.fill_picker_active() {
+            self.cancel_fill_picker();
+            return;
+        }
         self.stop_retouch();
         self.precision.measure_dragging = false;
         self.precision.measurement = None;
@@ -333,10 +372,15 @@ impl EditorState {
                         "Click an annotation. Hold Option/Alt to copy a different style.".into(),
                     );
                 }
-            } else if self.tool == Tool::ColorInspector
+            } else if (self.tool == Tool::ColorInspector || self.fill_picker_active())
                 && let Some(pixel) = sample_pixel(position, rect, scale, document.output_size())
             {
-                self.start_color_sample(ui.ctx(), document, pixel);
+                let target = if self.fill_picker_active() {
+                    SampleTarget::Fill(self.selected)
+                } else {
+                    SampleTarget::Inspector
+                };
+                self.start_color_sample(ui.ctx(), document, pixel, target);
             }
         }
     }
@@ -423,9 +467,16 @@ impl EditorState {
         self.set_selection(indices.to_vec(), document);
     }
 
-    fn start_color_sample(&mut self, ctx: &egui::Context, document: &Document, pixel: [u32; 2]) {
+    fn start_color_sample(
+        &mut self,
+        ctx: &egui::Context,
+        document: &Document,
+        pixel: [u32; 2],
+        target: SampleTarget,
+    ) {
         self.precision.screen_sample = false;
-        if let Some(preview) = &self.precision.preview
+        if target == SampleTarget::Inspector
+            && let Some(preview) = &self.precision.preview
             && Arc::ptr_eq(&preview.source, &document.image)
             && preview.before == document.edit_state()
             && let Some(rgba) = preview.pixels.get_pixel_checked(pixel[0], pixel[1])
@@ -447,6 +498,7 @@ impl EditorState {
             receiver,
             image: Arc::clone(&document.image),
             before: document.edit_state(),
+            target,
         };
         match std::thread::Builder::new()
             .name("color-inspector".into())
@@ -459,13 +511,21 @@ impl EditorState {
                 self.precision.sample = None;
                 self.precision.message = None;
             }
+            Err(error) if matches!(target, SampleTarget::Fill(_)) => {
+                self.fill_tool.error = Some(format!("Could not sample the color: {error}"));
+            }
             Err(error) => {
                 self.precision.message = Some(format!("Could not sample the color: {error}"))
             }
         }
     }
 
-    pub(super) fn poll_color_sample(&mut self, ctx: &egui::Context, document: &Document) {
+    pub(super) fn poll_color_sample(
+        &mut self,
+        ctx: &egui::Context,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
         if let Some(result) = self.precision.screen.poll(ctx) {
             match result {
                 Ok(Some(rgba)) => {
@@ -496,7 +556,26 @@ impl EditorState {
         };
         let current =
             Arc::ptr_eq(&job.image, &document.image) && job.before == document.edit_state();
+        let target = job.target;
         self.precision.sample_job = None;
+        if let SampleTarget::Fill(index) = target {
+            if self.fill_picker_active() && self.selected == index && self.additional.is_empty() {
+                if !current {
+                    self.fill_tool.error =
+                        Some("The image changed. Click it again to pick a color.".into());
+                } else {
+                    match result {
+                        Ok(sample) => {
+                            self.set_fill_color(sample.rgba, document, history);
+                            self.precision.fill_picker = None;
+                            self.fill_tool.error = None;
+                        }
+                        Err(error) => self.fill_tool.error = Some(error),
+                    }
+                }
+            }
+            return;
+        }
         if !current {
             self.precision.message =
                 Some("The image changed. Click it again to sample the current color.".into());
@@ -1219,6 +1298,47 @@ mod tests {
     }
 
     #[test]
+    fn fill_eyedropper_recolors_only_an_explicitly_selected_fill() {
+        let ctx = egui::Context::default();
+        let mut d = document();
+        let mut e = EditorState::default();
+        let mut h = EditHistory::new(d.edit_state());
+        e.activate_fill(&mut d, &mut h);
+        e.place_fill(&ctx, Point { x: 10., y: 10. }, &d);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while e.fill_tool.busy() {
+            assert!(std::time::Instant::now() < deadline);
+            e.poll_fill(&ctx, &mut d, &mut h);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        let before = d.edit_state();
+        let sample = Sample {
+            pixel: [5, 5],
+            rgba: [17, 111, 230, 255],
+        };
+        for selection in [None, Some(0)] {
+            e.select(selection, &d);
+            e.toggle_fill_picker();
+            let (tx, receiver) = mpsc::channel();
+            e.precision.sample_job = Some(SampleJob {
+                receiver,
+                image: Arc::clone(&d.image),
+                before: d.edit_state(),
+                target: SampleTarget::Fill(selection),
+            });
+            tx.send(Ok(sample)).unwrap();
+            e.poll_color_sample(&ctx, &mut d, &mut h);
+            assert!(!e.fill_picker_active());
+            assert_eq!(e.tool, Tool::Fill);
+            if selection.is_some() {
+                assert_eq!(d.annotations[0].color, sample.rgba);
+                h.undo(&mut d);
+            }
+            assert_eq!(d.edit_state(), before);
+        }
+    }
+
+    #[test]
     fn color_sampling_includes_privacy_effects_and_rejects_stale_results() {
         let mut d = document();
         d.image = Arc::new(image::RgbaImage::from_fn(600, 400, |x, y| {
@@ -1235,10 +1355,12 @@ mod tests {
             receiver,
             image: Arc::clone(&d.image),
             before: d.edit_state(),
+            target: SampleTarget::Inspector,
         });
         tx.send(Ok(sample)).unwrap();
         d.annotations[0].effect_size = 32;
-        e.poll_color_sample(&egui::Context::default(), &d);
+        let mut history = EditHistory::new(d.edit_state());
+        e.poll_color_sample(&egui::Context::default(), &mut d, &mut history);
         assert!(e.precision.sample.is_none());
         assert!(e.precision.sample_job.is_none());
         assert!(

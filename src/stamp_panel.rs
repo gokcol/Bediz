@@ -882,7 +882,7 @@ impl EditorState {
         if !self.commit_object_placement(before, document, history) {
             return;
         }
-        self.tool = Tool::Area;
+        self.tool = Tool::Select;
         self.select(Some(document.annotations.len() - 1), document);
     }
 }

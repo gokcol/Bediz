@@ -199,7 +199,7 @@ fn welcome_body(
             Icon::Pencil,
             TileTone::Teal,
             "Make your mark",
-            "Add arrows, text and stamps. Click an object to style it.",
+            "Add arrows, text and stamps. Use Select → Objects to style them.",
             "Drag a selection to move pixels; use its handles to adjust the boundary.",
         ),
         (

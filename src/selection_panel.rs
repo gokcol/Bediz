@@ -150,13 +150,17 @@ impl EditorState {
                 egui::Popup::menu(&help).show(|ui| {
                     ui.set_max_width(240.);
                     ui.strong("Select, then make it yours");
-                    ui.label("Drag on the image to select pixels. Click an object to edit it.");
+                    ui.label("Drag on the image to select pixels. Use Objects mode to select and edit annotations.");
                     ui.label("Boundary moves only the marquee. Pixels lifts the selected area as an editable layer.");
                     ui.label("Edges and corners resize the selection. Escape cancels a drag or clears the selection.");
                     ui.small("Original pixels and annotations remain editable in your .myimage project.");
                 });
             });
         });
+        if self.tool == Tool::Select {
+            ui.small("Choose Region in the Select menu to work with pixels.");
+            return;
+        }
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 5.;
             let size = Vec2::new((ui.available_width() - 15.) / 4., 58.);

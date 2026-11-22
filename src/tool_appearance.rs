@@ -30,6 +30,7 @@ pub(super) struct FillPreferences {
     pub color: [u8; 4],
     pub tolerance: u8,
     pub global: bool,
+    pub edge: i8,
 }
 
 impl Default for FillPreferences {
@@ -38,6 +39,7 @@ impl Default for FillPreferences {
             color: [46, 137, 221, 255],
             tolerance: 15,
             global: false,
+            edge: 0,
         }
     }
 }
@@ -290,6 +292,10 @@ impl ToolPreferences {
             self.eraser_diameter = 32.;
         }
         self.fill.tolerance = self.fill.tolerance.min(100);
+        self.fill.edge = self
+            .fill
+            .edge
+            .clamp(-crate::fill::MAX_EDGE, crate::fill::MAX_EDGE);
         self
     }
 }
@@ -691,7 +697,7 @@ mod tests {
         editor.clear_selection();
         assert_eq!(Appearance::from_editor(&editor), chosen);
         editor.select(Some(0), &document);
-        editor.begin_tool_gesture(Point { x: 300., y: 200. }, 1., &mut document, false, true);
+        editor.begin_tool_gesture(Point { x: 300., y: 200. }, &mut document);
         assert_eq!(document.annotations[0], original.annotations[0]);
         assert_eq!(document.geometry, original.geometry);
         let new = &document.annotations[1];

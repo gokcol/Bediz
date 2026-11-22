@@ -45,7 +45,147 @@ fn anchors(bounds: Rect, axis: usize) -> [f32; 3] {
     [bounds.min[axis], bounds.center()[axis], bounds.max[axis]]
 }
 
+fn paint_arrangement(ui: &egui::Ui, rect: Rect, action: LayoutAction) {
+    let center = rect.center();
+    let color = ui.visuals().text_color();
+    let stroke = Stroke::new(1.2, color);
+    let axis = match action {
+        LayoutAction::Align { axis, .. } | LayoutAction::Distribute { axis } => axis,
+    };
+    let at = |x: f32, y: f32| {
+        center
+            + if axis == 0 {
+                egui::vec2(x, y)
+            } else {
+                egui::vec2(y, x)
+            }
+    };
+    let bar = |a, b, y| {
+        ui.painter()
+            .line_segment([at(a, y), at(b, y)], Stroke::new(2.8, color))
+    };
+    match action {
+        LayoutAction::Align { anchor, .. } => {
+            let guide = [-6., 0., 6.][anchor];
+            ui.painter()
+                .line_segment([at(guide, -7.), at(guide, 7.)], stroke);
+            for (width, y) in [(8., -3.5), (5., 3.5)] {
+                let a = guide - width * anchor as f32 / 2.;
+                bar(a, a + width, y);
+            }
+        }
+        LayoutAction::Distribute { .. } => {
+            for x in [-6., 0., 6.] {
+                ui.painter().line_segment(
+                    [at(x, -5.), at(x, 5.)],
+                    if x == 0. {
+                        Stroke::new(2., color)
+                    } else {
+                        stroke
+                    },
+                );
+            }
+        }
+    }
+}
+
 impl EditorState {
+    pub(super) fn compact_snap_toggle(&mut self, ui: &mut egui::Ui) {
+        let enabled = self.snapping;
+        let response = object_properties::quick_button(ui, "Snap to guides", |ui, rect| {
+            let p = ui.painter();
+            let center = rect.center();
+            let colors = crate::appearance::palette(ui.ctx());
+            let ink = if enabled { colors.accent } else { colors.muted };
+            for (a, b) in [
+                (egui::vec2(-7., 0.), egui::vec2(7., 0.)),
+                (egui::vec2(0., -7.), egui::vec2(0., 7.)),
+            ] {
+                p.line_segment([center + a, center + b], Stroke::new(1.1, ink));
+            }
+            p.circle_filled(center, 2.7, ink);
+        });
+        response.widget_info(|| {
+            egui::WidgetInfo::selected(
+                egui::WidgetType::Button,
+                ui.is_enabled(),
+                enabled,
+                "Snap to guides",
+            )
+        });
+        if response.clicked() {
+            self.snapping = !enabled;
+        }
+    }
+
+    pub(super) fn compact_arrange(
+        &mut self,
+        ui: &mut egui::Ui,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
+        use inspector_widgets::Glyph;
+        use object_properties::{quick_button, quick_glyph};
+        let indices = self.selected_indices(document);
+        let units = layout_units(document, &indices).len();
+        ui.horizontal(|ui| {
+            for (axis, labels) in [
+                (0, ["Align left", "Align center", "Align right"]),
+                (1, ["Align top", "Align middle", "Align bottom"]),
+            ] {
+                for (anchor, label) in labels.into_iter().enumerate() {
+                    let action = LayoutAction::Align { axis, anchor };
+                    if ui
+                        .add_enabled_ui(units >= 2, |ui| {
+                            quick_button(ui, label, |ui, r| paint_arrangement(ui, r, action))
+                        })
+                        .inner
+                        .clicked()
+                    {
+                        self.apply_layout(action, document, history);
+                    }
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            for (axis, label) in [(0, "Space horizontally"), (1, "Space vertically")] {
+                let action = LayoutAction::Distribute { axis };
+                if ui
+                    .add_enabled_ui(units >= 3, |ui| {
+                        quick_button(ui, label, |ui, r| paint_arrangement(ui, r, action))
+                    })
+                    .inner
+                    .clicked()
+                {
+                    self.apply_layout(action, document, history);
+                }
+            }
+            ui.separator();
+            if ui
+                .add_enabled_ui(units >= 2, |ui| {
+                    quick_glyph(ui, "Group", Glyph::Group(false))
+                })
+                .inner
+                .clicked()
+            {
+                self.group_selection(document, history);
+                ui.close();
+            }
+            let grouped = indices
+                .iter()
+                .any(|&i| document.annotations[i].group_id.is_some());
+            if ui
+                .add_enabled_ui(grouped, |ui| quick_glyph(ui, "Ungroup", Glyph::Group(true)))
+                .inner
+                .clicked()
+            {
+                self.ungroup_selection(document, history);
+                ui.close();
+            }
+            self.compact_snap_toggle(ui);
+        });
+    }
+
     pub(super) fn layout_controls(
         &mut self,
         ui: &mut egui::Ui,
@@ -567,6 +707,7 @@ mod tests {
         texture: &egui::TextureHandle,
         input: egui::RawInput,
     ) -> egui::FullOutput {
+        ctx.enable_accesskit();
         ctx.run(input, |ctx| {
             egui::CentralPanel::default().show(ctx, |ui| {
                 e.ui(ui, d, h, texture, &mut Default::default());
@@ -586,6 +727,9 @@ mod tests {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1280.0, 1000.0))),
             ..Default::default()
         };
+        for _ in 0..2 {
+            ui_frame(e, d, h, ctx, texture, input());
+        }
         let frame = ui_frame(e, d, h, ctx, texture, input());
         let at = frame
             .shapes
@@ -595,6 +739,20 @@ mod tests {
                     Some(text.pos + text.galley.size() * 0.5)
                 }
                 _ => None,
+            })
+            .or_else(|| {
+                frame
+                    .platform_output
+                    .accesskit_update
+                    .as_ref()?
+                    .nodes
+                    .iter()
+                    .find_map(|(_, node)| {
+                        (node.label() == Some(label))
+                            .then(|| node.bounds())
+                            .flatten()
+                    })
+                    .map(|r| Pos2::new(((r.x0 + r.x1) * 0.5) as f32, ((r.y0 + r.y1) * 0.5) as f32))
             })
             .unwrap_or_else(|| panic!("Missing visible control: {label}"));
         for pressed in [true, false] {
@@ -630,30 +788,73 @@ mod tests {
             pinned: true,
             ..Default::default()
         });
-        e.select(Some(0), &d);
-        click_label("Arrange ▾", &mut e, &mut d, &mut h, &ctx, &texture);
-        click_label("All annotations", &mut e, &mut d, &mut h, &ctx, &texture);
+        e.set_selection(vec![0, 1, 2], &d);
         assert_eq!(e.selected_indices(&d), vec![0, 1, 2]);
         assert_eq!(d.edit_state(), before);
-        click_label("Arrange ▾", &mut e, &mut d, &mut h, &ctx, &texture);
-        click_label("Middle", &mut e, &mut d, &mut h, &ctx, &texture);
+        click_label("Arrange", &mut e, &mut d, &mut h, &ctx, &texture);
+        click_label("Align middle", &mut e, &mut d, &mut h, &ctx, &texture);
         for i in 0..3 {
             close(bounds(&d, i).center().y, 265.0);
         }
-        click_label("Arrange ▾", &mut e, &mut d, &mut h, &ctx, &texture);
         click_label("Space horizontally", &mut e, &mut d, &mut h, &ctx, &texture);
         close(
             bounds(&d, 1).min.x - bounds(&d, 0).max.x,
             bounds(&d, 2).min.x - bounds(&d, 1).max.x,
         );
         let arranged = d.edit_state();
-        click_label("Arrange ▾", &mut e, &mut d, &mut h, &ctx, &texture);
         click_label("Snap to guides", &mut e, &mut d, &mut h, &ctx, &texture);
         assert!(!e.snapping);
         assert_eq!(d.edit_state(), arranged);
         assert!(h.undo(&mut d));
         assert!(h.undo(&mut d));
         assert_eq!(d.edit_state(), before);
+    }
+
+    #[test]
+    fn object_actions_change_stack_order_for_drawings_and_text() {
+        for kind in [
+            AnnotationKind::Arrow,
+            AnnotationKind::Freehand,
+            AnnotationKind::Text,
+        ] {
+            let ctx = egui::Context::default();
+            crate::appearance::apply(&ctx);
+            let texture = ctx.load_texture(
+                "layer order",
+                egui::ColorImage::filled([1, 1], Color32::WHITE),
+                Default::default(),
+            );
+            let mut d = fixture();
+            let mut selected = object(kind, [260., 180.], [350., 265.]);
+            if kind == AnnotationKind::Freehand {
+                selected.points = vec![selected.start, selected.end];
+            }
+            if kind == AnnotationKind::Text {
+                selected.text = "Editable text".into();
+            }
+            d.annotations.insert(2, selected.clone());
+            d.annotations
+                .push(object(AnnotationKind::Ellipse, [265., 185.], [390., 285.]));
+            let before = d.edit_state();
+            let mut h = EditHistory::new(before.clone());
+            let mut e = EditorState {
+                tool: Tool::Select,
+                ..Default::default()
+            };
+            for (action, index) in [("To back", 0), ("Lower", 1), ("Raise", 3), ("To front", 4)] {
+                e.set_selection(vec![2], &d);
+                click_label("Object actions", &mut e, &mut d, &mut h, &ctx, &texture);
+                click_label(action, &mut e, &mut d, &mut h, &ctx, &texture);
+                let mut expected = before.annotations.clone();
+                expected.remove(2);
+                expected.insert(index, selected.clone());
+                assert_eq!(d.annotations, expected, "{kind:?} · {action}");
+                assert_eq!(e.selected, Some(index));
+                assert!(h.undo(&mut d));
+                assert_eq!(d.edit_state(), before);
+                assert!(!h.can_undo());
+            }
+        }
     }
 
     #[test]
@@ -669,6 +870,7 @@ mod tests {
         let mut h = EditHistory::new(before.clone());
         let mut e = EditorState {
             fit: false,
+            tool: Tool::Select,
             ..Default::default()
         };
         let mut frame = |events| {

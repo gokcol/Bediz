@@ -509,17 +509,9 @@ impl EditorState {
             return;
         };
         if !drag.travelled {
-            // A click on a handle must not lose the selection. Ordinary clicks
-            // still select annotation objects, as before.
-            if drag.handle.is_some() {
-                return;
+            if !drag.moving {
+                self.deselect_pixels();
             }
-            let index = hit_document_annotation(document, drag.origin, self.zoom);
-            if index.is_none() && drag.moving {
-                return;
-            }
-            self.deselect_pixels();
-            self.choose_annotation(index, false, false, document);
         } else {
             if let Some(index) = drag.index
                 && index >= drag.before.annotations.len()
@@ -661,7 +653,11 @@ impl EditorState {
             self.select(Some(index), document);
             self.area = (!kind.is_studio()).then_some(rect);
         }
-        self.tool = Tool::Area;
+        self.tool = if kind.is_studio() {
+            Tool::Select
+        } else {
+            Tool::Area
+        };
         self.focus_canvas = true;
     }
 
@@ -1842,7 +1838,7 @@ mod tests {
     }
 
     #[test]
-    fn clicks_select_objects_drags_select_pixels_and_moves_are_undoable() {
+    fn region_clicks_leave_objects_unselected_and_pixel_moves_are_undoable() {
         let mut d = doc();
         let mut e = EditorState {
             tool: Tool::Area,
@@ -1856,7 +1852,7 @@ mod tests {
         let mut h = EditHistory::new(original.clone());
         e.begin_area_drag(Point { x: 30., y: 30. }, &mut d);
         e.finish_area_drag(&mut d, &mut h);
-        assert_eq!(e.selected, Some(0));
+        assert!(e.selected.is_none());
         assert!(e.area.is_none());
         assert!(!h.can_undo());
         e.begin_area_drag(Point { x: 5., y: 5. }, &mut d);

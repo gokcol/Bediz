@@ -91,7 +91,7 @@ impl EditorState {
                 }
                 history.commit(before, document);
                 self.set_selection((first..document.annotations.len()).collect(), document);
-                self.tool = Tool::Area;
+                self.tool = Tool::Select;
                 self.image_error = None;
             }
             Err(error) => self.image_error = Some(error),

@@ -262,6 +262,7 @@ fn annotation(kind: AnnotationKind, rect: [f32; 4]) -> Annotation {
         area_mask: vec![],
         stamp: None,
         fill_region: None,
+        fill_edge: 0,
         text_style: Default::default(),
         callout_style: Default::default(),
         pixel_mask: None,

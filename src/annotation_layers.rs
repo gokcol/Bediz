@@ -5,6 +5,13 @@ use crate::dialogs::{self, Dialog};
 use crate::document::LayerSettings;
 use std::collections::BTreeSet;
 
+pub(super) const STACK_ORDER_ACTIONS: [(&str, bool, bool); 4] = [
+    ("To back", false, true),
+    ("Lower", false, false),
+    ("Raise", true, false),
+    ("To front", true, true),
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) enum LayerTarget {
     Annotation(usize),
@@ -163,8 +170,7 @@ impl EditorState {
                     ui.label("The eye hides artwork from the image and exports. The lock protects it from edits.");
                     ui.label("Shift-click rows to select more. Double-click a name to rename it.");
                     if ui.button("All annotations").clicked() {
-                        self.tool=Tool::Select;
-                        self.set_selection((0..document.annotations.len()).collect(),document);
+                        self.select_all_annotations(document,history);
                         ui.close();
                     }
                 });
@@ -174,12 +180,7 @@ impl EditorState {
             ui.add_enabled_ui(self.can_edit_selection(document), |ui| {
                 ui.horizontal(|ui| {
                     let size = Vec2::new((ui.available_width() - 15.) / 4., 26.);
-                    for (label, front, extreme) in [
-                        ("To back", false, true),
-                        ("Lower", false, false),
-                        ("Raise", true, false),
-                        ("To front", true, true),
-                    ] {
+                    for (label, front, extreme) in STACK_ORDER_ACTIONS {
                         if tile(
                             ui,
                             label,
@@ -191,11 +192,7 @@ impl EditorState {
                         .on_hover_text(label)
                         .clicked()
                         {
-                            if extreme {
-                                self.reorder_extreme(document, history, front);
-                            } else {
-                                self.reorder(document, history, front);
-                            }
+                            self.reorder_layer(document, history, front, extreme);
                         }
                     }
                 });
@@ -484,6 +481,21 @@ impl EditorState {
                     });
                 });
         });
+    }
+
+    pub(super) fn reorder_layer(
+        &mut self,
+        document: &mut Document,
+        history: &mut EditHistory,
+        front: bool,
+        extreme: bool,
+    ) {
+        self.finish_properties(document, history);
+        if extreme {
+            self.reorder_extreme(document, history, front);
+        } else {
+            self.reorder(document, history, front);
+        }
     }
 
     fn reorder_extreme(&mut self, document: &mut Document, history: &mut EditHistory, front: bool) {

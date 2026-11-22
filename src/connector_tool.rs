@@ -76,7 +76,7 @@ impl EditorState {
             return;
         }
         history.commit(before, document);
-        self.tool = Tool::Area;
+        self.tool = Tool::Select;
         self.select(Some(created), document);
     }
     pub(super) fn connector_panel(&mut self, ui: &mut egui::Ui) {

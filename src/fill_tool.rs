@@ -55,8 +55,9 @@ pub(super) struct FillState {
     color: [u8; 4],
     tolerance: u8,
     global: bool,
+    edge: i8,
     pending: Option<Pending>,
-    error: Option<String>,
+    pub(super) error: Option<String>,
 }
 struct Pending {
     before: EditState,
@@ -69,6 +70,7 @@ impl Default for FillState {
             color: [46, 137, 221, 255],
             tolerance: 15,
             global: false,
+            edge: 0,
             pending: None,
             error: None,
         }
@@ -99,6 +101,7 @@ impl EditorState {
         self.fill_tool.color = preferences.color;
         self.fill_tool.tolerance = preferences.tolerance;
         self.fill_tool.global = preferences.global;
+        self.fill_tool.edge = preferences.edge;
     }
 
     pub(super) fn remember_sampled_fill(&mut self, color: [u8; 4]) {
@@ -111,6 +114,7 @@ impl EditorState {
             color: self.fill_tool.color,
             tolerance: self.fill_tool.tolerance,
             global: self.fill_tool.global,
+            edge: self.fill_tool.edge,
         };
         if self.tool_preferences.fill != preferences {
             self.tool_preferences.fill = preferences;
@@ -176,6 +180,7 @@ impl EditorState {
     }
 
     pub(super) fn activate_fill(&mut self, document: &mut Document, history: &mut EditHistory) {
+        self.cancel_fill_picker();
         self.finish_gesture(document, history);
         // Preserve a rectangle/lasso when switching from Select to Fill.
         if self.area.is_none()
@@ -209,6 +214,7 @@ impl EditorState {
             self.fill_tool.color = annotation.color;
             self.fill_tool.tolerance = region.tolerance;
             self.fill_tool.global = region.global;
+            self.fill_tool.edge = annotation.fill_edge;
         }
     }
     pub(super) fn poll_fill(
@@ -282,6 +288,7 @@ impl EditorState {
         };
         annotation.start = from_pos(bounds.min);
         annotation.end = from_pos(bounds.max);
+        annotation.fill_edge = self.fill_tool.edge;
         let mut source = document.clone();
         if let Some(index) = index {
             source.annotations.truncate(index);
@@ -355,6 +362,28 @@ impl EditorState {
         }
         self.start_fill_job(ctx, document, annotation, at, None);
     }
+    pub(super) fn set_fill_color(
+        &mut self,
+        color: [u8; 4],
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
+        self.fill_tool.color = color;
+        if let Some(index) = self.selected
+            && self.additional.is_empty()
+            && document
+                .annotations
+                .get(index)
+                .is_some_and(|a| a.kind == AnnotationKind::Fill && !a.locked() && a.color != color)
+        {
+            let before = document.edit_state();
+            document.annotations[index].color = color;
+            self.color = color;
+            self.record_properties(before, document, history);
+        }
+        self.remember_fill_preferences();
+    }
+
     pub(super) fn fill_panel(
         &mut self,
         ui: &mut egui::Ui,
@@ -369,61 +398,129 @@ impl EditorState {
                 && self.additional.is_empty()
         });
         let enabled = selected.is_none_or(|i| !document.annotations[i].locked());
-        ui.heading(if selected.is_some() {
+        ui.strong(if selected.is_some() {
             "Selected fill"
         } else {
-            "Fill"
+            "Next fill"
         });
-        ui.weak("Quick colors");
-        ui.add_enabled_ui(enabled,|ui| {
-            let previous = (self.fill_tool.color, self.fill_tool.tolerance, self.fill_tool.global);
-            let old_color=self.fill_tool.color;
+        ui.add_enabled_ui(enabled, |ui| {
+            let old_options = (self.fill_tool.tolerance, self.fill_tool.global, self.fill_tool.edge);
+            let mut color = self.fill_tool.color;
             ui.horizontal_wrapped(|ui| {
-                for (name,color) in [("Red",[225,62,61,255]),("Blue",[46,137,221,255]),("Teal",[0,137,137,255]),("Yellow",[255,215,45,255]),("White",[255;4]),("Black",[27,35,48,255]),("Transparent",[0;4])] {
-                    let (rect,response)=ui.allocate_exact_size(Vec2::splat(28.),Sense::click());
-                    if color[3]==0 { paint_checkerboard(ui.painter(),rect.shrink(2.)); } else { ui.painter().rect_filled(rect.shrink(2.),5,Color32::from_rgba_unmultiplied(color[0],color[1],color[2],color[3])); }
-                    let selected=self.fill_tool.color==color;
-                    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel,ui.is_enabled(),selected,name));
-                    ui.painter().rect_stroke(rect,5,Stroke::new(if selected {2.} else {1.},if selected {Color32::from_rgb(0,137,146)} else {Color32::from_gray(205)}),StrokeKind::Inside);
-                    if response.on_hover_text(name).clicked() {self.fill_tool.color=color;}
+                ui.spacing_mut().item_spacing.x = 2.;
+                for (name, swatch) in [
+                    ("Red", [225, 62, 61, 255]),
+                    ("Blue", [46, 137, 221, 255]),
+                    ("Teal", [0, 137, 137, 255]),
+                    ("Yellow", [255, 215, 45, 255]),
+                    ("White", [255; 4]),
+                    ("Black", [27, 35, 48, 255]),
+                    ("Transparent", [0; 4]),
+                ] {
+                    let (rect, response) = ui.allocate_exact_size(Vec2::splat(23.), Sense::click());
+                    let chosen = color == swatch;
+                    let palette = crate::appearance::palette(ui.ctx());
+                    if swatch[3] == 0 {
+                        paint_checkerboard(ui.painter(), rect.shrink(3.));
+                    } else {
+                        ui.painter().circle_filled(rect.center(), 7.5, Color32::from_rgb(swatch[0], swatch[1], swatch[2]));
+                    }
+                    ui.painter().circle_stroke(
+                        rect.center(),
+                        if chosen || response.has_focus() { 10. } else { 8. },
+                        Stroke::new(1., if chosen || response.has_focus() { palette.accent } else { palette.border }),
+                    );
+                    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, ui.is_enabled(), chosen, name));
+                    if response.on_hover_text(name).clicked() {
+                        color = swatch;
+                    }
+                }
+                ui.scope(|ui| {
+                    ui.spacing_mut().interact_size.x = 23.;
+                    ui.color_edit_button_srgba_unmultiplied(&mut color).on_hover_text("Custom fill color");
+                });
+                let picking = self.fill_picker_active();
+                let (rect, pick) = ui.allocate_exact_size(Vec2::splat(23.), Sense::click());
+                pick.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, ui.is_enabled(), picking, "Fill eyedropper"));
+                let ink = crate::appearance::satin_button(ui, rect, &pick, picking,
+                    crate::appearance::satin_ink(ui.ctx(), crate::appearance::TileTone::Teal));
+                super::precision_tools::paint_icon(ui.painter(), rect.center(), Tool::ColorInspector, ink, Stroke::new(1.2, ink), 0.65);
+                if pick.on_hover_text("Pick a fill color from the image · Esc to cancel").clicked() {
+                    self.toggle_fill_picker();
                 }
             });
-            ui.add_space(7.);ui.separator();
-            ui.horizontal(|ui| {ui.label("Color");ui.color_edit_button_srgba_unmultiplied(&mut self.fill_tool.color);});
-            let mut transparent=self.fill_tool.color[3]==0;
-            if crate::appearance::checkbox(ui, &mut transparent,"Transparent fill").changed() {self.fill_tool.color[3]=if transparent {0} else {255};}
-            ui.label("Opacity");
-            let mut opacity=self.fill_tool.color[3] as f32/255.*100.;
-            if crate::appearance::value_slider(ui,&mut opacity,0.0..=100.0,"Fill opacity","%").changed() {self.fill_tool.color[3]=(opacity*2.55).round() as u8;}
-            if old_color!=self.fill_tool.color && let Some(index)=selected {
-                let before=document.edit_state();document.annotations[index].color=self.fill_tool.color;self.color=self.fill_tool.color;self.record_properties(before,document,history);
+            if self.fill_picker_active() {
+                ui.small("Click the image to pick a color · Esc to cancel");
             }
-            ui.add_space(5.);ui.label("Tolerance");
-            crate::appearance::value_slider(ui,&mut self.fill_tool.tolerance,0..=100,"Fill tolerance","%");
-            ui.weak("Lower values protect edges. Higher values include more similar colors.");
-            crate::appearance::checkbox(ui, &mut self.fill_tool.global,"Global fill").on_hover_text("Fill matching colors in disconnected regions too, within the selected area or canvas.");
-            if self.fill_tool.global {ui.weak("Matches colors across separate regions.");} else {ui.weak("Stops at boundaries around the clicked region.");}
-            if previous != (self.fill_tool.color, self.fill_tool.tolerance, self.fill_tool.global) {
+            let mut opacity = color[3] as f32 / 2.55;
+            if object_properties::slider(ui, &mut opacity, 0.0..=100.0, "Opacity", "%") {
+                color[3] = (opacity * 2.55).round() as u8;
+            }
+            object_properties::slider(ui, &mut self.fill_tool.tolerance, 0..=100, "Tolerance", "%");
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut self.fill_tool.global, false, "Connected")
+                    .on_hover_text("Fill matching pixels that touch the clicked region");
+                ui.selectable_value(&mut self.fill_tool.global, true, "All matching")
+                    .on_hover_text("Fill matching pixels throughout the image or selection");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Edge").on_hover_text("Grow or shrink the fill boundary in image pixels");
+                let limit = crate::fill::MAX_EDGE;
+                for (step, glyph, label) in [(-1, "−", "Shrink fill edge"), (1, "+", "Grow fill edge")] {
+                    let edge = self.fill_tool.edge + step;
+                    let button = ui.add_enabled((-limit..=limit).contains(&edge), egui::Button::new(glyph));
+                    button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, button.enabled(), label));
+                    if button.on_hover_text(label).clicked() {
+                        self.fill_tool.edge = edge;
+                    }
+                }
+                let edge = self.fill_tool.edge;
+                let label = match edge.cmp(&0) {
+                    std::cmp::Ordering::Less => format!("Shrink {} px", edge.unsigned_abs()),
+                    std::cmp::Ordering::Equal => "0 px".into(),
+                    std::cmp::Ordering::Greater => format!("Grow {edge} px"),
+                };
+                ui.monospace(label);
+            });
+            if color != self.fill_tool.color {
+                self.set_fill_color(color, document, history);
+            } else if old_options != (self.fill_tool.tolerance, self.fill_tool.global, self.fill_tool.edge) {
                 self.remember_fill_preferences();
             }
-            if let Some(index)=selected {
-                let annotation=&document.annotations[index];let region=annotation.fill_region.as_ref().unwrap();
-                if ui.button("Update fill region").on_hover_text("Recalculate from the image and visible layers below this fill, using the current tolerance and Global fill setting.").clicked() {
-                    let seed=Point {x:annotation.start.x+(annotation.end.x-annotation.start.x)*region.seed.x,y:annotation.start.y+(annotation.end.y-annotation.start.y)*region.seed.y};
-                    self.start_fill_job(ui.ctx(),document,annotation.clone(),seed,Some(index));
-                }
-                ui.weak("Color updates immediately. Update the region after changing tolerance, Global fill or underlying artwork.");
-                if ui.button("Remove fill").clicked() {self.delete(document,history);}
-                if ui.button("Open layers").clicked() {self.inspector.show(InspectorPanel::Layers);}
-            } else {
-                ui.weak("Colors apply to the next fill. Use Select or Layers to edit an existing fill.");
+            if let Some(index) = selected {
+                use crate::appearance::{Icon, icon_button};
+                ui.horizontal(|ui| {
+                    if icon_button(ui, "Update fill region", Icon::Refresh)
+                        .on_hover_text("Recalculate the fill using current tolerance, matching and edge settings")
+                        .clicked()
+                    {
+                        let annotation = &document.annotations[index];
+                        let region = annotation.fill_region.as_ref().unwrap();
+                        let seed = Point {
+                            x: annotation.start.x + (annotation.end.x - annotation.start.x) * region.seed.x,
+                            y: annotation.start.y + (annotation.end.y - annotation.start.y) * region.seed.y,
+                        };
+                        self.start_fill_job(ui.ctx(), document, annotation.clone(), seed, Some(index));
+                    }
+                    if icon_button(ui, "Open layers", Icon::Layers).clicked() {
+                        self.inspector.show(InspectorPanel::Layers);
+                    }
+                    if icon_button(ui, "Remove fill", Icon::Trash).clicked() {
+                        self.delete(document, history);
+                    }
+                });
             }
-            ui.separator();
             if self.area.is_some() {
-                ui.strong(if self.area_mask.is_empty() {"Limited to rectangle"} else {"Limited to lasso"});
-                if ui.button("Clear selection").clicked() {self.area=None;self.area_mask.clear();self.clear_selection();self.tool=Tool::Fill;self.fill_tool.error=None;}
-            } else {ui.strong("Canvas");}
-            ui.weak("Click a background to fill it. Select an area first to limit the fill.");
+                ui.horizontal(|ui| {
+                    ui.weak("Selection only");
+                    if crate::appearance::icon_button(ui, "Clear selection", crate::appearance::Icon::Close).clicked() {
+                        self.deselect_pixels();
+                        self.clear_selection();
+                        self.tool = Tool::Fill;
+                        self.fill_tool.error = None;
+                    }
+                });
+            }
         });
         if !enabled {
             ui.weak("Unlock this fill in Layers to edit it.");
@@ -712,6 +809,7 @@ mod tests {
         editor.fill_tool.color = [80, 140, 220, 120];
         editor.fill_tool.tolerance = 42;
         editor.fill_tool.global = true;
+        editor.fill_tool.edge = -2;
         editor.remember_fill_preferences();
         let preferences = editor.take_tool_preferences_change().unwrap();
         let json = serde_json::to_string(&preferences).unwrap();
@@ -727,15 +825,18 @@ mod tests {
         });
         editor.sync_fill_selection(&old);
         assert_eq!(editor.fill_tool.color, old.color);
+        assert_eq!(editor.fill_tool.edge, 0);
         assert!(editor.take_tool_preferences_change().is_none());
         editor.reset();
         assert_eq!(editor.fill_tool.color, [80, 140, 220, 120]);
         assert_eq!(editor.fill_tool.tolerance, 42);
         assert!(editor.fill_tool.global);
+        assert_eq!(editor.fill_tool.edge, -2);
         let mut reopened = EditorState::default();
         reopened.set_tool_preferences(serde_json::from_str(&json).unwrap());
         assert_eq!(reopened.fill_tool.color, [80, 140, 220, 120]);
         assert_eq!(reopened.fill_tool.tolerance, 42);
         assert!(reopened.fill_tool.global);
+        assert_eq!(reopened.fill_tool.edge, -2);
     }
 }

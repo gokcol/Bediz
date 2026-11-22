@@ -2032,78 +2032,84 @@ impl MyImageApp {
         });
     }
 
-    /// Open, save and print. In the editor these are icons, leaving the row to the tools.
-    fn document_actions(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, view: View) {
+    /// The workspace allocates these controls from the right edge.
+    fn document_menus(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, view: View) {
         let has_doc = self.document.is_some();
-        let compact = view == View::Editor;
-        let action = |ui: &mut egui::Ui, label: &str, icon: Icon, enabled: bool, hint: &str| {
-            if compact {
-                ui.add_enabled_ui(enabled, |ui| {
-                    appearance::document_icon_button(ui, label, icon)
-                })
-                .inner
-                .on_hover_text(hint)
-                .clicked()
-            } else {
-                appearance::toolbar_action_button(ui, label, icon, enabled, false)
-                    .on_hover_text(hint)
+        let file = appearance::toolbar_action_button(ui, "File", Icon::Open, true, false)
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        egui::Popup::menu(&file)
+            .align(egui::emath::RectAlign::BOTTOM_END)
+            .gap(4.)
+            .show(|ui| {
+                ui.set_width(210.);
+                let shortcut = |key, modifiers| {
+                    ctx.format_shortcut(&egui::KeyboardShortcut::new(modifiers, key))
+                };
+                let command = egui::Modifiers::COMMAND;
+                if app_menu::row(ui, "Open…", Icon::Open, true, "")
+                    .on_hover_text("Open an image or editable project")
                     .clicked()
-            }
-        };
-        if matches!(view, View::Viewer | View::Editor) {
-            if appearance::toolbar_action_button(ui, "Save project", Icon::Save, has_doc, true)
-                .on_hover_text("Save the editable project · ⌘S / Ctrl+S")
+                {
+                    ui.close();
+                    self.open_image(ctx);
+                }
+                if app_menu::row(ui, "Open Project…", Icon::OpenProject, true, "").clicked() {
+                    ui.close();
+                    self.open_project(ctx);
+                }
+                ui.separator();
+                if app_menu::row(
+                    ui,
+                    "Save Project",
+                    Icon::Save,
+                    has_doc,
+                    &shortcut(egui::Key::S, command),
+                )
                 .clicked()
-            {
-                self.save_project(ctx, false);
-            }
-            if view == View::Editor {
-                ui.add_enabled_ui(has_doc, |ui| {
-                    egui::containers::menu::MenuButton::new("Image ▾")
-                        .config(
-                            egui::containers::menu::MenuConfig::new()
-                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
-                        )
-                        .ui(ui, |ui| {
-                            if let Some(document) = &mut self.document {
-                                self.editor.image_menu(ui, document, &mut self.history);
-                            }
-                        })
-                        .0
-                        .on_hover_text("Resize, extend canvas, rotate, flip and crop");
+                {
+                    ui.close();
+                    self.save_project(ctx, false);
+                }
+                if app_menu::row(
+                    ui,
+                    "Save As…",
+                    Icon::SaveAs,
+                    has_doc,
+                    &shortcut(egui::Key::S, command | egui::Modifiers::SHIFT),
+                )
+                .clicked()
+                {
+                    ui.close();
+                    self.begin_save_as();
+                }
+                ui.separator();
+                if app_menu::row(
+                    ui,
+                    "Print…",
+                    Icon::Print,
+                    has_doc,
+                    &shortcut(egui::Key::P, command),
+                )
+                .clicked()
+                {
+                    ui.close();
+                    self.begin_print(ctx);
+                }
+            });
+
+        if view == View::Editor {
+            let image = appearance::toolbar_action_button(ui, "Image", Icon::View, has_doc, false)
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Resize, extend canvas, rotate, flip and crop");
+            egui::Popup::menu(&image)
+                .align(egui::emath::RectAlign::BOTTOM_END)
+                .gap(4.)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                .show(|ui| {
+                    if let Some(document) = &mut self.document {
+                        self.editor.image_menu(ui, document, &mut self.history);
+                    }
                 });
-            }
-            if action(
-                ui,
-                "Save As…",
-                Icon::SaveAs,
-                has_doc,
-                "Save a project or an image copy · ⇧⌘S / Ctrl+Shift+S",
-            ) {
-                self.begin_save_as();
-            }
-            if ui
-                .add_enabled_ui(has_doc, |ui| {
-                    appearance::document_icon_button(ui, "Print…", Icon::Print)
-                })
-                .inner
-                .on_hover_text("Print the finished image · ⌘P / Ctrl+P")
-                .clicked()
-            {
-                self.begin_print(ctx);
-            }
-        }
-        if action(
-            ui,
-            "Open project…",
-            Icon::OpenProject,
-            true,
-            "Open an editable .myimage project",
-        ) {
-            self.open_project(ctx);
-        }
-        if action(ui, "Open…", Icon::Open, true, "Open an image file") {
-            self.open_image(ctx);
         }
     }
 
@@ -2505,7 +2511,7 @@ impl eframe::App for MyImageApp {
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
                                     ui.spacing_mut().item_spacing.x = 4.;
-                                    self.document_actions(ui, ctx, previous_view);
+                                    self.document_menus(ui, ctx, previous_view);
                                     ui.with_layout(
                                         egui::Layout::left_to_right(egui::Align::Center),
                                         |ui| {

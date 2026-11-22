@@ -467,6 +467,7 @@ fn preview(
         area_mask: Vec::new(),
         stamp: None,
         fill_region: None,
+        fill_edge: 0,
         text_style: Default::default(),
         callout_style: Default::default(),
         pixel_mask: None,
@@ -820,24 +821,53 @@ mod tests {
         d.annotations.push(a);
         e.select(Some(0), &d);
         let output = frame(&mut e, &mut d, &mut h, &ctx, &texture, vec![]);
-        for label in ["Arrange ▾", "More ▾", "Select all Arrow (1)"] {
-            assert!(
-                output.shapes.iter().any(
-                    |s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)
-                ),
-                "Missing selected control {label}"
-            );
+        let labels: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) => Some(text.galley.job.text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(labels.contains(&"Select all Arrow (1)"));
+        assert!(!labels.contains(&"More ▾") && !labels.contains(&"Arrange ▾"));
+        let mut second = d.annotations[0].clone();
+        second.start.x += 100.;
+        second.end.x += 100.;
+        d.annotations.push(second);
+        e.set_selection(vec![0, 1], &d);
+        for _ in 0..3 {
+            frame(&mut e, &mut d, &mut h, &ctx, &texture, vec![]);
         }
-        // Secondary controls are revealed on demand, preserving room for properties.
-        click("Arrange ▾", &mut e, &mut d, &mut h, &ctx, &texture);
-        let output = frame(&mut e, &mut d, &mut h, &ctx, &texture, vec![]);
-        for label in ["Group", "Duplicate"] {
-            assert!(
-                output.shapes.iter().any(
-                    |s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == label)
-                ),
-                "Missing arrangement control {label}"
+        click("Arrange", &mut e, &mut d, &mut h, &ctx, &texture);
+        click("Align left", &mut e, &mut d, &mut h, &ctx, &texture);
+        assert_eq!(d.annotations[0].start.x, d.annotations[1].start.x);
+    }
+
+    #[test]
+    fn blur_and_pixelate_use_the_same_compact_object_actions() {
+        for kind in [AnnotationKind::Blur, AnnotationKind::Pixelate] {
+            let ctx = egui::Context::default();
+            appearance::apply(&ctx);
+            let texture = ctx.load_texture(
+                "effects menu",
+                egui::ColorImage::new([1, 1], vec![Color32::WHITE]),
+                Default::default(),
             );
+            let mut d = blank();
+            let mut e = EditorState::default();
+            let mut a = e.new_annotation(kind, Point { x: 230., y: 200. });
+            a.end = Point { x: 430., y: 290. };
+            d.annotations.push(a);
+            let mut h = EditHistory::new(d.edit_state());
+            e.select(Some(0), &d);
+            for _ in 0..3 {
+                frame(&mut e, &mut d, &mut h, &ctx, &texture, vec![]);
+            }
+            click("Object actions", &mut e, &mut d, &mut h, &ctx, &texture);
+            click("Duplicate", &mut e, &mut d, &mut h, &ctx, &texture);
+            assert_eq!(d.annotations.len(), 2);
+            assert_eq!(d.annotations[1].kind, kind);
         }
     }
 

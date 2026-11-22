@@ -82,7 +82,7 @@ impl EditorState {
             document.annotations = draft.before.annotations;
             document.geometry = draft.before.geometry;
         }
-        self.tool = Tool::Area;
+        self.tool = Tool::Select;
         self.select(
             (!removed && draft.index < document.annotations.len()).then_some(draft.index),
             document,

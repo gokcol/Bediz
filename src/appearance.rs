@@ -1835,6 +1835,7 @@ fn document_tone(kind: Icon) -> Option<TileTone> {
         Icon::Open => Some(TileTone::Blue),
         Icon::OpenProject | Icon::Save | Icon::SaveAs => Some(TileTone::Clay),
         Icon::Print => Some(TileTone::Slate),
+        Icon::View => Some(TileTone::Teal),
         _ => None,
     }
 }

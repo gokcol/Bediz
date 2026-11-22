@@ -421,12 +421,8 @@ impl EditorState {
                 .inner
                 .clicked()
             {
-                self.finish_gesture(document, history);
-                self.deselect_pixels();
-                self.tool = Tool::Select;
                 self.inspector.select(InspectorPanel::Styles);
-                self.set_selection((0..document.annotations.len()).collect(), document);
-                self.focus_canvas = true;
+                self.select_all_annotations(document, history);
                 ui.close();
             }
             if ui

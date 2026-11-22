@@ -279,7 +279,7 @@ impl EditorState {
                 "Opaque cover added. Draw another region, or copy the flattened image.".into(),
             );
         } else {
-            self.tool = Tool::Area;
+            self.tool = Tool::Select;
             self.set_selection(indices, document);
         }
     }

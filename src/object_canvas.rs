@@ -296,6 +296,7 @@ mod tests {
         }
         assert_eq!(document.annotations.len(), 1);
         assert_eq!(document.geometry, original_geometry);
+        editor.choose_tool(Tool::Select, &mut document, &mut history);
         for handle in [None, Some(Handle::ArrowEnd), Some(Handle::ArrowBend)] {
             editor.select(Some(0), &document);
             let original_arrow = document.annotations[0].clone();
@@ -579,7 +580,7 @@ mod tests {
         assert_eq!(d.edit_state(), before);
         assert!(!h.can_undo());
         e.tool = Tool::Rectangle;
-        e.begin_tool_gesture(Point { x: 50., y: 50. }, 1., &mut d, false, false);
+        e.begin_tool_gesture(Point { x: 50., y: 50. }, &mut d);
         e.update_gesture(
             Point {
                 x: 1_000_000.,

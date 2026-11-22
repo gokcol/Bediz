@@ -163,6 +163,118 @@ mod tests {
         }
         assert!(!app.busy);
     }
+
+    #[test]
+    fn file_menu_is_rightmost_and_image_tools_keep_their_own_popup() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut app, ctx) = app(dir.path());
+        app.guide_open = false;
+        ctx.enable_accesskit();
+        let frame = |app: &mut MyImageApp, events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, egui::vec2(660., 480.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::TopBottomPanel::top("document-menu-test").show(ctx, |ui| {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            app.document_menus(ui, ctx, View::Editor);
+                            ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    if let Some(document) = &mut app.document {
+                                        app.editor.toolbar(ui, document, &mut app.history);
+                                    }
+                                },
+                            );
+                        });
+                    });
+                },
+            )
+            .platform_output
+            .accesskit_update
+            .unwrap()
+            .nodes
+        };
+        let click = |app: &mut MyImageApp, label| {
+            let at = frame(app, vec![])
+                .iter()
+                .find_map(|(_, node)| {
+                    (node.label() == Some(label))
+                        .then(|| node.bounds())
+                        .flatten()
+                })
+                .unwrap();
+            let pos = egui::pos2(
+                ((at.x0 + at.x1) * 0.5) as f32,
+                ((at.y0 + at.y1) * 0.5) as f32,
+            );
+            for pressed in [true, false] {
+                frame(
+                    app,
+                    vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            pressed,
+                            button: egui::PointerButton::Primary,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+            frame(app, vec![])
+        };
+        frame(&mut app, vec![]);
+        let header = frame(&mut app, vec![]);
+        let bounds = |label| {
+            header
+                .iter()
+                .find_map(|(_, node)| {
+                    (node.label() == Some(label))
+                        .then(|| node.bounds())
+                        .flatten()
+                })
+                .unwrap()
+        };
+        assert!(bounds("Image").x0 >= bounds("Choose panel").x1);
+        assert!(bounds("File").x0 >= bounds("Image").x1);
+        assert!(bounds("File").x1 > 640.);
+        assert!(
+            !header
+                .iter()
+                .any(|(_, node)| node.label() == Some("Save As…"))
+        );
+
+        let file_menu = click(&mut app, "File");
+        for label in [
+            "Open…",
+            "Open Project…",
+            "Save Project",
+            "Save As…",
+            "Print…",
+        ] {
+            assert!(
+                file_menu
+                    .iter()
+                    .any(|(_, node)| node.label() == Some(label))
+            );
+        }
+        click(&mut app, "Save As…");
+        assert!(app.save_as_panel.open);
+        app.save_as_panel.open = false;
+        let image_menu = click(&mut app, "Image");
+        for label in ["Canvas size…", "Crop", "Resize image…", "Rotate right"] {
+            assert!(
+                image_menu
+                    .iter()
+                    .any(|(_, node)| node.label() == Some(label))
+            );
+        }
+    }
+
     #[test]
     fn snagit_open_imports_editable_objects_and_autosaves_one_project() {
         let dir = tempfile::tempdir().unwrap();
@@ -931,11 +1043,11 @@ mod tests {
             bounds.min + bounds.size() * egui::vec2(120. / 320., 100. / 240.)
         };
         // Applying the startup UI zoom briefly uses the previous viewport size.
+        app.editor.use_object_selection();
         let _ = workspace_canvas(&mut app, &ctx, source.id(), vec![]);
         let initial = workspace_canvas(&mut app, &ctx, source.id(), vec![]);
         let select = shaft_point(&initial);
-        // Select first: dragging an unselected object in Select mode creates a
-        // pixel marquee. The saved baseline includes the selected inspector.
+        // The saved baseline includes the inspector for the selected object.
         for events in [
             vec![egui::Event::PointerMoved(select), button(select, true)],
             vec![button(select, false)],

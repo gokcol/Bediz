@@ -439,6 +439,7 @@ fn base_annotation(kind: AnnotationKind, start: Point, end: Point) -> Annotation
         area_mask: vec![],
         stamp: None,
         fill_region: None,
+        fill_edge: 0,
         text_style: Default::default(),
         callout_style: Default::default(),
         pixel_mask: None,

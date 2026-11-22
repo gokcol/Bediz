@@ -7,6 +7,11 @@ use std::sync::Arc;
 
 pub const MAX_RUNS: usize = 65_536;
 pub const MAX_TOTAL_RUNS: usize = 131_072;
+pub const MAX_EDGE: i8 = 3;
+
+pub(crate) fn zero_edge(edge: &i8) -> bool {
+    *edge == 0
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FillRegion {
@@ -107,6 +112,99 @@ fn take_run(bits: &mut Bits, width: u32, x: u32, y: u32) -> [u32; 3] {
     }
     [y, left, right]
 }
+
+type Span = (u32, u32);
+
+fn intersect_spans(left: &[Span], right: &[Span]) -> Vec<Span> {
+    let (mut i, mut j) = (0, 0);
+    let mut spans = Vec::new();
+    while let (Some(&(a, b)), Some(&(c, d))) = (left.get(i), right.get(j)) {
+        let from = a.max(c);
+        let to = b.min(d);
+        if from < to {
+            spans.push((from, to));
+        }
+        if b <= d {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    spans
+}
+
+fn adjust_edges(
+    runs: &[[u32; 3]],
+    width: u32,
+    height: u32,
+    edge: i8,
+    allowed: impl Fn(u32) -> Vec<Span>,
+) -> Result<Vec<[u32; 3]>, String> {
+    let radius = u32::from(edge.unsigned_abs());
+    let grow = edge > 0;
+    let (first, last) = (runs[0][0], runs[runs.len() - 1][0]);
+    let rows = if grow {
+        first.saturating_sub(radius)..=(last + radius).min(height - 1)
+    } else {
+        (first + radius)..=last.saturating_sub(radius)
+    };
+    let mut result: Vec<[u32; 3]> = Vec::new();
+    for y in rows {
+        let mut spans = if grow { Vec::new() } else { vec![(0, width)] };
+        // A diamond follows the four-connected fill and measures whole source pixels.
+        for nearby in y.saturating_sub(radius)..=(y + radius).min(height - 1) {
+            let distance = radius - y.abs_diff(nearby);
+            let start = runs.partition_point(|run| run[0] < nearby);
+            let row = runs[start..].iter().take_while(|run| run[0] == nearby);
+            if grow {
+                spans.extend(
+                    row.map(|&[_, l, r]| (l.saturating_sub(distance), (r + distance).min(width))),
+                );
+            } else {
+                let inset: Vec<_> = row
+                    .filter_map(|&[_, l, r]| {
+                        (r - l > 2 * distance).then(|| (l + distance, r - distance))
+                    })
+                    .collect();
+                spans = intersect_spans(&spans, &inset);
+                if spans.is_empty() {
+                    break;
+                }
+            }
+        }
+        if grow {
+            spans.sort_unstable();
+            let mut merged: Vec<Span> = Vec::new();
+            for (l, r) in spans {
+                if let Some(last) = merged.last_mut()
+                    && l <= last.1
+                {
+                    last.1 = last.1.max(r);
+                } else {
+                    merged.push((l, r));
+                }
+            }
+            spans = intersect_spans(&merged, &allowed(y));
+        }
+        for (l, r) in spans {
+            if let Some(last) = result.last_mut()
+                && last[0] == y
+                && last[2] == l
+            {
+                last[2] = r;
+            } else {
+                result.push([y, l, r]);
+                if result.len() > MAX_RUNS {
+                    return Err("The adjusted fill is too detailed. Select a smaller area.".into());
+                }
+            }
+        }
+    }
+    if result.is_empty() {
+        return Err("Shrinking would erase the fill. Choose a smaller edge adjustment.".into());
+    }
+    Ok(result)
+}
 pub fn build(
     image: &RgbaImage,
     annotation: &Annotation,
@@ -114,6 +212,10 @@ pub fn build(
     tolerance: u8,
     global: bool,
 ) -> Result<FillRegion, String> {
+    let edge = annotation.fill_edge;
+    if !(-MAX_EDGE..=MAX_EDGE).contains(&edge) {
+        return Err("Invalid fill edge adjustment.".into());
+    }
     let bounds = [
         annotation.start.x.floor(),
         annotation.start.y.floor(),
@@ -230,6 +332,14 @@ pub fn build(
         } else {
             merged.push(run);
         }
+    }
+    if edge != 0 {
+        merged = adjust_edges(&merged, width, height, edge, |row| {
+            crate::area_pixels::masked_spans(annotation, rect, top + row, left, right)
+                .into_iter()
+                .map(|(l, r)| (l - left, r - left))
+                .collect()
+        })?;
     }
     // Keep the full mask coordinate frame when a moved fill is partly off-canvas.
     // Clipping the frame itself would stretch the saved mask when rendered again.

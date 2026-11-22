@@ -223,6 +223,9 @@ pub struct Annotation {
     pub stamp: Option<crate::stamps::StampSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fill_region: Option<crate::fill::FillRegion>,
+    /// Pixel adjustment used when recalculating a fill's stored scanline mask.
+    #[serde(default, skip_serializing_if = "crate::fill::zero_edge")]
+    pub fill_edge: i8,
     #[serde(
         default,
         skip_serializing_if = "crate::text_style::TextStyle::is_default"
@@ -430,6 +433,12 @@ pub(crate) fn validate_annotation(annotation: &Annotation) -> Result<(), String>
     }
     if (annotation.kind == AnnotationKind::Fill) != annotation.fill_region.is_some() {
         return Err("Fill mask is missing or attached to another tool.".into());
+    }
+    let max_edge = crate::fill::MAX_EDGE;
+    if !(-max_edge..=max_edge).contains(&annotation.fill_edge)
+        || (annotation.fill_edge != 0 && annotation.kind != AnnotationKind::Fill)
+    {
+        return Err("Invalid fill edge adjustment.".into());
     }
     if let Some(region) = &annotation.fill_region {
         region.validate()?;
@@ -1092,6 +1101,7 @@ mod tests {
                 area_mask: Vec::new(),
                 stamp: None,
                 fill_region: None,
+                fill_edge: 0,
                 text_style: Default::default(),
                 callout_style: Default::default(),
                 pixel_mask: None,

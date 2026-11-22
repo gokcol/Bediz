@@ -2,6 +2,10 @@ use super::*;
 use crate::appearance::{self, Icon as DialogIcon, TileTone};
 use crate::dialogs::{self, Dialog};
 
+const SELECTION_MENU_WIDTH: f32 = 18.;
+const REGION_HINT: &str = "Select, move or delete pixels with a rectangle or lasso";
+const OBJECTS_HINT: &str = "Select, move or edit annotations. Shift-click to select several.";
+
 fn toolbar_ink(ctx: &egui::Context, tool: Tool) -> Color32 {
     let tone = match tool {
         Tool::Select | Tool::Area | Tool::Crop | Tool::CutOut | Tool::Magnify => TileTone::Blue,
@@ -100,6 +104,35 @@ fn paint_menu_row(ui: &egui::Ui, rect: Rect, response: &egui::Response, selected
     }
 }
 
+fn tool_menu_row(ui: &mut egui::Ui, tool: Tool, label: &str, hint: &str, selected: bool) -> bool {
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 27.), Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            ui.is_enabled(),
+            selected,
+            label,
+        )
+    });
+    paint_menu_row(ui, rect, &response, selected);
+    paint_tool_icon_sized(
+        ui.painter(),
+        rect.left_center() + egui::vec2(14., 0.),
+        tool,
+        toolbar_ink(ui.ctx(), tool),
+        16.,
+    );
+    ui.painter().text(
+        rect.left_center() + egui::vec2(34., 0.),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::proportional(13.),
+        appearance::palette(ui.ctx()).ink,
+    );
+    response.on_hover_text(hint).clicked()
+}
+
 impl EditorState {
     pub(super) fn tools(&self) -> Vec<(Tool, &'static str, &'static str)> {
         let mut tools = vec![
@@ -138,11 +171,7 @@ impl EditorState {
                 "Color Inspector",
                 "Sample image colors, copy HEX/RGB, or apply to artwork",
             ),
-            (
-                Tool::Area,
-                "Select",
-                "Select pixels with a rectangle or lasso; click an object to edit it",
-            ),
+            (Tool::Area, "Select", REGION_HINT),
             (Tool::Arrow, "Arrow", "Point to a detail"),
             (Tool::Text, "Text", "Write and format text"),
             (Tool::Callout, "Callout", "Add a text bubble and pointer"),
@@ -281,6 +310,11 @@ impl EditorState {
         document: &mut Document,
         history: &mut EditHistory,
     ) {
+        if tool == self.tool && matches!(tool, Tool::Area | Tool::Select) {
+            self.focus_canvas = true;
+            return;
+        }
+        self.cancel_fill_picker();
         if tool == Tool::ConnectedArrow {
             self.start_connector(document, history);
             return;
@@ -312,14 +346,13 @@ impl EditorState {
             && area.is_some()
         {
             self.apply_area_action(kind, document, history);
-            self.tool = tool;
             return;
         }
-        self.clear_selection();
-        self.area = None;
-        self.area_mask.clear();
-        self.pixel_mask = None;
+        self.deselect_pixels();
         self.activate_tool(tool);
+        if matches!(tool, Tool::Area | Tool::Select) {
+            self.focus_canvas = true;
+        }
         if matches!(tool, Tool::Crop | Tool::Stamp | Tool::CutOut) {
             self.inspector.show(InspectorPanel::Styles);
         }
@@ -333,6 +366,71 @@ impl EditorState {
             self.lasso = false;
         }
     }
+
+    fn select_button(
+        &mut self,
+        ui: &mut egui::Ui,
+        document: &mut Document,
+        history: &mut EditHistory,
+    ) {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.;
+            let (tool, label, hint) = match self.tool {
+                Tool::Area => (Tool::Area, "Region", REGION_HINT),
+                Tool::Select => (Tool::Select, "Objects", OBJECTS_HINT),
+                _ => (Tool::Area, "Select", REGION_HINT),
+            };
+            if tool_button(ui, tool, label, self.tool == tool)
+                .on_hover_text(hint)
+                .clicked()
+            {
+                self.choose_tool(tool, document, history);
+            }
+            let (rect, arrow) =
+                ui.allocate_exact_size(Vec2::new(SELECTION_MENU_WIDTH, 38.), Sense::click());
+            arrow.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    "Selection mode",
+                )
+            });
+            let menu = egui::Popup::menu(&arrow);
+            let ink = appearance::satin_button(
+                ui,
+                rect,
+                &arrow,
+                menu.is_open(),
+                appearance::satin_ink(ui.ctx(), TileTone::Blue),
+            );
+            let center = rect.center();
+            ui.painter().line(
+                vec![
+                    center + egui::vec2(-3., -1.5),
+                    center + egui::vec2(0., 1.5),
+                    center + egui::vec2(3., -1.5),
+                ],
+                Stroke::new(1.5, ink),
+            );
+            arrow
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                .on_hover_text("Selection mode");
+            menu.show(|ui| {
+                ui.set_width(122.);
+                ui.spacing_mut().item_spacing.y = 1.;
+                for (tool, label, hint) in [
+                    (Tool::Area, "Region", REGION_HINT),
+                    (Tool::Select, "Objects", OBJECTS_HINT),
+                ] {
+                    if tool_menu_row(ui, tool, label, hint, self.tool == tool) {
+                        self.choose_tool(tool, document, history);
+                        ui.close();
+                    }
+                }
+            });
+        });
+    }
+
     pub fn toolbar(
         &mut self,
         ui: &mut egui::Ui,
@@ -341,9 +439,15 @@ impl EditorState {
     ) {
         let tools = self.tools();
         // Reserve the right-aligned panel selector and overflow before placing pins.
-        let capacity = ((ui.available_width() - inspector_panel::SELECTOR_WIDTH - 42.).max(0.)
-            / (44. + ui.spacing().item_spacing.x))
-            .floor() as usize;
+        let select_extra = if self.toolbar_pins.iter().any(|label| label == "Select") {
+            SELECTION_MENU_WIDTH
+        } else {
+            0.
+        };
+        let capacity =
+            ((ui.available_width() - inspector_panel::SELECTOR_WIDTH - 42. - select_extra).max(0.)
+                / (44. + ui.spacing().item_spacing.x))
+                .floor() as usize;
         let visible: Vec<_> = self
             .toolbar_pins
             .iter()
@@ -352,20 +456,18 @@ impl EditorState {
             .copied()
             .collect();
         for &(tool, label, hint) in &visible {
-            if tool_button(
-                ui,
-                tool,
-                label,
-                self.tool == tool || (tool == Tool::Area && self.tool == Tool::Select),
-            )
-            .on_hover_text(hint)
-            .clicked()
+            if tool == Tool::Area {
+                self.select_button(ui, document, history);
+            } else if tool_button(ui, tool, label, self.tool == tool)
+                .on_hover_text(hint)
+                .clicked()
             {
                 self.choose_tool(tool, document, history);
             }
         }
-        let hidden_active =
-            !visible.iter().any(|(t, _, _)| *t == self.tool) && self.tool != Tool::Select;
+        let hidden_active = !visible
+            .iter()
+            .any(|(t, _, _)| *t == self.tool || (*t == Tool::Area && self.tool == Tool::Select));
         let (rect, overflow) = ui.allocate_exact_size(egui::vec2(30., 38.), Sense::click());
         overflow.widget_info(|| {
             egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), "More tools")
@@ -394,38 +496,23 @@ impl EditorState {
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .on_hover_text("More tools · Customize toolbar");
         egui::Popup::menu(&overflow).show(|ui| {
-            ui.set_width(160.);
+            ui.set_width(196.);
             ui.spacing_mut().item_spacing.y = 1.;
             for &(tool, label, hint) in &tools {
                 if visible.iter().any(|(t, _, _)| *t == tool) {
                     continue;
                 }
-                let (rect, response) =
-                    ui.allocate_exact_size(egui::vec2(196., 27.), Sense::click());
-                response.widget_info(|| {
-                    egui::WidgetInfo::selected(
-                        egui::WidgetType::SelectableLabel,
-                        ui.is_enabled(),
-                        self.tool == tool,
-                        label,
-                    )
-                });
-                paint_menu_row(ui, rect, &response, self.tool == tool);
-                paint_tool_icon_sized(
-                    ui.painter(),
-                    rect.left_center() + egui::vec2(14., 0.),
-                    tool,
-                    toolbar_ink(ui.ctx(), tool),
-                    16.,
-                );
-                ui.painter().text(
-                    rect.left_center() + egui::vec2(34., 0.),
-                    egui::Align2::LEFT_CENTER,
-                    label,
-                    egui::FontId::proportional(13.),
-                    crate::appearance::palette(ui.ctx()).ink,
-                );
-                if response.on_hover_text(hint).clicked() {
+                if tool == Tool::Area {
+                    for (mode, label, hint) in [
+                        (Tool::Area, "Select region", REGION_HINT),
+                        (Tool::Select, "Select objects", OBJECTS_HINT),
+                    ] {
+                        if tool_menu_row(ui, mode, label, hint, self.tool == mode) {
+                            self.choose_tool(mode, document, history);
+                            ui.close();
+                        }
+                    }
+                } else if tool_menu_row(ui, tool, label, hint, self.tool == tool) {
                     self.choose_tool(tool, document, history);
                     ui.close();
                 }
@@ -519,24 +606,21 @@ impl EditorState {
                                 },
                             );
                             if let Some(i) = self.toolbar_order.iter().position(|p| p == label) {
-                                for (earlier, enabled, symbol) in [
-                                    (true, i > 0, "↑"),
-                                    (false, i + 1 < self.toolbar_order.len(), "↓"),
+                                for (earlier, enabled, icon) in [
+                                    (true, i > 0, DialogIcon::Up),
+                                    (false, i + 1 < self.toolbar_order.len(), DialogIcon::Down),
                                 ] {
                                     let action_label = format!(
                                         "Move {label} {}",
                                         if earlier { "earlier" } else { "later" }
                                     );
-                                    let response =
-                                        ui.add_enabled(enabled, egui::Button::new(symbol));
-                                    response.widget_info(|| {
-                                        egui::WidgetInfo::labeled(
-                                            egui::WidgetType::Button,
-                                            ui.is_enabled() && enabled,
-                                            &action_label,
-                                        )
-                                    });
-                                    if response.on_hover_text(action_label).clicked() {
+                                    if ui
+                                        .add_enabled_ui(enabled, |ui| {
+                                            appearance::icon_button(ui, &action_label, icon)
+                                        })
+                                        .inner
+                                        .clicked()
+                                    {
                                         self.move_toolbar_tool(label, earlier);
                                     }
                                 }
