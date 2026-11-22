@@ -13,11 +13,12 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
     private let encoder = NSPopUpButton(frame: .zero, pullsDown: false)
     private let quality = VideoEditUI.popup(VideoExportQuality.allCases, selected: .balanced, label: "Video quality")
     private let sound = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let frequency = NSPopUpButton(frame: .zero, pullsDown: false)
     private let rate = NSPopUpButton(frame: .zero, pullsDown: false)
     private let feedback = VideoEditUI.label("", quiet: true)
     private let framingHint = VideoEditUI.label("", quiet: true)
     private let subtitles = NSButton(checkboxWithTitle: "Burn subtitles into the video", target: nil, action: nil)
-    private let audioRates = [96, 128, 192, 256, 320]
+    private var audioRates: [Int] = []
     private var result: VideoExportOptions?
 
     init(source: CGSize, hasAudio: Bool, hasSubtitles: Bool, previous: VideoExportOptions?) {
@@ -27,7 +28,7 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
         subtitles.state = previous?.includeSubtitles == false ? .off : .on
         subtitles.isHidden = !hasSubtitles
 
-        for control in [preset, framing, container, encoder, sound] {
+        for control in [preset, framing, container, encoder, sound, frequency] {
             control.target = self
             control.action = #selector(changed(_:))
         }
@@ -40,9 +41,16 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
         }
         encoder.setAccessibilityLabel("Video codec")
         sound.setAccessibilityLabel("Audio codec")
+        frequency.setAccessibilityLabel("Audio sample rate")
+        frequency.addItems(withTitles: VideoExportOptions.sampleRates.map {
+            let kHz = Double($0) / 1_000
+            return kHz.formatted(.number.precision(.fractionLength(0...2))) + " kHz"
+        })
+        if let index = VideoExportOptions.sampleRates.firstIndex(of: previous?.sampleRate ?? 48_000) {
+            frequency.selectItem(at: index)
+        }
         rate.setAccessibilityLabel("AAC bitrate")
-        rate.addItems(withTitles: audioRates.map { "\($0) kbps" })
-        rate.selectItem(at: 2)
+        updateAudioRates(preferred: previous?.aacKbps ?? 192)
         let size = previous?.size ?? source
         width.stringValue = String(Int(size.width))
         height.stringValue = String(Int(size.height))
@@ -50,7 +58,6 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
             framing.selectItem(withTitle: previous.framing.rawValue)
             container.selectItem(withTitle: previous.container.rawValue)
             quality.selectItem(withTitle: previous.quality.rawValue)
-            if let index = audioRates.firstIndex(of: previous.aacKbps) { rate.selectItem(at: index) }
             let profile = VideoExportPreset.allCases.first { $0.size(source: source) == size } ?? .custom
             preset.selectItem(withTitle: profile.rawValue)
         }
@@ -80,7 +87,9 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
             rules,
             row("File format", container),
             row("Video codec", encoder, quality),
-            row("Audio codec", sound, rate),
+            row("Audio codec", sound),
+            row("Sample rate", frequency),
+            row("AAC bitrate", rate),
         ]
         if hasSubtitles { rows.append(row("Subtitles", subtitles)) }
         rows.append(VideoEditUI.row([feedback, VideoEditUI.gap(), cancel, confirm]))
@@ -114,6 +123,8 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
     private var videoCodec: VideoEncoder { VideoEncoder(rawValue: encoder.titleOfSelectedItem ?? "") ?? .h264 }
     private var audioCodec: SoundEncoder { SoundEncoder(rawValue: sound.titleOfSelectedItem ?? "") ?? .none }
     private var frame: VideoFraming { VideoFraming(rawValue: framing.titleOfSelectedItem ?? "") ?? .fit }
+    private var sampleRate: Int { VideoExportOptions.sampleRates[max(0, frequency.indexOfSelectedItem)] }
+    private var bitrate: Int { audioRates.isEmpty ? 0 : audioRates[max(0, rate.indexOfSelectedItem)] }
 
     private func updateChoices(video: VideoEncoder?, audio: SoundEncoder?) {
         let selectedVideo = video ?? videoCodec
@@ -133,7 +144,15 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
     private func updateBitrates() {
         quality.isEnabled = videoCodec != .proRes
         quality.setAccessibilityLabel("Video quality")
-        rate.isEnabled = audioCodec == .aac
+        frequency.isEnabled = audioCodec != .none
+        rate.isEnabled = audioCodec == .aac && !audioRates.isEmpty
+    }
+
+    private func updateAudioRates(preferred: Int) {
+        audioRates = VideoExportOptions.aacRates(for: sampleRate)
+        rate.removeAllItems()
+        rate.addItems(withTitles: audioRates.map { "\($0) kbps" })
+        if !audioRates.isEmpty { rate.selectItem(at: audioRates.lastIndex { $0 <= preferred } ?? 0) }
     }
 
     private func updateFramingHint() {
@@ -149,6 +168,7 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
             height.stringValue = String(Int(size.height))
         }
         if sender === container { updateChoices(video: nil, audio: nil) }
+        if sender === frequency { updateAudioRates(preferred: bitrate) }
         updateFramingHint()
         updateBitrates()
     }
@@ -164,13 +184,16 @@ final class VideoExportPanel: NSObject, NSTextFieldDelegate {
             feedback.stringValue = "Use even dimensions from 16 to 4096 px."
             return
         }
-        let bitrate = audioRates[max(0, rate.indexOfSelectedItem)]
         let selected = VideoExportOptions(
             size: CGSize(width: w, height: h), container: format, video: videoCodec, sound: audioCodec, framing: frame,
-            quality: VideoExportQuality(rawValue: self.quality.titleOfSelectedItem ?? "") ?? .balanced, aacKbps: bitrate,
+            quality: VideoExportQuality(rawValue: self.quality.titleOfSelectedItem ?? "") ?? .balanced,
+            sampleRate: sampleRate, aacKbps: bitrate,
             includeSubtitles: subtitles.state == .on
         )
-        guard selected.isValid else { return }
+        guard selected.isValid else {
+            feedback.stringValue = "Choose a supported audio codec or sample rate."
+            return
+        }
         result = selected
         cancelPanel()
     }

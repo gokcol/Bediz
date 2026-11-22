@@ -70,8 +70,14 @@ enum VideoExportPreset: String, CaseIterable {
     case phone = "Phone portrait"
     case phoneWide = "Phone landscape"
     case tablet = "Tablet (4:3)"
+    case tiny = "240p"
+    case low = "360p"
+    case sd = "480p"
+    case compact = "640p"
     case web = "Web (720p)"
     case hd = "Full HD (1080p)"
+    case cinema = "2K DCI"
+    case qhd = "QHD (1440p)"
     case uhd = "4K UHD (2160p)"
     case square = "Square"
     case custom = "Custom"
@@ -82,7 +88,13 @@ enum VideoExportPreset: String, CaseIterable {
         case .phone: CGSize(width: 1080, height: 1920)
         case .phoneWide, .hd: CGSize(width: 1920, height: 1080)
         case .tablet: CGSize(width: 1600, height: 1200)
+        case .tiny: CGSize(width: 426, height: 240)
+        case .low: CGSize(width: 640, height: 360)
+        case .sd: CGSize(width: 854, height: 480)
+        case .compact: CGSize(width: 1138, height: 640)
         case .web: CGSize(width: 1280, height: 720)
+        case .cinema: CGSize(width: 2048, height: 1080)
+        case .qhd: CGSize(width: 2560, height: 1440)
         case .uhd: CGSize(width: 3840, height: 2160)
         case .square: CGSize(width: 1080, height: 1080)
         case .custom: nil
@@ -97,10 +109,31 @@ struct VideoExportOptions {
     var sound: SoundEncoder = .aac
     var framing: VideoFraming = .fit
     var quality: VideoExportQuality = .balanced
+    var sampleRate = 48_000
     var aacKbps = 192
     var includeSubtitles = true
 
     static let dimensionRange = 16...4096
+    static let sampleRates = [8_000, 12_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000]
+
+    private static let aacRatesBySampleRate: [Int: [Int]] = {
+        var rates: [Int: [Int]] = [:]
+        for sampleRate in sampleRates {
+            guard let source = AVAudioFormat(standardFormatWithSampleRate: Double(sampleRate), channels: 2),
+                  let output = AVAudioFormat(settings: [
+                    AVFormatIDKey: kAudioFormatMPEG4AAC,
+                    AVSampleRateKey: sampleRate,
+                    AVNumberOfChannelsKey: 2,
+                  ]),
+                  let encoder = AVAudioConverter(from: source, to: output)
+            else { continue }
+            rates[sampleRate] = (encoder.applicableEncodeBitRates ?? [])
+                .map(\.intValue).filter { $0 > 0 && $0.isMultiple(of: 1_000) }.map { $0 / 1_000 }.sorted()
+        }
+        return rates
+    }()
+
+    static func aacRates(for sampleRate: Int) -> [Int] { aacRatesBySampleRate[sampleRate] ?? [] }
 
     static func valid(_ value: Int) -> Bool { dimensionRange.contains(value) && value.isMultiple(of: 2) }
 
@@ -109,7 +142,8 @@ struct VideoExportOptions {
         return values.allSatisfy {
             $0.isFinite && $0 >= CGFloat(Self.dimensionRange.lowerBound) && $0 <= CGFloat(Self.dimensionRange.upperBound)
                 && $0 == $0.rounded() && Self.valid(Int($0))
-        } && video.fits(container) && sound.fits(container) && [96, 128, 192, 256, 320].contains(aacKbps)
+        } && video.fits(container) && sound.fits(container) && Self.sampleRates.contains(sampleRate)
+            && (sound != .aac || Self.aacRates(for: sampleRate).contains(aacKbps))
     }
 
     func pictureSettings(secondsPerFrame: Double) -> [String: Any] {
@@ -127,25 +161,27 @@ struct VideoExportOptions {
         return settings
     }
 
-    static let pcmSettings: [String: Any] = [
-        AVFormatIDKey: kAudioFormatLinearPCM,
-        AVSampleRateKey: 48_000,
-        AVNumberOfChannelsKey: 2,
-        AVLinearPCMBitDepthKey: 16,
-        AVLinearPCMIsBigEndianKey: false,
-        AVLinearPCMIsFloatKey: false,
-        AVLinearPCMIsNonInterleaved: false,
-    ]
+    var pcmSettings: [String: Any] {
+        [
+            AVFormatIDKey: kAudioFormatLinearPCM,
+            AVSampleRateKey: sampleRate,
+            AVNumberOfChannelsKey: 2,
+            AVLinearPCMBitDepthKey: 16,
+            AVLinearPCMIsBigEndianKey: false,
+            AVLinearPCMIsFloatKey: false,
+            AVLinearPCMIsNonInterleaved: false,
+        ]
+    }
 
     var soundSettings: [String: Any]? {
         switch sound {
         case .aac:
-            [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48_000,
+            [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: sampleRate,
              AVNumberOfChannelsKey: 2, AVEncoderBitRateKey: aacKbps * 1_000]
         case .alac:
-            [AVFormatIDKey: kAudioFormatAppleLossless, AVSampleRateKey: 48_000,
+            [AVFormatIDKey: kAudioFormatAppleLossless, AVSampleRateKey: sampleRate,
              AVNumberOfChannelsKey: 2, AVEncoderBitDepthHintKey: 16]
-        case .pcm: Self.pcmSettings
+        case .pcm: pcmSettings
         case .none: nil
         }
     }
@@ -191,7 +227,7 @@ extension VideoEditRender {
         if let soundSettings = options.soundSettings {
             let audio = try await asset.loadTracks(withMediaType: .audio)
             if !audio.isEmpty {
-                let sound = AVAssetReaderAudioMixOutput(audioTracks: audio, audioSettings: VideoExportOptions.pcmSettings)
+                let sound = AVAssetReaderAudioMixOutput(audioTracks: audio, audioSettings: options.pcmSettings)
                 sound.audioMix = audioMix
                 sound.alwaysCopiesSampleData = false
                 guard writer.canApply(outputSettings: soundSettings, forMediaType: .audio), reader.canAdd(sound)
