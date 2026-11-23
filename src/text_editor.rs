@@ -286,38 +286,10 @@ impl EditorState {
                                     ink,
                                 );
                             });
-                            egui::Popup::menu(&font)
-                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                                .frame(object_properties::quick_frame(ui).inner_margin(8))
-                                .style(|_: &mut egui::Style| {})
-                                .gap(6.)
-                                .show(|ui| font_controls(ui, annotation));
-                            let ink = &mut annotation.color;
-                            let mut swatch =
-                                Color32::from_rgba_unmultiplied(ink[0], ink[1], ink[2], ink[3]);
-                            let color_button = inline_control(
-                                ui,
-                                if callout { "Bubble fill" } else { "Text color" },
-                                |p, r, _| {
-                                    let chip = Rect::from_center_size(r.center(), Vec2::splat(17.));
-                                    p.rect_filled(chip, 4, swatch);
-                                    p.rect_stroke(
-                                        chip,
-                                        4,
-                                        Stroke::new(0.7, appearance::palette(p.ctx()).muted),
-                                        StrokeKind::Inside,
-                                    );
-                                },
-                            );
-                            egui::Popup::menu(&color_button).show(|ui| {
-                                if egui::color_picker::color_picker_color32(
-                                    ui,
-                                    &mut swatch,
-                                    egui::color_picker::Alpha::OnlyBlend,
-                                ) {
-                                    *ink = swatch.to_srgba_unmultiplied();
-                                }
+                            inline_popup(ui, &font, FONT_POPUP_WIDTH, |ui| {
+                                font_controls(ui, annotation);
                             });
+                            inline_color_button(ui, annotation);
                             if callout {
                                 let shape = inline_control(ui, "Callout shape", |p, r, ink| {
                                     crate::callout_style::paint_icon(
@@ -489,12 +461,104 @@ fn inline_toolbar_rect(text: Rect, viewport: Rect, controls: usize) -> Rect {
     };
     Rect::from_min_size(egui::pos2(x, y), size)
 }
+const FONT_POPUP_WIDTH: f32 = 210.;
+const COLOR_POPUP_WIDTH: f32 = 232.;
+
+fn inline_popup(
+    ui: &egui::Ui,
+    anchor: &egui::Response,
+    width: f32,
+    content: impl FnOnce(&mut egui::Ui),
+) {
+    egui::Popup::menu(anchor)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .frame(object_properties::quick_frame(ui).inner_margin(8))
+        .style(|_: &mut egui::Style| {})
+        .layout(egui::Layout::top_down(egui::Align::Min))
+        .width(width + 18.)
+        .gap(6.)
+        .show(|ui| {
+            ui.set_width(width);
+            ui.spacing_mut().item_spacing = egui::vec2(3., 6.);
+            ui.spacing_mut().button_padding = egui::vec2(4., 2.);
+            ui.spacing_mut().interact_size = egui::vec2(26., 24.);
+            content(ui);
+        });
+}
+
+fn inline_color_button(ui: &mut egui::Ui, annotation: &mut Annotation) {
+    let callout = annotation.kind == AnnotationKind::Callout;
+    let target_id = ui.id().with("callout-text-color");
+    let mut text = callout && ui.data(|data| data.get_temp(target_id).unwrap_or(false));
+    let [r, g, b, a] = if text {
+        annotation.text_color
+    } else {
+        annotation.color
+    };
+    let swatch = Color32::from_rgba_unmultiplied(r, g, b, a);
+    let label = if callout {
+        "Callout colors"
+    } else {
+        "Text color"
+    };
+    let button = inline_control(ui, label, |p, r, _| {
+        let chip = Rect::from_center_size(r.center(), Vec2::splat(17.));
+        p.rect_filled(chip, 4, swatch);
+        p.rect_stroke(
+            chip,
+            4,
+            Stroke::new(0.7, appearance::palette(p.ctx()).muted),
+            StrokeKind::Inside,
+        );
+    });
+    inline_popup(ui, &button, COLOR_POPUP_WIDTH, |ui| {
+        if callout
+            && appearance::segmented(
+                ui,
+                "callout-color-target",
+                &mut text,
+                &[
+                    (false, "Bubble", None, "Change the callout fill"),
+                    (true, "Text", None, "Change the callout text color"),
+                ],
+            )
+        {
+            ui.data_mut(|data| data.insert_temp(target_id, text));
+        }
+        color_controls(
+            ui,
+            if text {
+                &mut annotation.text_color
+            } else {
+                &mut annotation.color
+            },
+        );
+    });
+}
+
+fn color_controls(ui: &mut egui::Ui, color: &mut [u8; 4]) {
+    object_properties::palette(ui, color);
+    ui.separator();
+    ui.collapsing("Custom color", |ui| {
+        ui.spacing_mut().slider_width = 132.;
+        ui.spacing_mut().item_spacing.y = 4.;
+        ui.spacing_mut().interact_size = egui::vec2(21., 19.);
+        ui.spacing_mut().button_padding = egui::vec2(2., 1.);
+        ui.style_mut().override_font_id = Some(egui::FontId::proportional(11.));
+        let mut swatch = Color32::from_rgba_unmultiplied(color[0], color[1], color[2], color[3]);
+        if egui::color_picker::color_picker_color32(
+            ui,
+            &mut swatch,
+            egui::color_picker::Alpha::OnlyBlend,
+        ) {
+            *color = swatch.to_srgba_unmultiplied();
+        }
+    });
+}
+
 fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) {
     let palette = appearance::palette(ui.ctx());
-    ui.set_min_width(210.);
-    ui.spacing_mut().item_spacing = egui::vec2(3., 6.);
-    ui.spacing_mut().button_padding = egui::vec2(4., 2.);
-    ui.spacing_mut().interact_size.y = 24.;
+    ui.weak("Font family");
 
     egui::Frame::new()
         .fill(palette.base)
@@ -527,49 +591,46 @@ fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) {
     let max = crate::document::MAX_FONT_SIZE;
     ui.horizontal(|ui| {
         annotation.text_style.emphasis_buttons(ui);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                if ui
-                    .add_enabled(
-                        *size > 1.,
-                        egui::Button::new("−").min_size(egui::vec2(24., 24.)),
-                    )
-                    .on_hover_text("Decrease font size")
-                    .clicked()
-                {
-                    *size = (*size - 1.).max(1.);
-                }
-                ui.add_sized(
-                    [55., 24.],
-                    egui::DragValue::new(size)
-                        .range(1. ..=max)
-                        .speed(0.5)
-                        .max_decimals(1)
-                        .suffix(" px")
-                        .update_while_editing(false),
-                )
-                .on_hover_text("Font size in pixels. Click to type or drag to adjust.");
-                if ui
-                    .add_enabled(
-                        *size < max,
-                        egui::Button::new("+").min_size(egui::vec2(24., 24.)),
-                    )
-                    .on_hover_text("Increase font size")
-                    .clicked()
-                {
-                    *size = (*size + 1.).min(max);
-                }
-            });
-        });
+        ui.add_space(8.);
+        if ui
+            .add_enabled(
+                *size > 1.,
+                egui::Button::new("−").min_size(egui::vec2(24., 24.)),
+            )
+            .on_hover_text("Decrease font size")
+            .clicked()
+        {
+            *size = (*size - 1.).max(1.);
+        }
+        ui.add_sized(
+            [55., 24.],
+            egui::DragValue::new(size)
+                .range(1. ..=max)
+                .speed(0.5)
+                .max_decimals(1)
+                .suffix(" px")
+                .update_while_editing(false),
+        )
+        .on_hover_text("Font size in pixels. Click to type or drag to adjust.");
+        if ui
+            .add_enabled(
+                *size < max,
+                egui::Button::new("+").min_size(egui::vec2(24., 24.)),
+            )
+            .on_hover_text("Increase font size")
+            .clicked()
+        {
+            *size = (*size + 1.).min(max);
+        }
     });
     ui.separator();
     ui.horizontal(|ui| {
-        for preset in [12., 16., 24., 32., 48., 64.] {
+        for preset in [8., 12., 16., 24., 32., 48., 64., 96.] {
             let chip = egui::Button::selectable(*size == preset, format!("{preset:.0}"))
                 .corner_radius(5)
                 .frame_when_inactive(true);
             if ui
-                .add_sized([32.5, 24.], chip)
+                .add_sized([23.625, 24.], chip)
                 .on_hover_text(format!("{preset:.0} px"))
                 .clicked()
             {
@@ -577,13 +638,6 @@ fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) {
             }
         }
     });
-    if annotation.kind == AnnotationKind::Callout {
-        ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Text color");
-            ui.color_edit_button_srgba_unmultiplied(&mut annotation.text_color);
-        });
-    }
 }
 
 #[cfg(test)]
@@ -594,6 +648,82 @@ mod tests {
             image: std::sync::Arc::new(image::RgbaImage::new(200, 200)),
             annotations: vec![],
             geometry: Default::default(),
+        }
+    }
+
+    #[test]
+    fn inline_popovers_fit_their_controls_near_the_window_edge() {
+        for (width, font) in [(FONT_POPUP_WIDTH, true), (COLOR_POPUP_WIDTH, false)] {
+            let ctx = egui::Context::default();
+            appearance::apply(&ctx);
+            if !font {
+                ctx.style_mut(|style| {
+                    style.visuals.numeric_color_space = egui::style::NumericColorSpace::Linear;
+                });
+            }
+            let mut annotation = EditorState::default()
+                .new_annotation(AnnotationKind::Text, Point { x: 20., y: 20. });
+            let mut popup_id = egui::Id::NULL;
+            let bounds = Rect::from_min_size(Pos2::ZERO, egui::vec2(1200., 800.));
+            let mut custom_label = None;
+            for frame in 0..6 {
+                let mut events = vec![];
+                if let Some(pos) = custom_label
+                    && matches!(frame, 3 | 4)
+                {
+                    events.push(egui::Event::PointerMoved(pos));
+                    events.push(egui::Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed: frame == 3,
+                        modifiers: Modifiers::NONE,
+                    });
+                }
+                let output = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(bounds),
+                        time: Some(f64::from(frame) * 0.2),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::Area::new(egui::Id::new("test-edge-anchor"))
+                            .fixed_pos(egui::pos2(1110., 64.))
+                            .show(ctx, |ui| {
+                                let anchor = ui.button("Open");
+                                popup_id = egui::Popup::default_response_id(&anchor);
+                                if frame == 0 {
+                                    egui::Popup::open_id(ctx, popup_id);
+                                }
+                                inline_popup(ui, &anchor, width, |ui| {
+                                    if font {
+                                        font_controls(ui, &mut annotation);
+                                    } else {
+                                        color_controls(ui, &mut annotation.color);
+                                    }
+                                });
+                            });
+                    },
+                );
+                if !font && frame == 2 {
+                    custom_label = output.shapes.iter().find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.text() == "Custom color" => {
+                            Some(text.pos + text.galley.size() * 0.5)
+                        }
+                        _ => None,
+                    });
+                    assert!(custom_label.is_some());
+                }
+            }
+            let popup = ctx.memory(|memory| memory.area_rect(popup_id)).unwrap();
+            assert!(bounds.contains_rect(popup), "{popup:?}");
+            assert!(
+                popup.width() >= width && popup.width() <= width + 19.,
+                "{popup:?}"
+            );
+            if !font {
+                assert!(popup.height() > 175. && popup.height() < 330., "{popup:?}");
+            }
         }
     }
     #[test]

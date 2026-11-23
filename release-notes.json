@@ -1,8 +1,9 @@
 {
   "version": "4.0.0",
-  "build": 177,
-  "store_version": "4.0.3.0",
+  "build": 178,
+  "store_version": "4.0.4.0",
   "changes": [
+    "The in-place text and color popovers fit their controls. Font family and size are distinct, with eight size presets, editable pixel size, quick color swatches, and a compact custom picker.",
     "Capture your screen has sculpted mode cards, a mode-specific illustration, and clearer groups for settings and output. Click the shortcut keycaps or pencil to edit the capture hotkey.",
     "Open Aa while editing a text box or callout to choose a font, toggle Bold, Italic or Underline, and adjust the size with presets or an editable pixel value. Bold also remains available in Styles and carries through to saved projects and exports.",
     "Capture Studio puts Capture image and Record video at the top of Home. Open image, Open video, Paste image, and Create use Sculpted Chips above Recents.",

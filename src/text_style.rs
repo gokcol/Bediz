@@ -54,7 +54,7 @@ impl TextStyle {
             (&mut self.bold, bold, "Bold"),
             (
                 &mut self.italic,
-                egui::RichText::new("I").italics(),
+                egui::RichText::new("I").monospace().italics(),
                 "Italic",
             ),
             (
