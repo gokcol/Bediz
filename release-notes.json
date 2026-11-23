@@ -1,8 +1,11 @@
 {
   "version": "4.0.0",
-  "build": 166,
-  "store_version": "3.2.3.0",
+  "build": 167,
+  "store_version": "3.2.4.0",
   "changes": [
+    "Open videos in the main Bediz workspace. Playback controls and Recents stay within reach.",
+    "Hover over a Library thumbnail for its filename, size, date and dimensions.",
+    "The scrolling-capture preview leaves more room for the image with a simpler footer.",
     "Use Select to click objects or drag a rectangular pixel region. A region drag can start in the workspace margin.",
     "Open the floating layer checklist to apply Move, Delete, Copy or Cut to the visible image, an active layer or checked layers. Each row shows its layer icon.",
     "Annotation line-width controls reach 96 px.",
@@ -50,6 +53,7 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "Annotate a paused frame without leaving the main workspace. Send the artwork back to the timeline and reopen it immediately with its original objects and duration.",
     "The recording setup offers 240p through 4K in a resolution dropdown and audio sample rates from 8 to 48 kHz. The recording size estimate follows your settings.",
     "Export video at 240p, 360p, 480p, 640p, 2K DCI, or 1440p QHD. Audio sample rates start at 8 kHz, and AAC offers the bitrates supported by each rate.",
     "Auto Subtitles transcribes timeline audio on macOS 26 and later. Use English or download another supported language, edit the cues, copy the transcript, or save an SRT file.",
@@ -88,6 +92,9 @@
     "Scrolling controls stay outside the captured image while the editor remains hidden."
   ],
   "windows": [
+    "Capture Now can record a window or a display to MP4 with pause, resume, resolution settings, a countdown and a choice of microphone or system audio.",
+    "Play recordings inside Bediz with seeking, speed and mute controls.",
+    "Windows video capture and playback are experimental and may not work properly on all devices.",
     "The first Region drag works after opening capture with a global shortcut. The selection overlay opens without the Windows window animation.",
     "Bediz now runs as Bediz.exe in Task Manager. Seyir 1.0.3 can open images in both new and older Bediz installations.",
     "The first Region drag works after opening capture with a global shortcut. The selection overlay opens without the Windows window animation.",

@@ -10,20 +10,13 @@ private enum PlayerPalette {
 }
 
 @MainActor
-private final class PlaybackWindow: NSWindow {
+private final class PlaybackView: AVPlayerView {
     var playbackKey: ((NSEvent) -> Bool)?
+
+    override var acceptsFirstResponder: Bool { true }
 
     override func keyDown(with event: NSEvent) {
         if playbackKey?(event) != true { super.keyDown(with: event) }
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "w" {
-            performClose(nil)
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
     }
 }
 
@@ -152,12 +145,15 @@ private final class TimelineSlider: NSSlider {
 }
 
 @MainActor
-private final class MovieWindow: NSWindowController, NSWindowDelegate {
-    static var active: MovieWindow?
+private final class MoviePlayer: NSObject {
+    static var active: MoviePlayer?
     static var frameOpener: BedizOpenFrame?
     static var frameRenderer: BedizFrameRenderer?
 
-    private let view = AVPlayerView()
+    private let view = PlaybackView()
+    private lazy var workspace = content()
+    private var window: NSWindow? { workspace.window }
+    private var focusPreview = false
     private let timeline = TimelineSlider(value: 0, minValue: 0, maxValue: 1, target: nil, action: nil)
     private let elapsed = NSTextField(labelWithString: "00:00:00.000")
     private let duration = NSTextField(labelWithString: "00:00:00.000")
@@ -178,19 +174,9 @@ private final class MovieWindow: NSWindowController, NSWindowDelegate {
     private var endObserver: NSObjectProtocol?
     private var isMuted = false
 
-    init() {
-        let window = PlaybackWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 880, height: 610),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        super.init(window: window)
-        window.delegate = self
-        window.isReleasedWhenClosed = false
-        window.contentMinSize = NSSize(width: 520, height: 280)
-        window.collectionBehavior = [.fullScreenPrimary]
-        window.playbackKey = { [weak self] event in self?.handleKey(event) ?? false }
+    override init() {
+        super.init()
+        view.playbackKey = { [weak self] event in self?.handleKey(event) ?? false }
         view.controlsStyle = .none
         view.videoGravity = .resizeAspect
         editor.onSeek = { [weak self] position in self?.seekExact(position, pause: true) }
@@ -198,9 +184,8 @@ private final class MovieWindow: NSWindowController, NSWindowDelegate {
             self?.install(item)
             self?.seekExact(position, pause: true)
         }
-        editor.onSource = { [weak self] url, projectName in
+        editor.onSource = { [weak self] url, _ in
             self?.currentURL = url
-            self?.window?.title = "Bediz Player — \(projectName ?? url.lastPathComponent)"
         }
         editor.onStill = { [weak self] position, maxEdge in
             guard let item = self?.view.player?.currentItem else { return nil }
@@ -214,19 +199,36 @@ private final class MovieWindow: NSWindowController, NSWindowDelegate {
             let time = min(position, max(0, length - 1))
             return try? await generator.image(at: videoTime(time)).image
         }
-        editor.onReferenceVisibility = { [weak self] isOpen in
-            guard let self, let window = self.window else { return }
-            if isOpen { window.orderOut(nil) }
-            else {
-                window.makeKeyAndOrderFront(nil)
-                window.makeFirstResponder(self.view)
-            }
-        }
-        window.contentView = content()
-        window.center()
     }
 
-    required init?(coder: NSCoder) { nil }
+    func layout(in host: NSView?, x: CGFloat, y: CGFloat, width: CGFloat, height: CGFloat, pause: Bool) {
+        guard let host, width > 0, height > 0 else {
+            if !workspace.isHidden, let window, let responder = window.firstResponder as? NSView,
+               responder.isDescendant(of: workspace) {
+                window.makeFirstResponder(workspace.superview)
+                focusPreview = true
+            }
+            workspace.isHidden = true
+            if pause { view.player?.pause() }
+            return
+        }
+        let bounds = host.bounds
+        let bottom = host.isFlipped ? bounds.minY + y : bounds.maxY - y - height
+        let frame = NSRect(x: bounds.minX + x, y: bottom, width: width, height: height).intersection(bounds)
+        if workspace.superview !== host {
+            workspace.removeFromSuperview()
+            host.addSubview(workspace, positioned: .above, relativeTo: nil)
+        }
+        if workspace.frame != frame { workspace.frame = frame }
+        workspace.isHidden = frame.isEmpty
+        if focusPreview && !workspace.isHidden {
+            focusPreview = false
+            window?.makeFirstResponder(view)
+        }
+        let full = window?.styleMask.contains(.fullScreen) == true
+        setSymbol(fullscreen, full ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                  full ? "Exit full screen" : "Enter full screen")
+    }
 
     private func content() -> NSView {
         let root = NSView()
@@ -373,29 +375,28 @@ private final class MovieWindow: NSWindowController, NSWindowDelegate {
         button.setAccessibilityLabel(label)
     }
 
-    func open(_ url: URL, artworkRenderer: BedizArtworkRenderer?, edit: Bool) {
-        guard let window, !editor.hasFrameReference else { return }
+    func open(_ url: URL, artworkRenderer: BedizArtworkRenderer?, edit: Bool) -> Bool {
+        guard !editor.hasFrameReference else { return false }
+        // Assemble the workspace before accessing its timeline controls.
+        _ = workspace
         editor.artworkRenderer = artworkRenderer
         editor.openReference = Self.frameOpener
         editor.frameRenderer = Self.frameRenderer
         if url.pathExtension.lowercased() == "bedizvideo" {
-            guard editor.allowClose() else { return }
+            guard editor.allowClose() else { return false }
             setEditingVisible(true)
             view.player?.pause()
             editor.loadProject(url: url)
         } else if currentURL != url {
-            guard editor.allowClose() else { return }
+            guard editor.allowClose() else { return false }
             editor.reset()
             setEditingVisible(false)
             currentURL = url
-            window.title = "Bediz Player — \(url.lastPathComponent)"
             install(AVPlayerItem(url: url))
-            if !edit { view.player?.playImmediately(atRate: playbackRate) }
         }
         if edit && editor.view.isHidden { toggleEditing() }
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        window.makeKeyAndOrderFront(nil)
-        window.makeFirstResponder(view)
+        focusPreview = true
+        return true
     }
 
     private func install(_ item: AVPlayerItem?) {
@@ -528,20 +529,6 @@ private final class MovieWindow: NSWindowController, NSWindowDelegate {
     private func setEditingVisible(_ visible: Bool) {
         editor.view.isHidden = !visible
         setSymbol(edit, "film", visible ? "Hide video timeline" : "Show video timeline")
-        guard let window else { return }
-        let minimum = NSSize(width: visible ? 820 : 520, height: visible ? 420 : 280)
-        window.contentMinSize = minimum
-        if visible, let size = window.contentView?.bounds.size, size.width < minimum.width || size.height < minimum.height {
-            window.setContentSize(NSSize(width: max(size.width, minimum.width), height: max(size.height, minimum.height)))
-        }
-    }
-
-    func windowDidEnterFullScreen(_ notification: Notification) {
-        setSymbol(fullscreen, "arrow.down.right.and.arrow.up.left", "Exit full screen")
-    }
-
-    func windowDidExitFullScreen(_ notification: Notification) {
-        setSymbol(fullscreen, "arrow.up.left.and.arrow.down.right", "Enter full screen")
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
@@ -574,23 +561,24 @@ private final class MovieWindow: NSWindowController, NSWindowDelegate {
         view.player = nil
     }
 
-    func windowShouldClose(_ sender: NSWindow) -> Bool { editor.allowClose() }
-
     func receiveReference(id: UInt64, data: Data?, duration: Int64, effects: Bool, objects: Data?) -> Bool {
         editor.receiveReference(id: id, bytes: data, duration: duration, usesEffects: effects, objects: objects)
     }
 
-    func prepareToQuit() -> Bool {
-        guard editor.allowClose() else { return false }
-        window?.close()
-        return true
+    func saveProject() {
+        guard !editor.hasFrameReference else { return }
+        if editor.view.isHidden { toggleEditing() }
+        _ = editor.saveProject()
     }
 
-    func windowWillClose(_ notification: Notification) {
+    func prepareToQuit() -> Bool {
+        guard editor.allowClose() else { return false }
         closeItem()
         currentURL = nil
         editor.reset()
         setEditingVisible(false)
+        workspace.removeFromSuperview()
+        return true
     }
 }
 
@@ -600,8 +588,8 @@ public func bediz_video_frame_bridge(
     _ open: @convention(c) (UInt64, UnsafePointer<UInt8>, Int, Int64, Int64, UnsafePointer<UInt8>?, Int) -> Bool,
     _ render: @convention(c) (UnsafePointer<UInt8>, Int, UnsafeMutablePointer<UInt8>, Int, UInt32, UInt32) -> Bool
 ) {
-    MovieWindow.frameOpener = open
-    MovieWindow.frameRenderer = render
+    MoviePlayer.frameOpener = open
+    MoviePlayer.frameRenderer = render
 }
 
 @_cdecl("bediz_video_frame_result")
@@ -610,7 +598,7 @@ public func bediz_video_frame_result(
     _ id: UInt64, _ bytes: UnsafePointer<UInt8>?, _ length: Int, _ duration: Int64, _ kind: Int32,
     _ objects: UnsafePointer<UInt8>?, _ objectLength: Int
 ) -> Bool {
-    guard let player = MovieWindow.active else { return false }
+    guard let player = MoviePlayer.active else { return false }
     if kind == 0 { return player.receiveReference(id: id, data: nil, duration: 0, effects: false, objects: nil) }
     let limit = 32 * 1_024 * 1_024
     guard (kind == 1 || kind == 2), let bytes, (1...limit).contains(length), (0...limit).contains(objectLength),
@@ -625,14 +613,31 @@ public func bediz_video_frame_result(
 public func bediz_play_video(
     _ path: UnsafePointer<CChar>, _ artworkRenderer: (@convention(c) (UnsafePointer<CChar>, UnsafePointer<CChar>) -> Bool)?,
     _ edit: Bool
+) -> Bool {
+    let player = MoviePlayer.active ?? MoviePlayer()
+    MoviePlayer.active = player
+    return player.open(URL(fileURLWithPath: String(cString: path)), artworkRenderer: artworkRenderer, edit: edit)
+}
+
+@_cdecl("bediz_video_layout")
+@MainActor
+public func bediz_video_layout(
+    _ host: UnsafeMutableRawPointer?, _ x: Double, _ y: Double, _ width: Double, _ height: Double, _ pause: Bool
 ) {
-    let player = MovieWindow.active ?? MovieWindow()
-    MovieWindow.active = player
-    player.open(URL(fileURLWithPath: String(cString: path)), artworkRenderer: artworkRenderer, edit: edit)
+    let view = host.map { Unmanaged<NSView>.fromOpaque($0).takeUnretainedValue() }
+    MoviePlayer.active?.layout(in: view, x: x, y: y, width: width, height: height, pause: pause)
+}
+
+@_cdecl("bediz_video_save_project")
+@MainActor
+public func bediz_video_save_project() {
+    MoviePlayer.active?.saveProject()
 }
 
 @_cdecl("bediz_video_prepare_to_quit")
 @MainActor
 public func bediz_video_prepare_to_quit() -> Bool {
-    MovieWindow.active?.prepareToQuit() ?? true
+    guard MoviePlayer.active?.prepareToQuit() != false else { return false }
+    MoviePlayer.active = nil
+    return true
 }

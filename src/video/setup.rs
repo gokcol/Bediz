@@ -5,6 +5,7 @@ use crate::{appearance::TileTone, capture_panel::CaptureLook};
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub(in crate::app) enum VideoPanel {
     Recording,
+    #[cfg(target_os = "macos")]
     Camera,
 }
 
@@ -12,6 +13,7 @@ impl VideoPanel {
     fn title(self) -> &'static str {
         match self {
             Self::Recording => "Recording options",
+            #[cfg(target_os = "macos")]
             Self::Camera => "Presenter camera",
         }
     }
@@ -93,6 +95,7 @@ pub(in crate::app) fn show_video_panel(
                                 &look,
                             )
                         }
+                        #[cfg(target_os = "macos")]
                         VideoPanel::Camera => {
                             let changed = screen.webcam.setup_ui(ui, &look);
                             settings.video.presenter_camera = screen.webcam.enabled;
@@ -124,6 +127,7 @@ fn panel_header(ui: &mut egui::Ui, panel: VideoPanel, look: &CaptureLook) -> boo
         let (tile, _) = ui.allocate_exact_size(Vec2::splat(30.), egui::Sense::hover());
         let (icon, tone) = match panel {
             VideoPanel::Recording => (Icon::Settings, TileTone::Blue),
+            #[cfg(target_os = "macos")]
             VideoPanel::Camera => (Icon::Camera, TileTone::Teal),
         };
         appearance::sculpted_icon(ui.painter(), tile.center(), icon, tone, 28., None);
@@ -142,6 +146,7 @@ fn panel_header(ui: &mut egui::Ui, panel: VideoPanel, look: &CaptureLook) -> boo
     .inner
 }
 
+#[cfg(target_os = "macos")]
 impl WebcamSetup {
     pub(super) fn refresh_preview_texture(&mut self, ctx: &egui::Context) {
         const REFRESH: Duration = Duration::from_millis(80);

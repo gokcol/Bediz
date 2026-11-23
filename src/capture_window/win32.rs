@@ -8,8 +8,8 @@ use windows::{
         Foundation::{HWND, POINT},
         Graphics::Dwm::{DWMWA_TRANSITIONS_FORCEDISABLED, DwmSetWindowAttribute},
         UI::WindowsAndMessaging::{
-            FindWindowW, GetCursorPos, GetWindowThreadProcessId, MSG, WM_LBUTTONDOWN, WM_LBUTTONUP,
-            WM_RBUTTONDOWN, WM_RBUTTONUP,
+            FindWindowW, GetCursorPos, GetWindowThreadProcessId, MSG, SetWindowDisplayAffinity,
+            WDA_EXCLUDEFROMCAPTURE, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_RBUTTONDOWN, WM_RBUTTONUP,
         },
     },
     core::{BOOL, PCWSTR},
@@ -63,6 +63,20 @@ pub(crate) fn prepare_overlay(name: &str) {
             )
         } {
             log::debug!("Could not disable the capture overlay transition: {error}");
+        }
+    }
+}
+
+pub(crate) fn exclude_from_recording(title: &str) {
+    let title: Vec<u16> = title.encode_utf16().chain([0]).collect();
+    // SAFETY: The title is NUL-terminated and the process ID is writable.
+    unsafe {
+        if let Ok(hwnd) = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())) {
+            let mut process = 0;
+            GetWindowThreadProcessId(hwnd, Some(&mut process));
+            if process == std::process::id() {
+                let _ = SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
+            }
         }
     }
 }

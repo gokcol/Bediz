@@ -884,10 +884,15 @@ public func bediz_record_thumbnail(
     _ movie: UnsafePointer<CChar>,
     _ poster: UnsafePointer<CChar>,
     _ width: Int,
-    _ height: Int
+    _ height: Int,
+    _ dimensions: UnsafeMutablePointer<UInt32>
 ) -> Int32 {
     autoreleasepool {
         let asset = AVURLAsset(url: URL(fileURLWithPath: String(cString: movie)))
+        guard let track = asset.tracks(withMediaType: .video).first else { return 0 }
+        let display = CGRect(origin: .zero, size: track.naturalSize).applying(track.preferredTransform).standardized
+        guard let displayWidth = UInt32(exactly: display.width.rounded()), displayWidth > 0,
+              let displayHeight = UInt32(exactly: display.height.rounded()), displayHeight > 0 else { return 0 }
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: width, height: height)
@@ -897,6 +902,9 @@ public func bediz_record_thumbnail(
                 "public.jpeg" as CFString, 1, nil
               ) else { return 0 }
         CGImageDestinationAddImage(destination, image, nil)
-        return CGImageDestinationFinalize(destination) ? 1 : 0
+        guard CGImageDestinationFinalize(destination) else { return 0 }
+        dimensions[0] = displayWidth
+        dimensions[1] = displayHeight
+        return 1
     }
 }

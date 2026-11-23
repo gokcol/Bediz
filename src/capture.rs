@@ -62,13 +62,12 @@ pub enum CaptureMode {
 impl CaptureMode {
     // Scrolling is a post-selection action. Keep the legacy variant readable
     // for compatibility, but never offer it as a selection mode.
-    pub const ALL: [Self; 5 + cfg!(target_os = "macos") as usize] = [
+    pub const ALL: [Self; 6] = [
         Self::Region,
         Self::MultiRegion,
         Self::Window,
         Self::FullScreen,
         Self::Text,
-        #[cfg(target_os = "macos")]
         Self::Video,
     ];
 
@@ -98,7 +97,7 @@ impl CaptureMode {
                 "Click a window or select part of it. Scroll down, then finish. Sections are collected automatically."
             }
             Self::Video => {
-                "Record a window or a full display. Adjust video, webcam, and audio options before recording."
+                "Record a window or a full display. Choose a resolution and audio source."
             }
             Self::Text => {
                 "Select a screen region and copy its text. No image or project is created."

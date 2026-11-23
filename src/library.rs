@@ -22,7 +22,6 @@ const THUMBNAIL_HEIGHT: u32 = 256;
 pub enum EntryKind {
     Image,
     Project,
-    #[cfg(target_os = "macos")]
     Recording,
 }
 
@@ -329,6 +328,7 @@ fn entry_kind(path: &Path) -> Option<EntryKind> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tif" | "tiff" | "gif" => Some(EntryKind::Image),
         "myimage" => Some(EntryKind::Project),
+        "mp4" | "mov" => Some(EntryKind::Recording),
         _ => None,
     }
 }
@@ -350,10 +350,8 @@ fn capture_date(root: &Path, path: &Path) -> Option<NaiveDate> {
 }
 
 pub fn is_recording(path: &Path) -> bool {
-    cfg!(target_os = "macos")
-        && path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4") || ext.eq_ignore_ascii_case("mov"))
+    path.extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("mp4") || ext.eq_ignore_ascii_case("mov"))
 }
 
 /// Decode a single visible entry. Call from a bounded worker, never the UI thread.
@@ -361,17 +359,8 @@ pub fn is_recording(path: &Path) -> bool {
 /// of allocating another full-size image and annotation overlay for every tile.
 pub fn thumbnail(entry: &LibraryEntry) -> Result<Thumbnail, String> {
     match entry.kind {
-        #[cfg(target_os = "macos")]
         EntryKind::Recording => {
-            let image = crate::app::video_session::thumbnail(
-                &entry.path,
-                THUMBNAIL_WIDTH,
-                THUMBNAIL_HEIGHT,
-            )?;
-            Ok(Thumbnail {
-                original_size: [image.width(), image.height()],
-                image,
-            })
+            crate::app::video_session::thumbnail(&entry.path, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
         }
         EntryKind::Image => {
             let image = decode_image(&entry.path)?;

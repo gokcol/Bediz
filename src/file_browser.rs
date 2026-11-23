@@ -127,13 +127,10 @@ impl MyImageApp {
     }
 
     pub(super) fn library_action(&mut self, ctx: &egui::Context, action: LibraryAction) {
+        if self.editing_video_frame() {
+            return;
+        }
         match action {
-            #[cfg(target_os = "macos")]
-            LibraryAction::Open(path) if crate::library::is_recording(&path) => {
-                if let Err(error) = self.play_video(ctx, &path, false) {
-                    self.error = Some(error);
-                }
-            }
             LibraryAction::Open(p) => self.open_path(ctx, p, true),
             LibraryAction::Copy(path) => self.copy_library_image(ctx, path),
             LibraryAction::Storage => self.file_dialog = Some(FileDialog::Storage),
@@ -442,7 +439,7 @@ impl MyImageApp {
                             for (label,date) in [("Created",m.created()),("Modified",m.modified())] {
                                 if let Ok(date)=date {let date: chrono::DateTime<chrono::Local>=date.into();ui.label(format!("{label}: {}",date.format("%Y-%m-%d %H:%M:%S")));}
                             }
-                            ui.weak(if path.extension().is_some_and(|e|e.eq_ignore_ascii_case("myimage")) {"Editable project · original image and annotations"} else {"Image file"});
+                            ui.weak(if path.extension().is_some_and(|e|e.eq_ignore_ascii_case("myimage")) {"Editable project · original image and annotations"} else if crate::library::is_recording(path) {"Video file"} else {"Image file"});
                         }
                         Err(e)=>{ui.label(e.to_string());}
                     }

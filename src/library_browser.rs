@@ -743,20 +743,10 @@ impl LibraryPanel {
         };
         ui.painter()
             .rect_filled(preview, 3., appearance::palette(ui.ctx()).base);
-        let mut tooltip = format!(
-            "{}\nModified: {}\nCreated: {}\n{}",
-            entry.path.display(),
-            date_text(entry.modified),
-            date_text(entry.created),
-            size_text(entry.bytes)
-        );
         if let Some(cached) = self.previews.get_mut(&entry.path) {
             cached.used = self.frame;
             match &cached.preview {
-                Preview::Ready {
-                    texture,
-                    original_size,
-                } => {
+                Preview::Ready { texture, .. } => {
                     let size = texture.size_vec2();
                     let scale = (preview.width() / size.x).min(preview.height() / size.y);
                     ui.painter().image(
@@ -765,12 +755,8 @@ impl LibraryPanel {
                         Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
                         Color32::WHITE,
                     );
-                    tooltip.push_str(&format!(
-                        "\n{} × {} pixels",
-                        original_size[0], original_size[1]
-                    ));
                 }
-                Preview::Failed(error) => {
+                Preview::Failed(_) => {
                     appearance::icon(
                         ui.painter(),
                         preview.center(),
@@ -778,7 +764,6 @@ impl LibraryPanel {
                         appearance::palette(ui.ctx()).muted,
                         22.,
                     );
-                    tooltip.push_str(&format!("\nPreview unavailable: {error}"));
                 }
             }
         } else {
@@ -867,10 +852,10 @@ impl LibraryPanel {
         let details = if list {
             format!(
                 "{}   ·   {}   ·   {}",
-                if entry.kind == EntryKind::Project {
-                    "Editable project"
-                } else {
-                    "Image"
+                match entry.kind {
+                    EntryKind::Project => "Editable project",
+                    EntryKind::Image => "Image",
+                    EntryKind::Recording => "Video",
                 },
                 if self.preferences.sort == SortBy::Created {
                     format!("Created {}", date_text(entry.created))
@@ -899,7 +884,14 @@ impl LibraryPanel {
             });
         }
         let response = response
-            .on_hover_text(tooltip)
+            .on_hover_ui_at_pointer(|ui| {
+                let preview = self
+                    .previews
+                    .get(&entry.path)
+                    .filter(|_| !self.outdated_previews.contains(&entry.path))
+                    .map(|cached| &cached.preview);
+                file_hover(ui, entry, self.preferences.sort, preview);
+            })
             .on_hover_cursor(egui::CursorIcon::PointingHand);
         if !star_clicked
             && !checkbox_clicked
@@ -934,10 +926,15 @@ impl LibraryPanel {
                 if ui.small_button("Move to Trash…").clicked() { action=Some(LibraryAction::Trash(self.selection.list())); }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let (label, icon) = if entry.is_some_and(|entry| entry.kind == EntryKind::Recording) {
+                    ("Play video", appearance::Icon::Play)
+                } else {
+                    ("Open in Editor", appearance::Icon::Edit)
+                };
                 if appearance::action_button(
                     ui,
-                    "Open in Editor",
-                    appearance::Icon::Edit,
+                    label,
+                    icon,
                     entry.is_some(),
                     true,
                 )
@@ -959,6 +956,46 @@ impl LibraryPanel {
             });
         });
         action
+    }
+}
+
+fn file_hover(ui: &mut egui::Ui, entry: &LibraryEntry, sort: SortBy, preview: Option<&Preview>) {
+    let palette = appearance::palette(ui.ctx());
+    ui.set_max_width(292.);
+    ui.spacing_mut().item_spacing.y = 4.;
+    ui.add(egui::Label::new(RichText::new(&entry.name).size(13.).strong()).wrap());
+    ui.separator();
+
+    let (date_label, date) = match (sort, entry.modified, entry.created) {
+        (SortBy::Created, _, Some(created)) | (_, None, Some(created)) => {
+            ("Created", date_text(Some(created)))
+        }
+        (_, Some(modified), _) => ("Modified", date_text(Some(modified))),
+        (_, None, None) => ("Date", entry.date.format("%d %b %Y").to_string()),
+    };
+    let dimensions = match preview {
+        Some(Preview::Ready {
+            original_size: [width, height],
+            ..
+        }) => format!("{width} × {height} px"),
+        Some(Preview::Failed(_)) => "Unavailable".into(),
+        None => "Loading…".into(),
+    };
+    egui::Grid::new("file-hover-metadata")
+        .spacing(Vec2::new(14., 3.))
+        .show(ui, |ui| {
+            for (label, value) in [
+                ("Size", size_text(entry.bytes)),
+                (date_label, date),
+                ("Dimensions", dimensions),
+            ] {
+                ui.label(RichText::new(label).size(12.).color(palette.muted));
+                ui.label(RichText::new(value).size(12.));
+                ui.end_row();
+            }
+        });
+    if let Some(Preview::Failed(error)) = preview {
+        ui.add(egui::Label::new(RichText::new(error).small().color(palette.muted)).truncate());
     }
 }
 
@@ -1183,6 +1220,88 @@ mod tests {
             modified: None,
             created: None,
             bytes: 1,
+        }
+    }
+
+    #[test]
+    fn grid_and_list_hover_show_file_metadata_and_wait_for_fresh_dimensions() {
+        for list in [false, true] {
+            let ctx = egui::Context::default();
+            let mut panel = LibraryPanel::default();
+            let mut entry = fixture("Quarterly report.myimage", EntryKind::Project, 18);
+            entry.bytes = 4096;
+            entry.path = Path::new("/library").join(&entry.name);
+            let texture = ctx.load_texture(
+                "preview",
+                egui::ColorImage::filled([2, 2], Color32::WHITE),
+                egui::TextureOptions::default(),
+            );
+            panel.previews.insert(
+                entry.path.clone(),
+                CachedPreview {
+                    preview: Preview::Ready {
+                        texture,
+                        original_size: [1200, 600],
+                    },
+                    bytes: 16,
+                    used: 0,
+                },
+            );
+            let frame = |panel: &mut LibraryPanel, time, events| {
+                ctx.run(
+                    egui::RawInput {
+                        time: Some(time),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            assert!(
+                                panel
+                                    .card(ui, &entry, 240., if list { 72. } else { 160. }, list)
+                                    .is_none()
+                            );
+                        });
+                    },
+                )
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) => Some(text.galley.job.text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+            };
+            assert!(
+                !frame(&mut panel, 0., vec![])
+                    .iter()
+                    .any(|text| text == "Dimensions")
+            );
+            frame(
+                &mut panel,
+                0.1,
+                vec![egui::Event::PointerMoved(Pos2::new(92., 48.))],
+            );
+            frame(&mut panel, 1., vec![]);
+            let tooltip = frame(&mut panel, 1.1, vec![]);
+            for text in [
+                "Quarterly report.myimage",
+                "Size",
+                "4.0 KB",
+                "18 Oct 2026",
+                "Dimensions",
+                "1200 × 600 px",
+            ] {
+                assert!(
+                    tooltip.iter().any(|value| value == text),
+                    "missing {text}: {tooltip:?}"
+                );
+            }
+            assert!(!tooltip.iter().any(|value| value.contains("/library")));
+            panel.outdated_previews.insert(entry.path.clone());
+            let refreshing = frame(&mut panel, 1.2, vec![]);
+            assert!(refreshing.iter().any(|value| value == "Loading…"));
+            assert!(!refreshing.iter().any(|value| value == "1200 × 600 px"));
         }
     }
 

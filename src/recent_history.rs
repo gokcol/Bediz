@@ -3,7 +3,9 @@ use super::*;
 
 impl MyImageApp {
     pub(super) fn recents_panel(&mut self, ctx: &egui::Context) {
-        if matches!(self.view, View::Home | View::Editor | View::Viewer) {
+        if matches!(self.view, View::Home | View::Editor | View::Viewer)
+            || self.video_workspace_active()
+        {
             egui::TopBottomPanel::bottom("recents")
                 .frame(
                     egui::Frame::NONE
@@ -12,7 +14,9 @@ impl MyImageApp {
                 )
                 .show(ctx, |ui| {
                     ui.spacing_mut().item_spacing.y = 3.;
-                    let unobscured = self.workspace_unobscured() && !self.editor.has_modal();
+                    let unobscured = self.workspace_unobscured()
+                        && !self.editor.has_modal()
+                        && !self.editing_video_frame();
                     if unobscured {
                         self.recents_keyboard(ctx);
                     }
@@ -38,8 +42,12 @@ impl MyImageApp {
                         self.persist_settings();
                     }
                     if self.settings.recents_open {
-                        let dirty = self.has_unsaved_edits();
-                        let active = self.project_path.as_deref().or(self.last_path.as_deref());
+                        let active = if self.video_workspace_active() {
+                            self.video_path.as_deref()
+                        } else {
+                            self.project_path.as_deref().or(self.last_path.as_deref())
+                        };
+                        let dirty = !self.video_workspace_active() && self.has_unsaved_edits();
                         chosen = appearance::input_scope(ui, enabled, keep_appearance, |ui| {
                             self.library.recents_ui(
                                 ui,

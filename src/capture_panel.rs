@@ -320,7 +320,6 @@ pub fn ui(
                                 ui.label("Copy text to clipboard · no image saved");
                             } else if settings.capture_mode == CaptureMode::Video {
                                 ui.label("Save an MP4 in the Recordings folder");
-                                #[cfg(target_os = "macos")]
                                 {
                                     let look = settings.capture_theme.look();
                                     ui.horizontal(|ui| {

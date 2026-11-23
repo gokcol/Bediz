@@ -279,7 +279,6 @@ impl LibraryPanel {
                 } else {
                     EntryKind::Image
                 };
-                #[cfg(target_os = "macos")]
                 let kind = if library::is_recording(path) {
                     EntryKind::Recording
                 } else {

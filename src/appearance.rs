@@ -523,7 +523,6 @@ pub enum Icon {
     Refresh,
     Pause,
     Play,
-    #[cfg(target_os = "macos")]
     Stop,
     Video,
     List,
@@ -531,9 +530,9 @@ pub enum Icon {
     Down,
     Capture,
     Camera,
-    #[cfg(target_os = "macos")]
     Microphone,
-    #[cfg(target_os = "macos")]
+    #[cfg(target_os = "windows")]
+    Volume,
     Timer,
     Scan,
     Library,
@@ -718,7 +717,28 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
     let r = Rect::from_center_size(center, Vec2::splat(size));
     let point = |x, y| r.min + Vec2::new(x * size, y * size);
     match kind {
-        #[cfg(target_os = "macos")]
+        #[cfg(target_os = "windows")]
+        Icon::Volume => {
+            p.add(egui::Shape::closed_line(
+                vec![
+                    point(0.12, 0.36),
+                    point(0.32, 0.36),
+                    point(0.54, 0.16),
+                    point(0.54, 0.84),
+                    point(0.32, 0.64),
+                    point(0.12, 0.64),
+                ],
+                s,
+            ));
+            p.line(
+                vec![point(0.69, 0.35), point(0.77, 0.5), point(0.69, 0.65)],
+                s,
+            );
+            p.line(
+                vec![point(0.82, 0.24), point(0.94, 0.5), point(0.82, 0.76)],
+                s,
+            );
+        }
         Icon::Microphone => {
             p.rect_stroke(
                 Rect::from_min_max(point(0.34, 0.08), point(0.66, 0.64)),
@@ -741,7 +761,6 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
             p.line_segment([point(0.50, 0.81), point(0.50, 0.96)], s);
             p.line_segment([point(0.33, 0.96), point(0.67, 0.96)], s);
         }
-        #[cfg(target_os = "macos")]
         Icon::Timer => {
             let dial = point(0.50, 0.56);
             p.circle_stroke(dial, size * 0.37, s);
@@ -1344,7 +1363,6 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
                 );
             }
         }
-        #[cfg(target_os = "macos")]
         Icon::Stop => {
             p.rect_filled(
                 Rect::from_center_size(center, Vec2::splat(size * 0.61)),

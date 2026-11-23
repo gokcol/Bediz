@@ -7,15 +7,19 @@ pub(crate) use options::{VideoPreferences, VideoTarget, preferences_ui};
 #[path = "video/setup.rs"]
 mod setup;
 pub(super) use setup::{VideoPanel, show_video_panel};
+#[cfg(target_os = "windows")]
+#[path = "video/windows.rs"]
+mod windows;
+#[cfg(target_os = "macos")]
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     hash::{BuildHasher, RandomState},
     os::unix::ffi::OsStrExt,
-    path::Path,
     ptr::NonNull,
-    time::Instant,
 };
+use std::{path::Path, time::Instant};
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Default, PartialEq)]
 pub(super) enum Webcam {
     TopLeft,
@@ -27,6 +31,7 @@ pub(super) enum Webcam {
     Random,
 }
 
+#[cfg(target_os = "macos")]
 impl Webcam {
     const ALL: [Self; 6] = [
         Self::TopLeft,
@@ -60,6 +65,7 @@ impl Webcam {
     }
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum BubbleSize {
     Small,
@@ -68,6 +74,7 @@ enum BubbleSize {
     Large,
 }
 
+#[cfg(target_os = "macos")]
 impl BubbleSize {
     fn ratio(self) -> f32 {
         match self {
@@ -78,12 +85,14 @@ impl BubbleSize {
     }
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Copy, Default)]
 struct CameraFraming {
     size: BubbleSize,
     mirrored: bool,
 }
 
+#[cfg(target_os = "macos")]
 pub(super) struct WebcamSetup {
     pub enabled: bool,
     pub mode: Webcam,
@@ -98,6 +107,7 @@ pub(super) struct WebcamSetup {
     preview_refresh: Option<Instant>,
 }
 
+#[cfg(target_os = "macos")]
 impl Default for WebcamSetup {
     fn default() -> Self {
         Self {
@@ -116,6 +126,7 @@ impl Default for WebcamSetup {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl WebcamSetup {
     fn choose_position(&mut self, mode: Webcam) {
         self.mode = mode;
@@ -272,8 +283,10 @@ impl WebcamSetup {
     }
 }
 
+#[cfg(target_os = "macos")]
 struct WebcamPreview(NonNull<c_void>);
 
+#[cfg(target_os = "macos")]
 impl WebcamPreview {
     fn new() -> Self {
         // SAFETY: Native preview creation and use are on the AppKit main thread.
@@ -310,6 +323,7 @@ impl WebcamPreview {
     }
 }
 
+#[cfg(target_os = "macos")]
 impl Drop for WebcamPreview {
     fn drop(&mut self) {
         // SAFETY: Our owned preview is always closed on the AppKit main thread.
@@ -317,6 +331,7 @@ impl Drop for WebcamPreview {
     }
 }
 
+#[cfg(target_os = "macos")]
 struct LiveWebcam {
     preview: WebcamPreview,
     target: Rect,
@@ -325,6 +340,7 @@ struct LiveWebcam {
     framing: CameraFraming,
 }
 
+#[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn bediz_webcam_create() -> *mut c_void;
     fn bediz_webcam_show(
@@ -376,13 +392,16 @@ unsafe extern "C" {
         path: *const c_char,
         render_artwork: extern "C" fn(*const c_char, *const c_char) -> bool,
         edit: bool,
-    );
+    ) -> bool;
+    fn bediz_video_layout(host: *mut c_void, x: f64, y: f64, w: f64, h: f64, pause: bool);
+    fn bediz_video_save_project();
     fn bediz_video_prepare_to_quit() -> bool;
     fn bediz_record_thumbnail(
         movie: *const c_char,
         poster: *const c_char,
         width: isize,
         height: isize,
+        dimensions: *mut u32,
     ) -> i32;
 }
 
@@ -407,7 +426,10 @@ enum Command {
 }
 
 pub(super) struct Recording {
+    #[cfg(target_os = "macos")]
     native: NonNull<c_void>,
+    #[cfg(target_os = "windows")]
+    native: windows::Recorder,
     staging: tempfile::TempDir,
     destination: PathBuf,
     position: Pos2,
@@ -416,9 +438,11 @@ pub(super) struct Recording {
     active_started: Option<Instant>,
     elapsed: Duration,
     stopping: bool,
+    #[cfg(target_os = "macos")]
     webcam: Option<LiveWebcam>,
 }
 
+#[cfg(target_os = "macos")]
 impl Drop for Recording {
     fn drop(&mut self) {
         // SAFETY: The pointer owns one retained Swift recorder. Its native
@@ -451,55 +475,68 @@ impl Recording {
             "Recording {}.mp4",
             Local::now().format("%Y-%m-%d %H-%M-%S-%3f")
         ));
-        let path = CString::new(staging.path().join("recording.mp4").as_os_str().as_bytes())
-            .map_err(|_| "The recording path contains an invalid character.")?;
-        let camera = screen.webcam.native_position();
-        let display = &screen.display;
-        let framing = screen.webcam.framing;
-        let webcam = screen.webcam.enabled.then(|| LiveWebcam {
-            preview: screen
-                .webcam
-                .preview
-                .take()
-                .unwrap_or_else(WebcamPreview::new),
-            target: Rect::from_min_size(
-                egui::pos2(display.x as f32, display.y as f32),
-                egui::vec2(display.width as f32, display.height as f32),
-            ),
-            position: camera,
-            window,
-            framing,
-        });
-        let webcam_ptr = webcam.as_ref().map_or(std::ptr::null(), |webcam| {
-            webcam.preview.0.as_ptr().cast_const()
-        });
-        // SAFETY: Swift copies the UTF-8 path while this call is active, and
-        // returns a retained handle for the UI to poll and release.
-        let native = unsafe {
-            bediz_record_start(
-                path.as_ptr(),
-                screen.display.id,
-                window.unwrap_or(0),
-                i32::from(settings.include_pointer),
-                webcam_ptr,
-                f64::from(camera.x),
-                f64::from(camera.y),
-                f64::from(framing.size.ratio()),
-                i32::from(framing.mirrored),
-                plan.width,
-                plan.height,
-                plan.bits_per_second,
-                plan.max_seconds,
-                options::DISK_RESERVE,
-                plan.audio_source,
-                plan.audio_sample_rate,
-                plan.audio_bits_per_second,
-                i32::from(plan.voice_processing),
-                plan.countdown_seconds,
-            )
+        #[cfg(target_os = "macos")]
+        let (native, webcam) = {
+            let path = CString::new(staging.path().join("recording.mp4").as_os_str().as_bytes())
+                .map_err(|_| "The recording path contains an invalid character.")?;
+            let camera = screen.webcam.native_position();
+            let display = &screen.display;
+            let framing = screen.webcam.framing;
+            let webcam = screen.webcam.enabled.then(|| LiveWebcam {
+                preview: screen
+                    .webcam
+                    .preview
+                    .take()
+                    .unwrap_or_else(WebcamPreview::new),
+                target: Rect::from_min_size(
+                    egui::pos2(display.x as f32, display.y as f32),
+                    egui::vec2(display.width as f32, display.height as f32),
+                ),
+                position: camera,
+                window,
+                framing,
+            });
+            let webcam_ptr = webcam.as_ref().map_or(std::ptr::null(), |webcam| {
+                webcam.preview.0.as_ptr().cast_const()
+            });
+            // SAFETY: Swift copies the UTF-8 path while this call is active, and
+            // returns a retained handle for the UI to poll and release.
+            let native = unsafe {
+                bediz_record_start(
+                    path.as_ptr(),
+                    screen.display.id,
+                    window.unwrap_or(0),
+                    i32::from(settings.include_pointer),
+                    webcam_ptr,
+                    f64::from(camera.x),
+                    f64::from(camera.y),
+                    f64::from(framing.size.ratio()),
+                    i32::from(framing.mirrored),
+                    plan.width,
+                    plan.height,
+                    plan.bits_per_second,
+                    plan.max_seconds,
+                    options::DISK_RESERVE,
+                    plan.audio_source,
+                    plan.audio_sample_rate,
+                    plan.audio_bits_per_second,
+                    i32::from(plan.voice_processing),
+                    plan.countdown_seconds,
+                )
+            };
+            let native = NonNull::new(native).ok_or("The native recorder could not be started.")?;
+            (native, webcam)
         };
+        #[cfg(target_os = "windows")]
+        let native = windows::Recorder::start(
+            staging.path().join("recording.mp4"),
+            &screen.display,
+            window,
+            settings.include_pointer,
+            plan,
+        )?;
         Ok(Self {
-            native: NonNull::new(native).ok_or("The native recorder could not be started.")?,
+            native,
             staging,
             destination,
             position,
@@ -508,10 +545,12 @@ impl Recording {
             active_started: None,
             elapsed: Duration::ZERO,
             stopping: false,
+            #[cfg(target_os = "macos")]
             webcam,
         })
     }
 
+    #[cfg(target_os = "macos")]
     fn status(&self) -> (Status, String) {
         let mut message = [0 as c_char; 1024];
         // SAFETY: The recorder is retained, and the caller owns this buffer.
@@ -535,13 +574,23 @@ impl Recording {
         (status, message)
     }
 
+    #[cfg(target_os = "windows")]
+    fn status(&self) -> (Status, String) {
+        self.native.status()
+    }
+
     fn control(&mut self, command: Command) {
         if self.stopping {
             return;
         }
         self.stopping = matches!(command, Command::Stop);
         // SAFETY: The recorder enqueues the command before returning.
-        unsafe { bediz_record_command(self.native.as_ptr(), command as i32) };
+        #[cfg(target_os = "macos")]
+        unsafe {
+            bediz_record_command(self.native.as_ptr(), command as i32)
+        };
+        #[cfg(target_os = "windows")]
+        self.native.control(command);
     }
 
     fn duration(&mut self, status: Status) -> Duration {
@@ -562,13 +611,19 @@ impl Recording {
     fn publish(&self) -> Result<(), String> {
         // Publish a finalized MP4 atomically and never replace an existing recording.
         let source = self.staging.path().join("recording.mp4");
-        std::fs::hard_link(source, &self.destination)
-            .map_err(|error| format!("Could not save {}: {error}", self.destination.display()))
+        #[cfg(target_os = "macos")]
+        let result = std::fs::hard_link(source, &self.destination);
+        #[cfg(target_os = "windows")]
+        let result = windows::publish(&source, &self.destination);
+        result.map_err(|error| format!("Could not save {}: {error}", self.destination.display()))
     }
 
     pub fn focus(&mut self, ctx: &egui::Context) {
         // Keep the current Space even if the active app is in native full screen.
+        #[cfg(target_os = "macos")]
         crate::capture_window::reveal_after_paint(&title());
+        #[cfg(target_os = "windows")]
+        ctx.send_viewport_cmd_to(viewport(), ViewportCommand::Focus);
         crate::runtime::wake_root(ctx);
     }
 }
@@ -583,7 +638,10 @@ fn viewport() -> egui::ViewportId {
 
 pub(super) fn window_size(screen: &Selection, id: u32) -> Option<[u32; 2]> {
     let window = screen.windows.iter().find(|w| w.id == id)?;
+    #[cfg(target_os = "macos")]
     let scale = f64::from(screen.image.width()) / f64::from(screen.display.width);
+    #[cfg(target_os = "windows")]
+    let scale = 1.;
     Some([
         (f64::from(window.width) * scale).round() as u32,
         (f64::from(window.height) * scale).round() as u32,
@@ -618,8 +676,13 @@ impl MyImageApp {
         region: selection::PixelRect,
         window: Option<u32>,
     ) {
-        let scale = ctx.zoom_factor();
         let display = &screen.display;
+        let scale = ctx.zoom_factor()
+            * if cfg!(target_os = "windows") {
+                display.scale_factor
+            } else {
+                1.
+            };
         let w = display.width as f32 / scale;
         let h = display.height as f32 / scale;
         let selection_bottom = (region.y + region.height) as f32 / screen.image.height() as f32 * h;
@@ -703,6 +766,7 @@ impl MyImageApp {
         }
         let placing = recording.placement_frames < 3;
         let first_reveal = recording.placement_frames == 3;
+        #[cfg(target_os = "macos")]
         if recording.stopping || status == Status::Saving {
             recording.webcam = None;
         } else if let Some(webcam) = &recording.webcam {
@@ -727,9 +791,14 @@ impl MyImageApp {
                 .with_taskbar(false)
                 .with_decorations(false)
                 .with_has_shadow(false)
-                .with_transparent(true)
+                .with_transparent(cfg!(target_os = "macos"))
+                .with_window_level(if cfg!(target_os = "windows") {
+                    WindowLevel::AlwaysOnTop
+                } else {
+                    WindowLevel::Normal
+                })
                 .with_active(false)
-                .with_visible(false),
+                .with_visible(cfg!(target_os = "windows") && !placing),
             |child, _| {
                 if child.input(|i| {
                     i.viewport().close_requested()
@@ -741,6 +810,10 @@ impl MyImageApp {
                 }
                 if placing {
                     child.send_viewport_cmd(ViewportCommand::OuterPosition(recording.position));
+                    #[cfg(target_os = "windows")]
+                    if !self.demo {
+                        crate::capture_window::win32::exclude_from_recording(&title);
+                    }
                 }
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
@@ -837,7 +910,10 @@ impl MyImageApp {
                             });
                     });
                 if first_reveal {
+                    #[cfg(target_os = "macos")]
                     crate::capture_window::reveal_after_paint(&title);
+                    #[cfg(target_os = "windows")]
+                    child.send_viewport_cmd(ViewportCommand::Visible(true));
                 }
             },
         );
@@ -852,12 +928,14 @@ impl MyImageApp {
 
 pub(super) fn is_video_path(path: &Path) -> bool {
     crate::library::is_recording(path)
-        || path
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("bedizvideo"))
+        || cfg!(target_os = "macos")
+            && path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bedizvideo"))
 }
 
-pub(super) fn play(path: &Path, edit: bool) -> Result<(), String> {
+#[cfg(target_os = "macos")]
+pub(super) fn play(path: &Path, edit: bool) -> Result<bool, String> {
     if !is_video_path(path) {
         return Err("Choose an MP4, MOV or Bediz video project.".into());
     }
@@ -870,15 +948,95 @@ pub(super) fn play(path: &Path, edit: bool) -> Result<(), String> {
     let native_path = CString::new(path.as_os_str().as_bytes())
         .map_err(|_| "The video path contains an invalid character.")?;
     // SAFETY: This runs on AppKit's main thread. Swift copies the path synchronously.
-    unsafe { bediz_play_video(native_path.as_ptr(), render_artwork, edit) };
-    Ok(())
+    Ok(unsafe { bediz_play_video(native_path.as_ptr(), render_artwork, edit) })
 }
 
+#[cfg(target_os = "macos")]
+pub(super) fn layout(frame: &eframe::Frame, ctx: &egui::Context, rect: Option<Rect>, pause: bool) {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let bounds = rect.and_then(|rect| {
+        let handle = frame.window_handle().ok()?;
+        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+            return None;
+        };
+        let scale = ctx.pixels_per_point() / ctx.native_pixels_per_point().unwrap_or(1.);
+        Some((handle.ns_view.as_ptr(), rect * scale))
+    });
+    // SAFETY: The raw handle belongs to eframe's live AppKit view. The call
+    // runs on the main thread and AppKit owns the attached player subview.
+    unsafe {
+        match bounds {
+            Some((host, rect)) => bediz_video_layout(
+                host,
+                f64::from(rect.min.x),
+                f64::from(rect.min.y),
+                f64::from(rect.width()),
+                f64::from(rect.height()),
+                pause,
+            ),
+            None => bediz_video_layout(std::ptr::null_mut(), 0., 0., 0., 0., pause),
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn save_project() {
+    // SAFETY: Called from the root AppKit event loop with its player attached.
+    unsafe { bediz_video_save_project() };
+}
+
+#[cfg(target_os = "windows")]
+pub(super) use windows::Player as WindowsPlayer;
+
+#[cfg(target_os = "windows")]
+impl MyImageApp {
+    pub(super) fn layout_windows_video(
+        &mut self,
+        ctx: &egui::Context,
+        frame: &eframe::Frame,
+        bounds: Option<Rect>,
+    ) {
+        use ::windows::Win32::Foundation::HWND;
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        if bounds.is_some()
+            && self.video_open_pending
+            && let Ok(handle) = frame.window_handle()
+            && let RawWindowHandle::Win32(handle) = handle.as_raw()
+            && let Some(path) = &self.video_path
+        {
+            self.video_open_pending = false;
+            match WindowsPlayer::open(HWND(handle.hwnd.get() as *mut _), path, ctx) {
+                Ok(player) => self.video_player = Some(player),
+                Err(error) => {
+                    self.error = Some(format!("Could not open this video in Bediz: {error}"))
+                }
+            }
+            ctx.request_repaint();
+        }
+        if let Some(player) = &mut self.video_player {
+            player.layout(bounds, ctx.pixels_per_point(), self.video_bounds.is_none());
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn thumbnail(
+    path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<crate::library::Thumbnail, String> {
+    windows::thumbnail(path, width, height)
+}
+
+#[cfg(target_os = "macos")]
 pub(super) fn prepare_to_quit() -> bool {
     // SAFETY: The root app invokes this on AppKit's main thread.
     unsafe { bediz_video_prepare_to_quit() }
 }
 
+#[cfg(target_os = "macos")]
 extern "C" fn render_artwork(input: *const c_char, output: *const c_char) -> bool {
     if input.is_null() || output.is_null() {
         return false;
@@ -899,28 +1057,40 @@ extern "C" fn render_artwork(input: *const c_char, output: *const c_char) -> boo
         })
 }
 
-pub(crate) fn thumbnail(path: &Path, width: u32, height: u32) -> Result<image::RgbaImage, String> {
+#[cfg(target_os = "macos")]
+pub(crate) fn thumbnail(
+    path: &Path,
+    width: u32,
+    height: u32,
+) -> Result<crate::library::Thumbnail, String> {
     let staging = tempfile::tempdir().map_err(|error| error.to_string())?;
     let poster = staging.path().join("preview.jpg");
     let input = CString::new(path.as_os_str().as_bytes()).map_err(|error| error.to_string())?;
     let output = CString::new(poster.as_os_str().as_bytes()).map_err(|error| error.to_string())?;
-    // SAFETY: Both paths remain owned by this worker for the synchronous call.
+    let mut original_size = [0; 2];
+    // SAFETY: Both paths and the two writable dimensions live through this synchronous call.
     let decoded = unsafe {
         bediz_record_thumbnail(
             input.as_ptr(),
             output.as_ptr(),
             width as isize,
             height as isize,
+            original_size.as_mut_ptr(),
         )
     };
     if decoded == 0 {
         return Err("Could not read the recording preview.".into());
     }
-    image::open(poster)
+    let image = image::open(poster)
         .map(image::DynamicImage::into_rgba8)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    Ok(crate::library::Thumbnail {
+        image,
+        original_size,
+    })
 }
 
+#[cfg(target_os = "macos")]
 #[cfg(test)]
 mod tests {
     use super::*;

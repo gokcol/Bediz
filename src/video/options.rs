@@ -5,8 +5,6 @@ use crate::{
 use eframe::egui;
 use serde::{Deserialize, Serialize};
 use std::{
-    ffi::CString,
-    os::unix::ffi::OsStrExt,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -166,6 +164,7 @@ enum AudioSampleRate {
 }
 
 impl AudioSampleRate {
+    #[cfg(target_os = "macos")]
     const ALL: [Self; 8] = [
         Self::Hz8000,
         Self::Hz12000,
@@ -177,6 +176,10 @@ impl AudioSampleRate {
         Self::Hz48000,
     ];
 
+    #[cfg(target_os = "windows")]
+    const ALL: [Self; 2] = [Self::Hz44100, Self::Hz48000];
+
+    #[cfg(target_os = "macos")]
     fn bitrates(self) -> [u32; 3] {
         match self {
             Self::Hz8000 => [16, 24, 32],
@@ -184,6 +187,19 @@ impl AudioSampleRate {
             Self::Hz16000 => [32, 48, 64],
             Self::Hz22050 | Self::Hz24000 | Self::Hz32000 => [48, 64, 96],
             Self::Hz44100 | Self::Hz48000 => [64, 96, 128],
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn bitrates(self) -> [u32; 3] {
+        [96, 128, 160]
+    }
+
+    fn normalized(self) -> Self {
+        if Self::ALL.contains(&self) {
+            self
+        } else {
+            Self::default()
         }
     }
 
@@ -205,12 +221,14 @@ impl AudioSampleRate {
 #[serde(default)]
 pub(crate) struct VideoPreferences {
     pub target: VideoTarget,
+    #[cfg(target_os = "macos")]
     pub presenter_camera: bool,
     quality: Quality,
     max_minutes: u32,
     audio_source: AudioSource,
     audio_quality: AudioQuality,
     audio_sample_rate: AudioSampleRate,
+    #[cfg(target_os = "macos")]
     reduce_noise: bool,
     countdown_seconds: u32,
 }
@@ -219,12 +237,14 @@ impl Default for VideoPreferences {
     fn default() -> Self {
         Self {
             target: VideoTarget::default(),
+            #[cfg(target_os = "macos")]
             presenter_camera: true,
             quality: Quality::Balanced,
             max_minutes: 30,
             audio_source: Default::default(),
             audio_quality: Default::default(),
             audio_sample_rate: Default::default(),
+            #[cfg(target_os = "macos")]
             reduce_noise: false,
             countdown_seconds: 0,
         }
@@ -239,6 +259,7 @@ pub(super) struct RecordingPlan {
     pub audio_source: u32,
     pub audio_sample_rate: u32,
     pub audio_bits_per_second: u32,
+    #[cfg(target_os = "macos")]
     pub voice_processing: bool,
     pub countdown_seconds: u32,
 }
@@ -261,7 +282,8 @@ impl VideoPreferences {
             bits_per_second,
             max_seconds: self.max_minutes.clamp(1, MAX_MINUTES) * 60,
             audio_source: self.audio_source as u32,
-            audio_sample_rate: self.audio_sample_rate as u32,
+            audio_sample_rate: self.audio_sample_rate.normalized() as u32,
+            #[cfg(target_os = "macos")]
             voice_processing: self.audio_source == AudioSource::Microphone && self.reduce_noise,
             countdown_seconds: self.countdown_seconds.min(10),
             audio_bits_per_second: if self.audio_source == AudioSource::Off {
@@ -298,8 +320,13 @@ pub(super) fn check_start_space(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn available_space(root: &Path) -> Option<u64> {
-    let path = root.ancestors().find(|path| path.is_dir())?;
+pub(super) fn available_space(root: &Path) -> Option<u64> {
+    disk_available(root.ancestors().find(|path| path.is_dir())?)
+}
+
+#[cfg(target_os = "macos")]
+fn disk_available(path: &Path) -> Option<u64> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
     let path = CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut stats = std::mem::MaybeUninit::<libc::statvfs>::uninit();
     // SAFETY: The path is terminated and statvfs initializes stats on success.
@@ -308,6 +335,17 @@ fn available_space(root: &Path) -> Option<u64> {
     }
     let stats = unsafe { stats.assume_init() };
     Some(u64::from(stats.f_bavail).saturating_mul(stats.f_frsize))
+}
+
+#[cfg(target_os = "windows")]
+fn disk_available(path: &Path) -> Option<u64> {
+    use ::windows::{Win32::Storage::FileSystem::GetDiskFreeSpaceExW, core::PCWSTR};
+    use std::os::windows::ffi::OsStrExt;
+    let path: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+    let mut bytes = 0;
+    // SAFETY: The null-terminated path and output storage live for the call.
+    unsafe { GetDiskFreeSpaceExW(PCWSTR(path.as_ptr()), Some(&mut bytes), None, None) }.ok()?;
+    Some(bytes)
 }
 
 #[derive(Clone)]
@@ -396,6 +434,7 @@ pub(crate) fn preferences_ui(
         .inner;
     if prefs.audio_source != AudioSource::Off {
         let old_sample_rate = prefs.audio_sample_rate;
+        prefs.audio_sample_rate = old_sample_rate.normalized();
         let old_quality = prefs.audio_quality;
         ui.horizontal_wrapped(|ui| {
             ui.label("Sample rate");
@@ -424,6 +463,7 @@ pub(crate) fn preferences_ui(
         });
         changed |= old_sample_rate != prefs.audio_sample_rate || old_quality != prefs.audio_quality;
     }
+    #[cfg(target_os = "macos")]
     if prefs.audio_source == AudioSource::Microphone {
         changed |= ui
             .checkbox(&mut prefs.reduce_noise, "Reduce background noise")
@@ -522,10 +562,13 @@ mod tests {
         assert_eq!(preferences.target, VideoTarget::Window);
         assert_eq!(preferences.max_minutes, 15);
         assert_eq!(preferences.plan(1920, 1080).audio_sample_rate, 48_000);
-        assert!(preferences.presenter_camera);
-        let turned_off: VideoPreferences =
-            serde_json::from_str(r#"{"presenter_camera":false}"#).unwrap();
-        assert!(!turned_off.presenter_camera);
+        #[cfg(target_os = "macos")]
+        {
+            assert!(preferences.presenter_camera);
+            let turned_off: VideoPreferences =
+                serde_json::from_str(r#"{"presenter_camera":false}"#).unwrap();
+            assert!(!turned_off.presenter_camera);
+        }
     }
 
     #[test]
@@ -561,7 +604,15 @@ mod tests {
         };
         let plan = prefs.plan(2560, 1440);
         assert_eq!((plan.width, plan.height), (1136, 640));
-        assert_eq!(plan.audio_sample_rate, 8_000);
-        assert_eq!(plan.audio_bits_per_second, 24_000);
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            (plan.audio_sample_rate, plan.audio_bits_per_second),
+            (8_000, 24_000)
+        );
+        #[cfg(target_os = "windows")]
+        assert_eq!(
+            (plan.audio_sample_rate, plan.audio_bits_per_second),
+            (48_000, 128_000)
+        );
     }
 }

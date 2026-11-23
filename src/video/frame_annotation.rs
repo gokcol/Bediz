@@ -3,7 +3,6 @@ use image::ImageFormat;
 use std::{io::Cursor, sync::Mutex};
 
 const MAX_ARTWORK: usize = 32 * 1024 * 1024;
-const FRAME_EDITOR: &str = "Annotate This Frame";
 
 #[derive(Clone, Copy)]
 pub(super) struct Request {
@@ -23,7 +22,6 @@ pub(super) struct Reference {
     seconds: f64,
     error: Option<String>,
     sending: bool,
-    needs_focus: bool,
     confirm_cancel: bool,
 }
 
@@ -234,10 +232,6 @@ extern "C" fn apply_artwork(
     true
 }
 
-fn viewport() -> egui::ViewportId {
-    egui::ViewportId::from_hash_of("video-frame-annotation")
-}
-
 fn clock(time: i64) -> String {
     format!(
         "{:02}:{:02}:{:02}.{:03}",
@@ -292,9 +286,10 @@ impl MyImageApp {
                 / 1_000.0,
             error: None,
             sending: false,
-            needs_focus: true,
             confirm_cancel: false,
         });
+        self.view = View::Video;
+        self.show(ctx);
         ctx.request_repaint();
     }
 
@@ -315,7 +310,7 @@ impl MyImageApp {
         match result {
             Ok(artwork) if complete(request, duration, Some(&artwork)) => {
                 self.frame_reference = None;
-                ctx.send_viewport_cmd_to(viewport(), ViewportCommand::Close);
+                ctx.request_repaint();
             }
             Ok(_) => {
                 reference.error = Some(
@@ -329,156 +324,107 @@ impl MyImageApp {
 
     pub(super) fn focus_frame_reference(&mut self, ctx: &egui::Context) -> bool {
         if self.frame_reference.is_some() {
-            ctx.send_viewport_cmd_to(viewport(), ViewportCommand::Focus);
+            self.show(ctx);
             true
         } else {
             false
         }
     }
 
-    pub(super) fn frame_reference_ui(&mut self, ctx: &egui::Context) {
+    pub(super) fn frame_reference_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let Some(reference) = &mut self.frame_reference else {
             return;
         };
-        let title = if reference.request.editing {
-            "Edit Frame Annotations"
-        } else {
-            FRAME_EDITOR
-        };
-        let builder = egui::ViewportBuilder::default()
-            .with_title(title)
-            .with_inner_size([1080., 650.])
-            .with_min_inner_size([680., 420.])
-            .with_active(true);
         let mut send = false;
         let mut cancel = false;
-        ctx.show_viewport_immediate(viewport(), builder, |child, class| {
-            if std::mem::take(&mut reference.needs_focus) {
-                child.send_viewport_cmd(ViewportCommand::Focus);
-            }
-            if child.input(|ui| ui.viewport().close_requested()) {
-                child.send_viewport_cmd(ViewportCommand::CancelClose);
-                if !reference.sending {
+        let busy = reference.sending;
+        let can_send = !busy && !reference.confirm_cancel && !reference.editor.has_modal();
+        ui.horizontal(|ui| {
+            let (icon, _) = ui.allocate_exact_size(egui::vec2(22., 22.), egui::Sense::hover());
+            appearance::icon(
+                ui.painter(),
+                icon.center(),
+                Icon::Video,
+                appearance::palette(ui.ctx()).accent,
+                16.,
+            );
+            ui.label(egui::RichText::new("Locked reference").strong());
+            ui.monospace(clock(reference.request.time));
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                send |= appearance::action_button(ui, "Send to Video", Icon::Check, can_send, true)
+                    .clicked();
+                if appearance::action_button(ui, "Cancel", Icon::Close, !busy, false).clicked() {
                     reference.confirm_cancel = true;
                 }
-            }
-            let mut content = |ui: &mut egui::Ui| {
-                let busy = reference.sending;
-                let can_send = !busy && !reference.confirm_cancel && !reference.editor.has_modal();
-                ui.horizontal(|ui| {
-                    let (icon, _) =
-                        ui.allocate_exact_size(egui::vec2(22., 22.), egui::Sense::hover());
-                    appearance::icon(
-                        ui.painter(),
-                        icon.center(),
-                        Icon::Video,
-                        appearance::palette(ui.ctx()).accent,
-                        16.,
-                    );
-                    ui.label(egui::RichText::new("Locked reference").strong());
-                    ui.monospace(clock(reference.request.time));
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        send |= appearance::action_button(
+                if reference.request.editing {
+                    ui.monospace(clock(reference.request.available))
+                        .on_hover_text("Uses the layer's current timeline duration.");
+                } else {
+                    ui.add_enabled(
+                        can_send,
+                        egui::DragValue::new(&mut reference.seconds)
+                            .range(0.001..=reference.request.available as f64 / 1000.0)
+                            .speed(0.05)
+                            .fixed_decimals(3)
+                            .suffix(" s"),
+                    )
+                    .on_hover_text("How long the annotations appear in the video");
+                }
+                ui.label("Duration");
+            });
+        });
+        if let Some(error) = &reference.error {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+        }
+        if busy {
+            ui.weak("Preparing annotations…");
+        }
+        ui.separator();
+        appearance::input_scope(ui, can_send, !reference.editor.has_dialog(), |ui| {
+            ui.horizontal(|ui| {
+                reference
+                    .editor
+                    .toolbar(ui, &mut reference.document, &mut reference.history)
+            });
+        });
+        ui.separator();
+        ui.add_enabled_ui(!busy && !reference.confirm_cancel, |ui| {
+            reference.editor.ui(
+                ui,
+                &mut reference.document,
+                &mut reference.history,
+                &reference.texture,
+                &mut reference.preview,
+            );
+        });
+        if reference.confirm_cancel {
+            let modal =
+                egui::Modal::new(egui::Id::new("discard-frame-annotations")).show(ui.ctx(), |ui| {
+                    ui.heading("Cancel frame annotations?");
+                    ui.horizontal(|ui| {
+                        if appearance::action_button(ui, "Keep editing", Icon::Back, true, false)
+                            .clicked()
+                        {
+                            reference.confirm_cancel = false;
+                        }
+                        cancel |= appearance::action_button(
                             ui,
-                            "Send to Video",
-                            Icon::Check,
-                            can_send,
+                            "Discard annotations",
+                            Icon::Trash,
+                            true,
                             true,
                         )
                         .clicked();
-                        if appearance::action_button(ui, "Cancel", Icon::Close, !busy, false)
-                            .clicked()
-                        {
-                            reference.confirm_cancel = true;
-                        }
-                        if reference.request.editing {
-                            ui.monospace(clock(reference.request.available))
-                                .on_hover_text("Uses the layer's current timeline duration.");
-                        } else {
-                            ui.add_enabled(
-                                can_send,
-                                egui::DragValue::new(&mut reference.seconds)
-                                    .range(0.001..=reference.request.available as f64 / 1000.0)
-                                    .speed(0.05)
-                                    .fixed_decimals(3)
-                                    .suffix(" s"),
-                            )
-                            .on_hover_text("How long the annotations appear in the video");
-                        }
-                        ui.label("Duration");
                     });
                 });
-                if let Some(error) = &reference.error {
-                    ui.colored_label(ui.visuals().error_fg_color, error);
-                }
-                if busy {
-                    ui.weak("Preparing annotations…");
-                }
-                ui.separator();
-                appearance::input_scope(ui, can_send, !reference.editor.has_dialog(), |ui| {
-                    ui.horizontal(|ui| {
-                        reference.editor.toolbar(
-                            ui,
-                            &mut reference.document,
-                            &mut reference.history,
-                        )
-                    });
-                });
-                ui.separator();
-                ui.add_enabled_ui(!busy && !reference.confirm_cancel, |ui| {
-                    reference.editor.ui(
-                        ui,
-                        &mut reference.document,
-                        &mut reference.history,
-                        &reference.texture,
-                        &mut reference.preview,
-                    );
-                });
-                if reference.confirm_cancel {
-                    let modal = egui::Modal::new(egui::Id::new("discard-frame-annotations")).show(
-                        ui.ctx(),
-                        |ui| {
-                            ui.heading("Cancel frame annotations?");
-                            ui.horizontal(|ui| {
-                                if appearance::action_button(
-                                    ui,
-                                    "Keep editing",
-                                    Icon::Back,
-                                    true,
-                                    false,
-                                )
-                                .clicked()
-                                {
-                                    reference.confirm_cancel = false;
-                                }
-                                cancel |= appearance::action_button(
-                                    ui,
-                                    "Discard annotations",
-                                    Icon::Trash,
-                                    true,
-                                    true,
-                                )
-                                .clicked();
-                            });
-                        },
-                    );
-                    if modal.should_close() {
-                        reference.confirm_cancel = false;
-                    }
-                }
-            };
-            if class == egui::ViewportClass::Embedded {
-                egui::Window::new(title)
-                    .default_size([900., 560.])
-                    .show(child, &mut content);
-            } else {
-                egui::CentralPanel::default().show(child, content);
+            if modal.should_close() {
+                reference.confirm_cancel = false;
             }
-        });
+        }
         if cancel {
             complete(reference.request, 0, None);
             self.frame_reference = None;
-            ctx.send_viewport_cmd_to(viewport(), ViewportCommand::Close);
+            ctx.request_repaint();
         } else if send {
             reference
                 .editor

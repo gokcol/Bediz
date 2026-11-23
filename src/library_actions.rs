@@ -29,11 +29,17 @@ impl LibraryPanel {
             ui.strong(format!("{} selected", paths.len()));
             ui.separator();
         }
-        if item(ui, "Open in Editor", Icon::Edit, single).clicked() {
+        let recording = library::is_recording(path);
+        let (open_label, open_icon) = if recording {
+            ("Play video", Icon::Play)
+        } else {
+            ("Open in Editor", Icon::Edit)
+        };
+        if item(ui, open_label, open_icon, single).clicked() {
             action = Some(LibraryAction::Open(path.to_owned()));
             ui.close();
         }
-        if item(ui, "Copy", Icon::Copy, single)
+        if item(ui, "Copy", Icon::Copy, single && !recording)
             .on_hover_text("Copy this saved image, including project annotations, to the clipboard")
             .clicked()
         {

@@ -91,7 +91,6 @@ final class VideoTimelineEditor: NSObject, NSTextFieldDelegate {
     var onStill: ((Int64, CGFloat) async -> CGImage?)?
     var openReference: BedizOpenFrame?
     var frameRenderer: BedizFrameRenderer?
-    var onReferenceVisibility: ((Bool) -> Void)?
 
     private let strip = EditClipStrip()
     private let position = VideoEditUI.timeField("Playhead time", value: 0)
@@ -410,7 +409,8 @@ final class VideoTimelineEditor: NSObject, NSTextFieldDelegate {
     }
 
     private func openFrame(at time: Int64, replacing layer: VideoOverlay?) {
-        guard let project, let media, let openReference, project.length > 0, isPreviewCurrent,
+        guard let project, let media, let openReference, project.length > 0,
+              isPreviewCurrent || layer?.art.frameReference != nil,
               let window = view.window, window.attachedSheet == nil, !startingDesign, !hasFrameReference else { return }
         let objects = layer?.art.editableFrameObjects
         let duration = layer.map { project.overlayDuration($0.id) } ?? (project.length - time)
@@ -461,7 +461,6 @@ final class VideoTimelineEditor: NSObject, NSTextFieldDelegate {
             }
             guard accepted else { return show("The image editor couldn’t open this video frame.") }
             reference = FrameSession(id: id, time: time, picture: picture, layer: layer?.id)
-            onReferenceVisibility?(true)
         }
     }
 
@@ -478,7 +477,8 @@ final class VideoTimelineEditor: NSObject, NSTextFieldDelegate {
                       next.addOverlay(art, over: reference.time..<(reference.time + duration)) else { return false }
             }
             commit(next, at: reference.time)
-            if let layer = reference.layer, let index = displayedClip,
+            if let index = displayedClip,
+               let layer = reference.layer ?? next.clips[index].overlays.last?.id,
                let position = next.clips[index].overlays.firstIndex(where: { $0.id == layer }) {
                 annotations.selectItem(at: position)
             }
@@ -487,7 +487,6 @@ final class VideoTimelineEditor: NSObject, NSTextFieldDelegate {
         updateButtons()
         show(bytes == nil ? VideoTime.format(next.length)
                           : reference.layer == nil ? "Frame annotations added." : "Frame annotations updated.")
-        onReferenceVisibility?(false)
         return true
     }
 
@@ -787,7 +786,7 @@ final class VideoTimelineEditor: NSObject, NSTextFieldDelegate {
 
     private static var projectType: UTType { UTType(filenameExtension: "bedizvideo") ?? .data }
 
-    private func saveProject() -> Bool {
+    func saveProject() -> Bool {
         guard let project, !project.clips.isEmpty else {
             show("Add a clip or page before saving the project.")
             return false
