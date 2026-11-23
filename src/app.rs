@@ -2024,55 +2024,6 @@ impl MyImageApp {
             self.library_action(ctx, action);
         }
     }
-    fn video_start_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        egui::ScrollArea::vertical()
-            .id_salt("video_start")
-            .show(ui, |ui| {
-                ui.add_space((ui.available_height() * 0.07).clamp(8., 32.));
-                ui.vertical_centered(|ui| {
-                    let width = ui.available_width().min(296.);
-                    let gap = 14.;
-                    let stacked = ui.available_width() < 2. * width + gap;
-                    let size = Vec2::new(if stacked { width } else { 2. * width + gap }, 0.);
-                    let layout = if stacked {
-                        egui::Layout::top_down(egui::Align::Center)
-                    } else {
-                        egui::Layout::left_to_right(egui::Align::Min)
-                    };
-                    ui.allocate_ui_with_layout(size, layout, |ui| {
-                        ui.spacing_mut().item_spacing = Vec2::splat(gap);
-                        let palette = appearance::palette(ui.ctx());
-                        if appearance::start_chip(
-                            ui,
-                            "Record video",
-                            "Record a window or display",
-                            Icon::Capture,
-                            palette.ginger,
-                            width,
-                            None,
-                        )
-                        .clicked()
-                        {
-                            self.show_video_capture();
-                        }
-                        if appearance::start_chip(
-                            ui,
-                            "Open video",
-                            "Play, edit, or annotate",
-                            Icon::Video,
-                            appearance::surface(ui.ctx()),
-                            width,
-                            None,
-                        )
-                        .clicked()
-                        {
-                            self.open_video(ctx);
-                        }
-                    });
-                });
-            });
-    }
-
     /// File name of the open project or image, if any.
     fn document_name(&self) -> Option<String> {
         self.document.as_ref()?;

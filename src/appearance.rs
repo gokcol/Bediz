@@ -525,6 +525,7 @@ pub enum Icon {
     Play,
     Stop,
     Video,
+    Film,
     List,
     Up,
     Down,
@@ -545,6 +546,7 @@ pub enum Icon {
     Open,
     OpenProject,
     Copy,
+    Paste,
     Save,
     SaveAs,
     Print,
@@ -1386,6 +1388,37 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
                 s,
             );
         }
+        Icon::Film => {
+            let frame = Rect::from_min_max(point(0.09, 0.13), point(0.91, 0.87));
+            p.rect_stroke(frame, 3, s, egui::StrokeKind::Inside);
+            for x in [0.30, 0.70] {
+                p.line_segment([point(x, 0.16), point(x, 0.84)], s);
+            }
+            for y in [0.38, 0.62] {
+                p.line_segment([point(0.12, y), point(0.30, y)], s);
+                p.line_segment([point(0.70, y), point(0.88, y)], s);
+            }
+        }
+        Icon::Paste => {
+            let clip = Rect::from_min_max(point(0.34, 0.09), point(0.64, 0.27));
+            p.line(
+                vec![
+                    point(0.34, 0.21),
+                    point(0.15, 0.21),
+                    point(0.15, 0.91),
+                    point(0.83, 0.91),
+                    point(0.83, 0.21),
+                    point(0.64, 0.21),
+                ],
+                s,
+            );
+            p.rect_stroke(clip, 2, s, egui::StrokeKind::Middle);
+            p.line_segment([point(0.49, 0.42), point(0.49, 0.75)], s);
+            p.line(
+                vec![point(0.34, 0.61), point(0.49, 0.76), point(0.64, 0.61)],
+                s,
+            );
+        }
         Icon::Play => {
             p.add(egui::Shape::convex_polygon(
                 vec![
@@ -1451,127 +1484,6 @@ pub fn nav_button(ui: &mut egui::Ui, label: &str, kind: Icon, selected: bool) ->
             label,
             egui::FontId::proportional(10.5),
             satin_label_color(ui.ctx(), selected),
-        );
-    }
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-/// Compact starting actions with native button focus/keyboard behavior.
-pub fn start_chip(
-    ui: &mut egui::Ui,
-    title: &str,
-    hint: &str,
-    kind: Icon,
-    background: Color32,
-    width: f32,
-    cat: Option<egui::TextureId>,
-) -> egui::Response {
-    let response = ui.add(
-        egui::Button::new("")
-            .frame(false)
-            .min_size(Vec2::new(width, 92.)),
-    );
-    response.widget_info(|| {
-        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), title)
-    });
-    let active = response.hovered() || response.has_focus();
-    let pressed = response.is_pointer_button_down_on();
-    let dark = matches!(kind, Icon::Open);
-    let finish = palette(ui.ctx());
-    let ginger = finish.ginger;
-    let ink = finish.navy;
-    // Text follows the chip, not the finish: dark ink on light chips, light ink on dark ones.
-    let light_chip = background.r() as u32 + background.g() as u32 + background.b() as u32 > 380;
-    let foreground = if dark {
-        Color32::WHITE
-    } else if light_chip {
-        ink
-    } else {
-        finish.ink
-    };
-    let rect = response.rect.translate(Vec2::new(
-        0.,
-        if pressed {
-            1.
-        } else if active {
-            -2.
-        } else {
-            0.
-        },
-    ));
-    let p = ui.painter();
-    p.rect_filled(
-        rect.translate(Vec2::new(0., 3.)),
-        10,
-        Color32::from_black_alpha(16),
-    );
-    p.rect(
-        rect,
-        10,
-        background,
-        Stroke::new(
-            if active { 2. } else { 1. },
-            if active {
-                ginger
-            } else if dark {
-                ink
-            } else {
-                palette(ui.ctx()).border
-            },
-        ),
-        egui::StrokeKind::Inside,
-    );
-    calico_tabs(p, rect.min + Vec2::new(17., 0.));
-    let badge = Rect::from_center_size(rect.left_center() + Vec2::new(38., 0.), Vec2::splat(44.));
-    p.rect_filled(badge, 9, if dark { ginger } else { ink });
-    icon(
-        p,
-        badge.center(),
-        kind,
-        if dark {
-            ink
-        } else if finish.is_dark() {
-            ginger
-        } else {
-            finish.cream
-        },
-        25.,
-    );
-    let text = rect.left_center() + Vec2::new(74., -12.);
-    p.text(
-        text,
-        egui::Align2::LEFT_CENTER,
-        title,
-        egui::FontId::proportional(19.),
-        foreground,
-    );
-    p.text(
-        text + Vec2::new(0., 26.),
-        egui::Align2::LEFT_CENTER,
-        hint,
-        egui::FontId::proportional(12.),
-        if !finish.is_dark() {
-            if dark { finish.base } else { finish.muted }
-        } else if light_chip && !dark {
-            ink.gamma_multiply(0.75)
-        } else {
-            finish.muted
-        },
-    );
-    if let Some(texture) = cat {
-        p.image(
-            texture,
-            Rect::from_center_size(rect.right_center() - Vec2::new(37., 0.), Vec2::splat(62.)),
-            Rect::from_min_max(Pos2::ZERO, egui::pos2(1., 1.)),
-            Color32::WHITE,
-        );
-    } else {
-        icon(
-            p,
-            rect.right_top() + Vec2::new(-24., 27.),
-            Icon::Forward,
-            foreground.gamma_multiply(if active { 1. } else { 0.5 }),
-            14.,
         );
     }
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
