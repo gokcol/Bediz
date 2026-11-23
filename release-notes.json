@@ -1,8 +1,11 @@
 {
   "version": "4.0.0",
-  "build": 169,
-  "store_version": "4.0.1.0",
+  "build": 170,
+  "store_version": "4.0.2.0",
   "changes": [
+    "Home puts recent images and recordings beside shortcuts for capturing, opening, pasting and creating.",
+    "The Video tab opens a start screen with Record and Open actions. Open a file or select a recording from Recents to go to its player and timeline.",
+    "Finished recordings open in the video workspace. Removing the open video returns to the Video start screen.",
     "Capture guides use a white center with a dark outline so they stay visible over both light and dark content.",
     "Open videos in the main Bediz workspace. Playback controls and Recents stay within reach.",
     "Hover over a Library thumbnail for its filename, size, date and dimensions.",
@@ -59,7 +62,7 @@
     "Export video at 240p, 360p, 480p, 640p, 2K DCI, or 1440p QHD. Audio sample rates start at 8 kHz, and AAC offers the bitrates supported by each rate.",
     "Auto Subtitles transcribes timeline audio on macOS 26 and later. Use English or download another supported language, edit the cues, copy the transcript, or save an SRT file.",
     "Subtitles follow cuts and moves and can be included in the exported video.",
-    "Start Here can open a video for annotation or set up a screen recording. Drop an MP4 or MOV onto Bediz to open its timeline.",
+    "Drop an MP4 or MOV onto Bediz to open its timeline for annotation.",
     "Export MP4 or MOV in phone, tablet, web, square, HD, 4K or custom sizes. Choose H.264, HEVC or ProRes and AAC, Apple Lossless, PCM or no audio where supported.",
     "The timeline pencil reopens saved frame annotations as editable Bediz objects. Sending them back replaces the existing layer at its original timing.",
     "Annotate This Frame opens the paused video frame as a locked reference in the Bediz editor. Draw with the annotation tools, choose a duration, and send the artwork back to the timeline.",

@@ -3,9 +3,7 @@ use super::*;
 
 impl MyImageApp {
     pub(super) fn recents_panel(&mut self, ctx: &egui::Context) {
-        if matches!(self.view, View::Home | View::Editor | View::Viewer)
-            || self.video_workspace_active()
-        {
+        if matches!(self.view, View::Editor | View::Viewer) || self.video_workspace_active() {
             egui::TopBottomPanel::bottom("recents")
                 .frame(
                     egui::Frame::NONE

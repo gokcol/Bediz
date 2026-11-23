@@ -22,10 +22,24 @@ pub(super) enum FileDialog {
     Info(PathBuf),
 }
 impl MyImageApp {
+    fn leave_unavailable_video(&mut self, paths: &[PathBuf]) {
+        if self.video_workspace_active()
+            && !self.editing_video_frame()
+            && self
+                .video_path
+                .as_ref()
+                .is_some_and(|path| paths.contains(path))
+        {
+            // The hidden session can still save any pending video edits.
+            self.view = View::VideoStart;
+        }
+    }
+
     pub(super) fn sync_library_references(&mut self) {
         let missing = self.library.take_missing_paths();
         if !missing.is_empty() {
             self.settings.recent_files.retain(|p| !missing.contains(p));
+            self.leave_unavailable_video(&missing);
         }
         let preferences = self.library.take_preferences_change();
         let changed = preferences.is_some() || !missing.is_empty();
@@ -242,6 +256,7 @@ impl MyImageApp {
             .chain(&result.missing)
             .cloned()
             .collect();
+        self.leave_unavailable_video(&removed);
         self.remaining_recents_after_trash =
             if removed_active && self.view == View::Editor && !self.quit_after_work {
                 self.project_path

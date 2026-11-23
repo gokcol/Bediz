@@ -739,6 +739,7 @@ impl MyImageApp {
                             self.status.push_str(&message);
                         }
                         self.restore_window(ctx, false);
+                        self.open_video_path(ctx, recording.destination.clone());
                     }
                     Err(error) => {
                         let staging = recording.staging.path().to_owned();

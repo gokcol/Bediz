@@ -105,6 +105,8 @@ enum WorkEvent {
 
 #[path = "file_browser.rs"]
 mod file_browser;
+#[path = "home.rs"]
+mod home;
 #[path = "print_ui.rs"]
 mod print_ui;
 #[path = "project_session.rs"]
@@ -169,6 +171,7 @@ enum View {
     Library,
     Viewer,
     Editor,
+    VideoStart,
     Video,
     Create,
 }
@@ -451,6 +454,14 @@ impl MyImageApp {
         {
             self.open_video_path(ctx, path);
         }
+    }
+
+    fn show_video_capture(&mut self) {
+        if self.settings.capture_mode != capture::CaptureMode::Video {
+            self.settings.capture_mode = capture::CaptureMode::Video;
+            self.persist_settings();
+        }
+        self.view = View::Capture;
     }
 
     fn open_video_path(&mut self, ctx: &egui::Context, path: PathBuf) {
@@ -2013,167 +2024,52 @@ impl MyImageApp {
             self.library_action(ctx, action);
         }
     }
-    fn home_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        #[derive(Clone, Copy)]
-        enum Start {
-            OpenImage,
-            CaptureImage,
-            Paste,
-            Create,
-            OpenVideo,
-            RecordVideo,
-        }
-        if ui.is_enabled()
-            && !self.busy
-            && ui.input_mut(|input| {
-                let paste = input
-                    .events
-                    .iter()
-                    .any(|event| matches!(event, egui::Event::Paste(_)));
-                input
-                    .events
-                    .retain(|event| !matches!(event, egui::Event::Paste(_)));
-                paste
-            })
-        {
-            self.paste_new_image(ctx);
-        }
-        let top_space = (ui.available_height() * 0.07).clamp(8., 32.);
+    fn video_start_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         egui::ScrollArea::vertical()
-            .id_salt("home_start")
+            .id_salt("video_start")
             .show(ui, |ui| {
-                ui.add_space(top_space);
+                ui.add_space((ui.available_height() * 0.07).clamp(8., 32.));
                 ui.vertical_centered(|ui| {
-                    ui.label(egui::RichText::new("Start here").size(24.).strong());
-                    ui.add_space(2.);
-                    ui.label(
-                        egui::RichText::new(if cfg!(target_os = "macos") {
-                            "Drop an image or video here."
-                        } else {
-                            "Drop an image anywhere, or pick a way to begin."
-                        })
-                        .size(14.)
-                        .color(appearance::palette(ui.ctx()).muted),
-                    );
-                    ui.add_space(22.);
-                    let columns = if ui.available_width() >= 600. { 2 } else { 1 };
+                    let width = ui.available_width().min(296.);
                     let gap = 14.;
-                    let width = ((ui.available_width() - gap).min(606.) / columns as f32).min(296.);
-                    let actions = [
-                        (
-                            Start::OpenImage,
-                            "Open image",
-                            "Browse your files",
-                            Icon::Open,
-                            appearance::palette(ui.ctx()).navy,
-                        ),
-                        (
-                            Start::CaptureImage,
-                            "Capture image",
-                            "Region, window or screen",
-                            Icon::Capture,
-                            appearance::palette(ui.ctx()).ginger,
-                        ),
-                        (
-                            Start::Paste,
-                            "Paste image",
-                            "From your clipboard",
-                            Icon::Copy,
-                            appearance::surface(ui.ctx()),
-                        ),
-                        (
-                            Start::Create,
-                            "Create",
-                            "Start from a template",
-                            Icon::Create,
-                            appearance::palette(ui.ctx()).cream,
-                        ),
-                        (
-                            Start::OpenVideo,
-                            "Open video",
-                            if cfg!(target_os = "macos") {
-                                "Play, edit, or annotate"
-                            } else {
-                                "Play in Bediz"
-                            },
-                            Icon::Video,
-                            appearance::surface(ui.ctx()),
-                        ),
-                        (
-                            Start::RecordVideo,
+                    let stacked = ui.available_width() < 2. * width + gap;
+                    let size = Vec2::new(if stacked { width } else { 2. * width + gap }, 0.);
+                    let layout = if stacked {
+                        egui::Layout::top_down(egui::Align::Center)
+                    } else {
+                        egui::Layout::left_to_right(egui::Align::Min)
+                    };
+                    ui.allocate_ui_with_layout(size, layout, |ui| {
+                        ui.spacing_mut().item_spacing = Vec2::splat(gap);
+                        let palette = appearance::palette(ui.ctx());
+                        if appearance::start_chip(
+                            ui,
                             "Record video",
                             "Record a window or display",
                             Icon::Capture,
-                            appearance::palette(ui.ctx()).ginger,
-                        ),
-                    ];
-                    ui.allocate_ui_with_layout(
-                        egui::vec2(width * columns as f32 + gap * (columns - 1) as f32, 0.),
-                        egui::Layout::top_down(egui::Align::Min),
-                        |ui| {
-                            ui.spacing_mut().item_spacing = egui::vec2(gap, gap);
-                            for chips in actions.chunks(columns) {
-                                ui.horizontal(|ui| {
-                                    for &(action, title, hint, icon, color) in chips {
-                                        if appearance::start_chip(
-                                            ui,
-                                            title,
-                                            hint,
-                                            icon,
-                                            color,
-                                            width,
-                                            matches!(icon, Icon::Open)
-                                                .then_some(self.app_icon.id()),
-                                        )
-                                        .clicked()
-                                        {
-                                            match action {
-                                                Start::OpenImage => self.open_image(ctx),
-                                                Start::CaptureImage => {
-                                                    if !self.settings.capture_mode.makes_image() {
-                                                        self.settings.capture_mode =
-                                                            capture::CaptureMode::Region;
-                                                        self.persist_settings();
-                                                    }
-                                                    self.view = View::Capture;
-                                                }
-                                                Start::Paste => self.paste_new_image(ctx),
-                                                Start::Create => self.view = View::Create,
-                                                Start::OpenVideo => self.open_video(ctx),
-                                                Start::RecordVideo => {
-                                                    if self.settings.capture_mode
-                                                        != capture::CaptureMode::Video
-                                                    {
-                                                        self.settings.capture_mode =
-                                                            capture::CaptureMode::Video;
-                                                        self.persist_settings();
-                                                    }
-                                                    self.view = View::Capture;
-                                                }
-                                            }
-                                        }
-                                    }
-                                });
-                            }
-                        },
-                    );
-                });
-                if self.document.is_some() {
-                    ui.add_space(18.);
-                    ui.vertical_centered(|ui| {
-                        if appearance::action_button(
-                            ui,
-                            "Continue editing",
-                            Icon::Edit,
-                            true,
-                            false,
+                            palette.ginger,
+                            width,
+                            None,
                         )
                         .clicked()
                         {
-                            self.view = View::Editor;
+                            self.show_video_capture();
+                        }
+                        if appearance::start_chip(
+                            ui,
+                            "Open video",
+                            "Play, edit, or annotate",
+                            Icon::Video,
+                            appearance::surface(ui.ctx()),
+                            width,
+                            None,
+                        )
+                        .clicked()
+                        {
+                            self.open_video(ctx);
                         }
                     });
-                }
+                });
             });
     }
 
@@ -2216,6 +2112,7 @@ impl MyImageApp {
                 name.unwrap_or_else(|| "Editor".into()),
                 "Capture. Annotate. Make it clear.",
             ),
+            View::VideoStart => ("Video".to_owned(), "MP4, MOV and Bediz video projects"),
             View::Video => (
                 self.video_path
                     .as_ref()
@@ -2474,6 +2371,7 @@ impl MyImageApp {
                 View::Library => self.library_ui(ui, ctx),
                 View::Viewer => self.viewer_ui(ui, ctx),
                 View::Editor => self.editor_ui(ui, ctx),
+                View::VideoStart => self.video_start_ui(ui, ctx),
                 View::Video => {
                     if self.frame_reference.is_some() {
                         ui.push_id("video-frame-editor", |ui| self.frame_reference_ui(ui, ctx));
@@ -2816,19 +2714,17 @@ impl MyImageApp {
                             for (view, label, icon) in [
                                 (View::Home, "Home", Icon::Home),
                                 (View::Editor, "Editor", Icon::Edit),
-                                (View::Video, "Video", Icon::Video),
+                                (View::VideoStart, "Video", Icon::Video),
                                 (View::Library, "Library", Icon::Library),
                                 (View::Create, "Create", Icon::Create),
                             ] {
-                                if view == View::Video && self.video_path.is_none() {
-                                    continue;
-                                }
                                 if appearance::nav_button(
                                     ui,
                                     label,
                                     icon,
                                     self.view == view
-                                        || (self.view == View::Viewer && view == View::Editor),
+                                        || (self.view == View::Viewer && view == View::Editor)
+                                        || (self.view == View::Video && view == View::VideoStart),
                                 )
                                 .clicked()
                                 {
@@ -3166,6 +3062,61 @@ fn checked_save_path(mut path: PathBuf, extension: &str) -> Result<PathBuf, Stri
         }
     }
     Ok(path)
+}
+
+#[cfg(test)]
+mod video_workspace_tests {
+    use super::*;
+
+    #[test]
+    fn video_start_hides_the_last_video_and_playback_hides_start_actions() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        app.guide_open = false;
+        app.video_path = Some(PathBuf::from("previous.mp4"));
+        for view in [View::VideoStart, View::Video] {
+            app.view = view;
+            app.video_bounds = None;
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(840., 600.))),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| app.workspace_ui(ui, ctx));
+                },
+            );
+            for label in ["Record video", "Open video"] {
+                assert_eq!(
+                    output.shapes.iter().any(|shape| matches!(
+                        &shape.shape, egui::Shape::Text(text) if text.galley.job.text == label
+                    )),
+                    view == View::VideoStart,
+                    "{label} visibility",
+                );
+            }
+            assert_eq!(app.video_bounds.is_some(), view == View::Video);
+        }
+    }
+
+    #[test]
+    fn removing_the_open_recording_returns_to_video_start() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        let recording = PathBuf::from("removed.mp4");
+        app.view = View::Video;
+        app.video_path = Some(recording.clone());
+        app.settings.recent_files.push(recording.clone());
+        app.file_operation_finished(
+            &ctx,
+            crate::library_files::Outcome {
+                missing: vec![recording.clone()],
+                ..Default::default()
+            },
+        );
+        assert!(app.view == View::VideoStart);
+        assert!(!app.settings.recent_files.contains(&recording));
+    }
 }
 
 #[cfg(test)]
