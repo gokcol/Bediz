@@ -1,6 +1,7 @@
 //! In-place canvas text editing with a compact formatting bar and atomic undo.
 use super::*;
-use crate::text_style::{Alignment, TextStyle};
+use crate::appearance::{self, TileTone};
+use crate::text_style::Alignment;
 
 pub(super) struct TextDraft {
     pub(super) index: usize,
@@ -175,6 +176,7 @@ impl EditorState {
         };
         let color = Color32::from_rgba_unmultiplied(ink[0], ink[1], ink[2], ink[3]);
         let style = annotation.text_style.clone();
+        let format = style.format(font_size, color);
         let callout = annotation.kind == AnnotationKind::Callout;
         let position = text_position;
         let width = metrics
@@ -193,25 +195,7 @@ impl EditorState {
                 Alignment::Center => egui::Align::Center,
                 Alignment::Right => egui::Align::Max,
             };
-            job.append(
-                text.as_str(),
-                0.,
-                egui::TextFormat {
-                    font_id: if style.monospace {
-                        egui::FontId::monospace(font_size)
-                    } else {
-                        egui::FontId::proportional(font_size)
-                    },
-                    color,
-                    italics: style.italic,
-                    underline: if style.underline {
-                        Stroke::new((font_size / 18.).max(1.), color)
-                    } else {
-                        Stroke::NONE
-                    },
-                    ..Default::default()
-                },
-            );
+            job.append(text.as_str(), 0., format.clone());
             normalize_text_galley(ui.fonts_mut(|fonts| fonts.layout_job(job)))
         };
         let text = egui::Area::new(egui::Id::new("inline-text-editor"))
@@ -230,7 +214,7 @@ impl EditorState {
                             "focused-annotation-text",
                             self.text_editor_generation,
                         )))
-                        .font(egui::FontId::proportional(font_size))
+                        .font(format.font_id.clone())
                         .text_color(color)
                         .frame(false)
                         .margin(0.)
@@ -272,72 +256,55 @@ impl EditorState {
             viewport,
             if callout { 5 } else { 4 },
         );
-        let bar = egui::Area::new(egui::Id::new("inline-text-properties"))
+        // A formatting change can resize the text. Keep the controls under the
+        // pointer while their popup is open.
+        let bar_id = egui::Id::new("inline-text-properties");
+        let bar_position = ctx
+            .memory(|memory| memory.area_rect(bar_id))
+            .filter(|_| popup_was_open && !first_frame)
+            .map_or(bar_rect.min, |rect| rect.min);
+        let bar = egui::Area::new(bar_id)
             .order(egui::Order::Foreground)
-            .fixed_pos(bar_rect.min)
+            .fixed_pos(bar_position)
             .constrain(false)
             .movable(false)
             .show(ctx, |ui| {
-                egui::Frame::popup(ui.style())
-                    .fill(crate::appearance::surface(ui.ctx()))
-                    .corner_radius(3)
+                object_properties::quick_frame(ui)
+                    .fill(appearance::surface(ui.ctx()))
                     .inner_margin(2)
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing = Vec2::ZERO;
                         ui.spacing_mut().button_padding = Vec2::splat(3.);
                         ui.spacing_mut().interact_size = Vec2::new(30., 28.);
                         ui.horizontal(|ui| {
-                            let font = inline_control(ui, "Font and size", |p, r| {
+                            let font = inline_control(ui, "Text formatting", |p, r, ink| {
                                 p.text(
                                     r.center(),
                                     egui::Align2::CENTER_CENTER,
                                     "Aa",
-                                    egui::FontId::proportional(19.),
-                                    crate::appearance::palette(p.ctx()).ink,
+                                    egui::FontId::proportional(16.),
+                                    ink,
                                 );
                             });
-                            egui::Popup::menu(&font).show(|ui| {
-                                ui.spacing_mut().item_spacing = Vec2::new(6., 6.);
-                                font_controls(ui, &mut annotation.text_style);
-                                if callout {
-                                    ui.horizontal(|ui| {
-                                        ui.label("Text color");
-                                        ui.color_edit_button_srgba_unmultiplied(
-                                            &mut annotation.text_color,
-                                        );
-                                    });
-                                }
-                                ui.horizontal(|ui| {
-                                    ui.toggle_value(
-                                        &mut annotation.text_style.italic,
-                                        egui::RichText::new("I").italics(),
-                                    )
-                                    .on_hover_text("Italic");
-                                    ui.toggle_value(
-                                        &mut annotation.text_style.underline,
-                                        egui::RichText::new("U").underline(),
-                                    )
-                                    .on_hover_text("Underline");
-                                });
-                                object_properties::font_size_menu(ui, &mut annotation.font_size);
-                                ui.add(
-                                    egui::Slider::new(&mut annotation.font_size, 8.0..=144.0)
-                                        .text("Size")
-                                        .suffix(" px"),
-                                );
-                            });
+                            egui::Popup::menu(&font)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                .frame(object_properties::quick_frame(ui).inner_margin(8))
+                                .style(|_: &mut egui::Style| {})
+                                .gap(6.)
+                                .show(|ui| font_controls(ui, annotation));
                             let ink = &mut annotation.color;
                             let mut swatch =
                                 Color32::from_rgba_unmultiplied(ink[0], ink[1], ink[2], ink[3]);
                             let color_button = inline_control(
                                 ui,
                                 if callout { "Bubble fill" } else { "Text color" },
-                                |p, r| {
-                                    p.rect_filled(r.shrink(4.), 1, swatch);
+                                |p, r, _| {
+                                    let chip = Rect::from_center_size(r.center(), Vec2::splat(17.));
+                                    p.rect_filled(chip, 4, swatch);
                                     p.rect_stroke(
-                                        r.shrink(4.),
-                                        1,
-                                        Stroke::new(0.7, Color32::from_gray(80)),
+                                        chip,
+                                        4,
+                                        Stroke::new(0.7, appearance::palette(p.ctx()).muted),
                                         StrokeKind::Inside,
                                     );
                                 },
@@ -352,12 +319,12 @@ impl EditorState {
                                 }
                             });
                             if callout {
-                                let shape = inline_control(ui, "Callout shape", |p, r| {
+                                let shape = inline_control(ui, "Callout shape", |p, r, ink| {
                                     crate::callout_style::paint_icon(
                                         p,
                                         r.shrink(3.),
                                         annotation.callout_style,
-                                        crate::appearance::palette(p.ctx()).ink,
+                                        ink,
                                     );
                                 });
                                 egui::Popup::menu(&shape).show(|ui| {
@@ -365,8 +332,8 @@ impl EditorState {
                                 });
                             }
                             let align = annotation.text_style.alignment;
-                            let alignment = inline_control(ui, "Text alignment", |p, r| {
-                                paint_alignment(p, r, align)
+                            let alignment = inline_control(ui, "Text alignment", |p, r, ink| {
+                                paint_alignment(p, r, align, ink)
                             });
                             egui::Popup::menu(&alignment).show(|ui| {
                                 ui.horizontal(|ui| {
@@ -375,7 +342,7 @@ impl EditorState {
                                         (Alignment::Center, "Align center"),
                                         (Alignment::Right, "Align right"),
                                     ] {
-                                        let button = inline_control(ui, label, |p, r| {
+                                        let button = inline_control(ui, label, |p, r, ink| {
                                             if annotation.text_style.alignment == value {
                                                 p.rect_filled(
                                                     r.shrink(1.),
@@ -385,7 +352,7 @@ impl EditorState {
                                                         .gamma_multiply(0.15),
                                                 );
                                             }
-                                            paint_alignment(p, r, value);
+                                            paint_alignment(p, r, value, ink);
                                         });
                                         if button.clicked() {
                                             annotation.text_style.alignment = value;
@@ -395,13 +362,9 @@ impl EditorState {
                                 });
                             });
                             let more =
-                                inline_control(ui, "Finish or cancel text editing", |p, r| {
-                                    for dx in [-6., 0., 6.] {
-                                        p.circle_filled(
-                                            r.center() + Vec2::new(dx, 0.),
-                                            1.5,
-                                            crate::appearance::palette(p.ctx()).ink,
-                                        );
+                                inline_control(ui, "Finish or cancel text editing", |p, r, ink| {
+                                    for dx in [-5., 0., 5.] {
+                                        p.circle_filled(r.center() + Vec2::new(dx, 0.), 1.35, ink);
                                     }
                                 });
                             egui::Popup::menu(&more).show(|ui| {
@@ -475,38 +438,46 @@ fn normalize_text_galley(mut galley: std::sync::Arc<egui::Galley>) -> std::sync:
 fn inline_control(
     ui: &mut egui::Ui,
     label: &str,
-    paint: impl FnOnce(&egui::Painter, Rect),
+    paint: impl FnOnce(&egui::Painter, Rect, Color32),
 ) -> egui::Response {
     let (rect, response) = ui.allocate_exact_size(Vec2::new(30., 28.), Sense::click());
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
-    if response.hovered() || response.has_focus() {
-        ui.painter().rect_filled(
-            rect,
-            2,
-            crate::appearance::adaptive(ui.ctx(), Color32::from_gray(235), |p| p.cream),
-        );
-    }
-    paint(ui.painter(), rect);
-    response.on_hover_text(label)
+    let open = egui::Popup::is_id_open(ui.ctx(), egui::Popup::default_response_id(&response));
+    let palette = appearance::palette(ui.ctx());
+    let ink = appearance::satin_button(
+        ui,
+        rect.shrink(1.),
+        &response,
+        open,
+        if open {
+            appearance::satin_ink(ui.ctx(), TileTone::Blue)
+        } else {
+            palette.ink
+        },
+    );
+    paint(ui.painter(), rect, ink);
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(label)
 }
-fn paint_alignment(p: &egui::Painter, rect: Rect, alignment: Alignment) {
-    for (row, width) in [20., 13., 20., 13.].into_iter().enumerate() {
+fn paint_alignment(p: &egui::Painter, rect: Rect, alignment: Alignment, ink: Color32) {
+    for (row, width) in [17., 11., 17., 11.].into_iter().enumerate() {
         let x = match alignment {
-            Alignment::Left => rect.center().x - 10.,
+            Alignment::Left => rect.center().x - 8.5,
             Alignment::Center => rect.center().x - width / 2.,
-            Alignment::Right => rect.center().x + 10. - width,
+            Alignment::Right => rect.center().x + 8.5 - width,
         };
-        let y = rect.center().y - 7.5 + row as f32 * 5.;
+        let y = rect.center().y - 6. + row as f32 * 4.;
         p.line_segment(
             [egui::pos2(x, y), egui::pos2(x + width, y)],
-            Stroke::new(1.8, crate::appearance::palette(p.ctx()).ink),
+            Stroke::new(1.5, ink),
         );
     }
 }
 fn inline_toolbar_rect(text: Rect, viewport: Rect, controls: usize) -> Rect {
-    let size = Vec2::new(controls as f32 * 30. + 4., 32.);
+    let size = Vec2::new(controls as f32 * 30. + 6., 34.);
     let x = (text.right() + 10.).clamp(
         viewport.left(),
         (viewport.right() - size.x).max(viewport.left()),
@@ -518,18 +489,101 @@ fn inline_toolbar_rect(text: Rect, viewport: Rect, controls: usize) -> Rect {
     };
     Rect::from_min_size(egui::pos2(x, y), size)
 }
-fn font_controls(ui: &mut egui::Ui, style: &mut TextStyle) {
-    egui::ComboBox::from_id_salt("text-font-family")
-        .width(140.)
-        .selected_text(if style.monospace {
-            "Monospace"
-        } else {
-            "Sans serif"
-        })
-        .show_ui(ui, |ui| {
-            ui.selectable_value(&mut style.monospace, false, "Sans serif");
-            ui.selectable_value(&mut style.monospace, true, "Monospace");
+fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) {
+    let palette = appearance::palette(ui.ctx());
+    ui.set_min_width(210.);
+    ui.spacing_mut().item_spacing = egui::vec2(3., 6.);
+    ui.spacing_mut().button_padding = egui::vec2(4., 2.);
+    ui.spacing_mut().interact_size.y = 24.;
+
+    egui::Frame::new()
+        .fill(palette.base)
+        .corner_radius(7)
+        .inner_margin(2)
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                for (monospace, label) in [
+                    (false, egui::RichText::new("Sans serif")),
+                    (true, egui::RichText::new("Monospace").monospace()),
+                ] {
+                    if ui
+                        .add_sized(
+                            [101.5, 24.],
+                            egui::Button::selectable(
+                                annotation.text_style.monospace == monospace,
+                                label,
+                            )
+                            .corner_radius(5),
+                        )
+                        .clicked()
+                    {
+                        annotation.text_style.monospace = monospace;
+                    }
+                }
+            });
         });
+
+    let size = &mut annotation.font_size;
+    let max = crate::document::MAX_FONT_SIZE;
+    ui.horizontal(|ui| {
+        annotation.text_style.emphasis_buttons(ui);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                if ui
+                    .add_enabled(
+                        *size > 1.,
+                        egui::Button::new("−").min_size(egui::vec2(24., 24.)),
+                    )
+                    .on_hover_text("Decrease font size")
+                    .clicked()
+                {
+                    *size = (*size - 1.).max(1.);
+                }
+                ui.add_sized(
+                    [55., 24.],
+                    egui::DragValue::new(size)
+                        .range(1. ..=max)
+                        .speed(0.5)
+                        .max_decimals(1)
+                        .suffix(" px")
+                        .update_while_editing(false),
+                )
+                .on_hover_text("Font size in pixels. Click to type or drag to adjust.");
+                if ui
+                    .add_enabled(
+                        *size < max,
+                        egui::Button::new("+").min_size(egui::vec2(24., 24.)),
+                    )
+                    .on_hover_text("Increase font size")
+                    .clicked()
+                {
+                    *size = (*size + 1.).min(max);
+                }
+            });
+        });
+    });
+    ui.separator();
+    ui.horizontal(|ui| {
+        for preset in [12., 16., 24., 32., 48., 64.] {
+            let chip = egui::Button::selectable(*size == preset, format!("{preset:.0}"))
+                .corner_radius(5)
+                .frame_when_inactive(true);
+            if ui
+                .add_sized([32.5, 24.], chip)
+                .on_hover_text(format!("{preset:.0} px"))
+                .clicked()
+            {
+                *size = preset;
+            }
+        }
+    });
+    if annotation.kind == AnnotationKind::Callout {
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label("Text color");
+            ui.color_edit_button_srgba_unmultiplied(&mut annotation.text_color);
+        });
+    }
 }
 
 #[cfg(test)]
@@ -697,12 +751,32 @@ mod tests {
             1.,
             Rect::from_min_max(egui::pos2(20., 40.), egui::pos2(1000., 760.)),
         ));
-        for frame in 0..3 {
+        let mut font_position = Pos2::ZERO;
+        let mut bold_position = Pos2::ZERO;
+        let mut preset_position = Pos2::ZERO;
+        let mut size_increase_position = Pos2::ZERO;
+        for frame in 0..12 {
             let mut input = egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200., 800.))),
                 ..Default::default()
             };
-            if frame == 2 {
+            let click = match frame {
+                2 | 3 => Some((font_position, frame == 2)),
+                5 | 6 => Some((bold_position, frame == 5)),
+                7 | 8 => Some((preset_position, frame == 7)),
+                9 | 10 => Some((size_increase_position, frame == 9)),
+                _ => None,
+            };
+            if let Some((pos, pressed)) = click {
+                input.events.push(egui::Event::PointerMoved(pos));
+                input.events.push(egui::Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                });
+            }
+            if frame == 11 {
                 input.modifiers = Modifiers::COMMAND;
                 input.events.push(egui::Event::Key {
                     key: Key::Enter,
@@ -712,7 +786,7 @@ mod tests {
                     modifiers: Modifiers::COMMAND,
                 });
             }
-            let _ = context.run(input, |ctx| {
+            let output = context.run(input, |ctx| {
                 editor.text_editor_window(ctx, &mut document, &mut history)
             });
             if frame == 1 {
@@ -735,15 +809,43 @@ mod tests {
                     "toolbar overlaps text: {bar:?} {rect:?}"
                 );
                 assert!(bar.width() <= 126. && bar.height() <= 34., "{bar:?}");
+                font_position = egui::pos2(bar.left() + 17., bar.center().y);
                 assert!(
                     context
                         .memory(|m| m.area_rect(egui::Id::new("text-properties-window")))
                         .is_none()
                 );
             }
+            if frame == 4 {
+                assert!(egui::Popup::is_any_open(&context));
+                let label_position = |label| {
+                    output
+                        .shapes
+                        .iter()
+                        .find_map(|shape| match &shape.shape {
+                            egui::Shape::Text(text) if text.galley.text() == label => {
+                                Some(text.pos + text.galley.size() * 0.5)
+                            }
+                            _ => None,
+                        })
+                        .unwrap()
+                };
+                bold_position = label_position("B");
+                preset_position = label_position("48");
+                size_increase_position = label_position("+");
+                assert!(bold_position.y < preset_position.y);
+            }
+            if frame == 8 {
+                assert_eq!(document.annotations[0].font_size, 48.);
+                assert!(egui::Popup::is_any_open(&context));
+            }
         }
         assert!(editor.text_dialog.is_none());
         assert_eq!(document.annotations[0].text, content);
+        assert!(document.annotations[0].text_style.bold);
+        assert_eq!(document.annotations[0].font_size, 49.);
+        assert!(history.undo(&mut document));
+        assert!(!document.annotations[0].text_style.bold);
         editor.open_text_editor(0, document.edit_state(), &document);
         assert_ne!(editor.text_editor_generation, generation);
     }
@@ -798,7 +900,7 @@ mod tests {
                     let bar = ctx
                         .memory(|m| m.area_rect(egui::Id::new("inline-text-properties")))
                         .unwrap();
-                    assert!(bar.width() <= 156. && bar.height() <= 34.);
+                    assert!(bar.width() <= 156. && bar.height() <= 34., "{bar:?}");
                     assert!(!bar.intersects(rect));
                 }
             }

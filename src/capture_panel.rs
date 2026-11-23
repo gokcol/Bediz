@@ -229,17 +229,17 @@ pub fn menu_summary(settings: &Settings, _shape: CaptureShape, displays: &[Displ
         settings.capture_destination.label(),
     )
 }
-fn card(ctx: &egui::Context) -> egui::Frame {
+fn card(palette: appearance::Palette) -> egui::Frame {
     egui::Frame::new()
-        .fill(crate::appearance::surface(ctx))
-        .corner_radius(8)
-        .inner_margin(14)
-        .stroke(Stroke::new(1., appearance::palette(ctx).border))
+        .fill(palette.surface)
+        .corner_radius(14)
+        .inner_margin(16)
+        .stroke(Stroke::new(1., palette.border))
         .shadow(egui::Shadow {
-            offset: [0, 2],
-            blur: 10,
+            offset: [0, 3],
+            blur: 12,
             spread: 0,
-            color: Color32::from_black_alpha(14),
+            color: Color32::from_black_alpha(21),
         })
 }
 
@@ -251,156 +251,557 @@ pub fn ui(
     available: Availability,
     cat: Option<egui::TextureId>,
 ) -> Response {
-    ui.spacing_mut().button_padding = Vec2::new(9., 5.);
-    ui.spacing_mut().interact_size.y = 28.;
     let mut result = Response::default();
-    egui::ScrollArea::vertical().id_salt("capture-console-scroll").show(ui, |ui| {
-        let width = (ui.available_width() - 24.).clamp(560., 780.);
-        let offset = ((ui.available_width() - width) * 0.5).max(0.);
-        ui.add_space(10.);
-        ui.horizontal(|ui| {
-            ui.add_space(offset);
-            ui.vertical(|ui| {
-                ui.set_width(width);
-                ui.spacing_mut().item_spacing = Vec2::new(10., 10.);
-                ui.horizontal(|ui| {
-                    let (rect, _) = ui.allocate_exact_size(Vec2::splat(38.), egui::Sense::hover());
-                    ui.painter().rect_filled(rect, 8, appearance::palette(ui.ctx()).navy);
-                    if let Some(cat) = cat {
-                        ui.painter().image(cat, rect.shrink(2.), Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1., 1.)), Color32::WHITE);
-                    } else { appearance::icon(ui.painter(), rect.center(), appearance::Icon::Capture, appearance::palette(ui.ctx()).ginger, 23.); }
-                    ui.vertical(|ui| {
-                        ui.label(egui::RichText::new("Capture your screen").size(20.).strong());
-                        ui.label(egui::RichText::new("Your screen, ready to explain.").color(appearance::palette(ui.ctx()).muted));
-                    });
-                });
-                ui.horizontal(|ui| {
-                    let tile_width = (width - 10. * (CaptureMode::ALL.len() - 1) as f32) / CaptureMode::ALL.len() as f32;
-                    for mode in CaptureMode::ALL {
-                        if mode_tile(ui, mode, settings.capture_mode == mode, tile_width).clicked() {
-                            result.changed |= settings.capture_mode != mode;
-                            settings.capture_mode = mode;
-                        }
-                    }
-                });
-                ui.horizontal_top(|ui| {
-                    ui.vertical(|ui| {
-                        ui.set_width(width - 264.);
-                        card(ui.ctx()).show(ui, |ui| {
-                            ui.set_width(width - 292.);
-                            ui.spacing_mut().item_spacing.y = 10.;
+    egui::ScrollArea::vertical()
+        .id_salt("capture-console-scroll")
+        .show(ui, |ui| {
+            const GAP: f32 = 12.;
+            let width = (ui.available_width() - 28.).clamp(1., 880.);
+            ui.add_space(14.);
+            ui.vertical_centered(|ui| {
+                ui.allocate_ui_with_layout(
+                    Vec2::new(width, 0.),
+                    egui::Layout::top_down(egui::Align::Min),
+                    |ui| {
+                        ui.set_width(width);
+                        ui.spacing_mut().item_spacing = Vec2::new(GAP, GAP);
+                        capture_header(ui, cat, &available, &mut result);
+
+                        let columns = if width >= 660. {
+                            6
+                        } else if width >= 345. {
+                            3
+                        } else {
+                            2
+                        };
+                        let tile_width = (width - GAP * (columns - 1) as f32) / columns as f32;
+                        for row in CaptureMode::ALL.chunks(columns) {
                             ui.horizontal(|ui| {
-                                ui.strong("Capture options");
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if appearance::document_icon_button(ui, "Find connected displays", appearance::Icon::Refresh).clicked() { result.action = Some(Action::RefreshDisplays); }
-                                });
-                            });
-                            let label = selected_display_label(settings, displays);
-                            egui::ComboBox::from_id_salt("capture-display").selected_text(label).width(ui.available_width()).show_ui(ui, |ui| {
-                                result.changed |= display_choices(ui, settings, displays);
-                            });
-                            ui.horizontal(|ui| {
-                                ui.label(egui::RichText::new("Timer").color(appearance::palette(ui.ctx()).muted));
-                                result.changed |= appearance::segmented(ui, "capture-timer", &mut settings.delay_seconds, &[
-                                    (0, "Off", None, "Capture immediately"),
-                                    (3, "3s", None, "Wait 3 seconds before capturing"),
-                                    (5, "5s", None, "Wait 5 seconds before capturing"),
-                                    (10, "10s", None, "Wait 10 seconds before capturing"),
-                                ]);
-                            });
-                            ui.horizontal_wrapped(|ui| {
-                                ui.spacing_mut().item_spacing = Vec2::new(18., 6.);
-                                result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| appearance::toggle(ui, &mut settings.include_pointer, "Include pointer")
-                                    .on_hover_text("Show the mouse pointer in the saved capture. Turn off for a clean image.").changed()).inner;
-                                result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Video, |ui| appearance::toggle(ui, &mut settings.capture_on_release, "Capture immediately after selection")
-                                    .on_hover_text("Off by default: adjust the selection, then click Capture. When enabled, releasing a region or clicking a window captures immediately. Multiple regions still wait for Capture or Enter.").changed()).inner;
-                            });
-                            ui.strong("After capture");
-                            if settings.capture_mode == CaptureMode::Text {
-                                ui.label("Copy text to clipboard · no image saved");
-                            } else if settings.capture_mode == CaptureMode::Video {
-                                ui.label("Save an MP4 in the Recordings folder");
-                                {
-                                    let look = settings.capture_theme.look();
-                                    ui.horizontal(|ui| {
-                                        ui.label("Record");
-                                        result.changed |= settings.video.target.ui(ui, &look);
-                                    });
-                                    result.changed |= crate::app::video_session::preferences_ui(
-                                        ui, &mut settings.video, &settings.output_dir, None, &look,
-                                    );
-                                    if appearance::action_button(ui, "Change save folder…", appearance::Icon::Open, true, false).clicked() {
-                                        result.action = Some(Action::ChooseFolder);
+                                for &mode in row {
+                                    if mode_tile(
+                                        ui,
+                                        mode,
+                                        settings.capture_mode == mode,
+                                        tile_width,
+                                    )
+                                    .clicked()
+                                    {
+                                        result.changed |= settings.capture_mode != mode;
+                                        settings.capture_mode = mode;
                                     }
                                 }
-                            } else {
-                            let destinations = CaptureDestination::ALL.map(|destination| (
-                                destination, destination.label(),
-                                Some(if destination == CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }),
-                                destination.hint(),
-                            ));
-                            result.changed |= appearance::segmented(ui, "capture-destination", &mut settings.capture_destination, &destinations);
-                            result.changed |= output_size_picker(ui, &mut settings.capture_output_size);
-                            ui.separator();
-                            ui.horizontal(|ui| {
-                                ui.strong("Save to library");
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    if appearance::action_button(ui, "Browse", appearance::Icon::Library, true, false).on_hover_text("Open your Library").clicked() { result.action = Some(Action::Library); }
-                                    if appearance::action_button(ui, "Change…", appearance::Icon::Open, true, false).on_hover_text("Choose where captures are saved").clicked() { result.action = Some(Action::ChooseFolder); }
-                                });
                             });
-                            let folder = folder_label(&settings.output_dir);
-                            egui::Frame::new().fill(appearance::palette(ui.ctx()).base).corner_radius(6).inner_margin(egui::Margin::symmetric(8, 5)).show(ui, |ui| {
-                                ui.set_width(ui.available_width());
-                                ui.horizontal(|ui| {
-                                    let (icon, _) = ui.allocate_exact_size(Vec2::splat(16.), egui::Sense::hover());
-                                    appearance::icon(ui.painter(), icon.center(), appearance::Icon::Open, appearance::palette(ui.ctx()).muted, 15.);
-                                    ui.add(egui::Label::new(egui::RichText::new(folder).size(12.5)).truncate())
-                                        .on_hover_text(settings.output_dir.display().to_string());
-                                });
+                        }
+
+                        if width >= 680. {
+                            let launch_width = width * 0.36;
+                            ui.horizontal_top(|ui| {
+                                capture_options(
+                                    ui,
+                                    width - launch_width - GAP,
+                                    settings,
+                                    displays,
+                                    &mut result,
+                                );
+                                launch_card(
+                                    ui,
+                                    launch_width,
+                                    settings,
+                                    available.capture,
+                                    &mut result,
+                                );
                             });
-                            ui.small("PNG · Organized by year / month / day");
-                            }
-                        });
-                    });
-                    let look = settings.capture_theme.look();
-                    egui::Frame::new().fill(look.palette.paper).stroke(Stroke::new(1., look.palette.border)).corner_radius(10).inner_margin(16).show(ui, |ui| {
-                        ui.vertical(|ui| {
-                        ui.set_width(222.);
-                        ui.spacing_mut().item_spacing.y = 8.;
-                        ui.label(egui::RichText::new("CAPTURE NOW").size(11.).strong().color(look.palette.ginger));
-                        ui.label(egui::RichText::new(settings.capture_mode.label()).size(19.).strong().color(look.palette.ink));
-                        ui.add(egui::Label::new(egui::RichText::new(settings.capture_mode.hint()).size(13.).color(look.palette.muted)).wrap());
-                        if ui.add_enabled_ui(available.capture, |ui| appearance::capture_button(ui, "Capture Now", Vec2::new(222., 40.))).inner.clicked() {
-                            result.action = Some(Action::Capture);
+                        } else {
+                            launch_card(ui, width, settings, available.capture, &mut result);
+                            capture_options(ui, width, settings, displays, &mut result);
                         }
-                        if ui.button(egui::RichText::new(settings.capture_shortcut.label()).strong().color(look.palette.ink)).on_hover_text("Change capture hotkey").clicked() {
-                            result.action = Some(Action::EditHotkey);
+                        if available.demo {
+                            ui.weak("Demo workspace · generated test image");
                         }
-                        ui.label(egui::RichText::new(if cfg!(target_os="macos") { "Also ⌃⇧. / ⌘⇧." } else { "Also Ctrl + Shift + ." }).size(12.).color(look.palette.muted));
-                        ui.visuals_mut().widgets.noninteractive.bg_stroke.color = look.palette.border;
-                        ui.separator();
-                        ui.label(egui::RichText::new(if settings.capture_mode == CaptureMode::Text { "Text is copied directly. Your editor and Library stay unchanged." } else if settings.capture_mode == CaptureMode::Video { "Position the webcam inside the chosen window or display." } else { settings.capture_destination.hint() }).size(12.).color(look.palette.muted));
-                        });
-                    });
-                });
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(egui::RichText::new(if cfg!(target_os="macos") { "Built-in Capture Now is always in your menu bar." } else { "Built-in Capture Now is always in your system tray." }).size(12.).color(appearance::palette(ui.ctx()).muted));
-                    if appearance::action_button(ui, "Capture panel", appearance::Icon::Tray, true, false).clicked() { result.action = Some(Action::Panel); }
-                    if ui.add_enabled(available.background, egui::Button::new("Keep ready in background").small().frame(false)).clicked() { result.action = Some(Action::Background); }
-                });
-                if available.permission_needed {
-                    ui.horizontal(|ui| {
-                        ui.small("Allow screen recording to capture other apps.");
-                        if ui.small_button("Allow screen capture…").clicked() { result.action = Some(Action::Permission); }
-                    });
-                }
-                if available.demo { ui.small("Demo workspace · generated test image"); }
+                        ui.add_space(6.);
+                    },
+                );
             });
         });
-        ui.add_space(16.);
-    });
     result
+}
+
+fn capture_header(
+    ui: &mut egui::Ui,
+    cat: Option<egui::TextureId>,
+    available: &Availability,
+    result: &mut Response,
+) {
+    let p = appearance::palette(ui.ctx());
+    let wide = ui.available_width() >= 610.;
+    let title = |ui: &mut egui::Ui| {
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(42.), egui::Sense::hover());
+        appearance::gradient(
+            ui.painter(),
+            rect,
+            11.,
+            p.navy.lerp_to_gamma(p.accent, 0.42),
+            p.navy,
+        );
+        if let Some(cat) = cat {
+            ui.painter().image(
+                cat,
+                rect.shrink(3.),
+                Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1., 1.)),
+                Color32::WHITE,
+            );
+        } else {
+            appearance::icon(
+                ui.painter(),
+                rect.center(),
+                appearance::Icon::Capture,
+                Color32::WHITE,
+                22.,
+            );
+        }
+        ui.label(
+            egui::RichText::new("Capture your screen")
+                .size(25.)
+                .strong(),
+        );
+    };
+    let mut actions = |ui: &mut egui::Ui| {
+        if appearance::toolbar_action_button(
+            ui,
+            "Capture panel",
+            appearance::Icon::Tray,
+            true,
+            false,
+        )
+        .on_hover_text(if cfg!(target_os = "macos") {
+            "Also available from the menu bar"
+        } else {
+            "Also available from the system tray"
+        })
+        .clicked()
+        {
+            result.action = Some(Action::Panel);
+        }
+        if appearance::toolbar_action_button(
+            ui,
+            "Keep ready in background",
+            appearance::Icon::Power,
+            available.background,
+            false,
+        )
+        .clicked()
+        {
+            result.action = Some(Action::Background);
+        }
+    };
+    if wide {
+        ui.horizontal(|ui| {
+            title(ui);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), actions);
+        });
+    } else {
+        ui.horizontal_wrapped(|ui| {
+            title(ui);
+            actions(ui);
+        });
+    }
+    if available.permission_needed {
+        egui::Frame::new()
+            .fill(p.cream)
+            .corner_radius(8)
+            .inner_margin(8)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Allow screen recording to capture other apps.");
+                    if ui.small_button("Allow screen capture…").clicked() {
+                        result.action = Some(Action::Permission);
+                    }
+                });
+            });
+    }
+}
+
+fn capture_options(
+    ui: &mut egui::Ui,
+    width: f32,
+    settings: &mut Settings,
+    displays: &[DisplayInfo],
+    result: &mut Response,
+) {
+    let p = appearance::palette(ui.ctx());
+    ui.allocate_ui_with_layout(Vec2::new(width, 0.), egui::Layout::top_down(egui::Align::Min), |ui| {
+        card(p).show(ui, |ui| {
+            ui.set_width((width - 34.).max(1.));
+            ui.spacing_mut().item_spacing = Vec2::new(8., 9.);
+            ui.spacing_mut().interact_size.y = 28.;
+            option_heading(ui, "Capture options", appearance::Icon::Settings);
+            ui.horizontal(|ui| {
+                let label = selected_display_label(settings, displays);
+                egui::ComboBox::from_id_salt("capture-display")
+                    .selected_text(label)
+                    .width((ui.available_width() - 40.).max(60.))
+                    .show_ui(ui, |ui| {
+                        result.changed |= display_choices(ui, settings, displays);
+                    });
+                if appearance::document_icon_button(ui, "Find connected displays", appearance::Icon::Refresh).clicked() {
+                    result.action = Some(Action::RefreshDisplays);
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.weak("Timer");
+                result.changed |= appearance::segmented(ui, "capture-timer", &mut settings.delay_seconds, &[
+                    (0, "Off", None, "Capture immediately"),
+                    (3, "3s", None, "Wait 3 seconds before capturing"),
+                    (5, "5s", None, "Wait 5 seconds before capturing"),
+                    (10, "10s", None, "Wait 10 seconds before capturing"),
+                ]);
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = Vec2::new(14., 6.);
+                result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Text, |ui| {
+                    appearance::toggle(ui, &mut settings.include_pointer, "Include pointer")
+                        .on_hover_text("Show the mouse pointer in the saved capture.")
+                        .changed()
+                }).inner;
+                result.changed |= ui.add_enabled_ui(settings.capture_mode != CaptureMode::Video, |ui| {
+                    appearance::toggle(ui, &mut settings.capture_on_release, "Capture immediately after selection")
+                        .on_hover_text("Capture when you release a region or click a window. Multiple regions still wait for Capture or Enter.")
+                        .changed()
+                }).inner;
+            });
+
+            match settings.capture_mode {
+                CaptureMode::Text => {}
+                CaptureMode::Video => {
+                    ui.separator();
+                    option_heading(ui, "Recording options", appearance::Icon::Video);
+                    let look = CaptureLook {
+                        palette: p,
+                        dark: p.is_dark(),
+                        ..settings.capture_theme.look()
+                    };
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label("Record");
+                        result.changed |= settings.video.target.ui(ui, &look);
+                    });
+                    result.changed |= crate::app::video_session::preferences_ui(
+                        ui, &mut settings.video, &settings.output_dir, None, &look,
+                    );
+                    library_destination(ui, settings, result);
+                }
+                _ => {
+                    ui.separator();
+                    option_heading(ui, "After capture", appearance::Icon::Edit);
+                    let destinations = CaptureDestination::ALL.map(|destination| (
+                        destination, destination.label(),
+                        Some(if destination == CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }),
+                        destination.hint(),
+                    ));
+                    ui.horizontal_wrapped(|ui| {
+                        result.changed |= appearance::segmented(ui, "capture-destination", &mut settings.capture_destination, &destinations);
+                        result.changed |= output_size_picker(ui, &mut settings.capture_output_size);
+                    });
+                    library_destination(ui, settings, result);
+                }
+            }
+        });
+    });
+}
+
+fn option_heading(ui: &mut egui::Ui, label: &str, glyph: appearance::Icon) {
+    let p = appearance::palette(ui.ctx());
+    ui.horizontal(|ui| {
+        let (rect, _) = ui.allocate_exact_size(Vec2::splat(23.), egui::Sense::hover());
+        ui.painter().rect_filled(rect, 6, p.cream);
+        appearance::icon(ui.painter(), rect.center(), glyph, p.ink, 14.);
+        ui.label(egui::RichText::new(label).size(15.).strong());
+    });
+}
+
+fn library_destination(ui: &mut egui::Ui, settings: &Settings, result: &mut Response) {
+    let p = appearance::palette(ui.ctx());
+    let video = settings.capture_mode == CaptureMode::Video;
+    ui.separator();
+    ui.horizontal_wrapped(|ui| {
+        option_heading(
+            ui,
+            if video {
+                "Save recordings"
+            } else {
+                "Save to library"
+            },
+            appearance::Icon::Open,
+        );
+        if appearance::action_button(ui, "Change…", appearance::Icon::Open, true, false)
+            .on_hover_text("Choose where captures are saved")
+            .clicked()
+        {
+            result.action = Some(Action::ChooseFolder);
+        }
+        if !video
+            && appearance::action_button(ui, "Browse", appearance::Icon::Library, true, false)
+                .on_hover_text("Open your Library")
+                .clicked()
+        {
+            result.action = Some(Action::Library);
+        }
+    });
+    egui::Frame::new()
+        .fill(p.base)
+        .corner_radius(7)
+        .inner_margin(egui::Margin::symmetric(9, 7))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let folder = if video {
+                settings.output_dir.join("Recordings")
+            } else {
+                settings.output_dir.clone()
+            };
+            ui.add(
+                egui::Label::new(egui::RichText::new(folder_label(&folder)).size(12.5)).truncate(),
+            )
+            .on_hover_text(folder.display().to_string());
+        });
+    ui.small(if video {
+        "MP4"
+    } else {
+        "PNG · Organized by year / month / day"
+    });
+}
+
+fn launch_card(
+    ui: &mut egui::Ui,
+    width: f32,
+    settings: &Settings,
+    enabled: bool,
+    result: &mut Response,
+) {
+    let look = settings.capture_theme.look();
+    let p = look.palette;
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, 0.),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            card(appearance::Palette {
+                surface: p.paper,
+                ..p
+            })
+            .show(ui, |ui| {
+                apply_look(ui, &look);
+                ui.set_width((width - 34.).max(1.));
+                ui.spacing_mut().item_spacing = Vec2::new(8., 9.);
+
+                capture_preview(ui, settings.capture_mode, &look);
+                ui.label(
+                    egui::RichText::new(settings.capture_mode.label())
+                        .size(23.)
+                        .strong(),
+                );
+                ui.add(
+                    egui::Label::new(
+                        egui::RichText::new(settings.capture_mode.hint())
+                            .size(13.)
+                            .color(p.muted),
+                    )
+                    .wrap(),
+                );
+                let button_size = Vec2::new(ui.available_width(), 42.);
+                if ui
+                    .add_enabled_ui(enabled, |ui| match settings.capture_mode {
+                        CaptureMode::Video => appearance::capture_button_with_icon(
+                            ui,
+                            "Capture Now",
+                            button_size,
+                            appearance::Icon::Video,
+                        ),
+                        CaptureMode::Text => appearance::capture_button_with_icon(
+                            ui,
+                            "Capture Now",
+                            button_size,
+                            appearance::Icon::Scan,
+                        ),
+                        _ => appearance::capture_button(ui, "Capture Now", button_size),
+                    })
+                    .inner
+                    .clicked()
+                {
+                    result.action = Some(Action::Capture);
+                }
+                if shortcut_keys(ui, settings, p).clicked() {
+                    result.action = Some(Action::EditHotkey);
+                }
+                let detail = match settings.capture_mode {
+                    CaptureMode::Text => None,
+                    CaptureMode::Video => {
+                        Some("Position the webcam inside the chosen window or display.")
+                    }
+                    _ => Some(settings.capture_destination.hint()),
+                };
+                if let Some(detail) = detail {
+                    ui.separator();
+                    ui.add(
+                        egui::Label::new(egui::RichText::new(detail).size(12.).color(p.muted))
+                            .wrap(),
+                    );
+                }
+            });
+        },
+    );
+}
+
+fn shortcut_keys(ui: &mut egui::Ui, settings: &Settings, p: appearance::Palette) -> egui::Response {
+    let keys = settings.capture_shortcut.keycaps();
+    let caps: Vec<_> = keys
+        .into_iter()
+        .map(|key| {
+            ui.painter()
+                .layout_no_wrap(key, egui::FontId::proportional(12.), p.ink)
+        })
+        .collect();
+    let width = caps
+        .iter()
+        .map(|cap| (cap.size().x + 10.).max(22.) + 4.)
+        .sum::<f32>()
+        - 4.;
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(width + 24., 26.), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!(
+                "Change capture hotkey: {}",
+                settings.capture_shortcut.label()
+            ),
+        )
+    });
+    let focused = response.hovered() || response.has_focus();
+    let mut x = rect.left();
+    for cap in caps {
+        let width = (cap.size().x + 10.).max(22.);
+        let key = Rect::from_min_size(egui::pos2(x, rect.top()), Vec2::new(width, 23.));
+        ui.painter()
+            .rect_filled(key.translate(Vec2::new(0., 2.)), 5, p.navy);
+        ui.painter().rect(
+            key,
+            5,
+            if focused {
+                p.cream
+            } else {
+                p.navy.lerp_to_gamma(p.paper, 0.45)
+            },
+            Stroke::new(1., if focused { p.accent_top } else { p.border }),
+            egui::StrokeKind::Inside,
+        );
+        ui.painter()
+            .galley(key.center() - cap.size() * 0.5, cap, p.ink);
+        x += width + 4.;
+    }
+    appearance::icon(
+        ui.painter(),
+        rect.right_center() - Vec2::new(9., 1.),
+        appearance::Icon::Pencil,
+        if focused { p.ink } else { p.muted },
+        13.,
+    );
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(if cfg!(target_os = "macos") {
+            "Change capture hotkey. Also available with ⌃⇧. or ⌘⇧."
+        } else {
+            "Change capture hotkey. Also available with Ctrl + Shift + ."
+        })
+}
+
+fn capture_preview(ui: &mut egui::Ui, mode: CaptureMode, look: &CaptureLook) {
+    let p = look.palette;
+    let (rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 94.), egui::Sense::hover());
+    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    appearance::gradient(&painter, rect, 10., look.top, p.navy);
+    painter.rect_stroke(
+        rect,
+        10,
+        Stroke::new(1., p.border),
+        egui::StrokeKind::Inside,
+    );
+    let accent = if look.dark { p.ginger } else { p.accent };
+    let scale = (rect.width() / 220.).min(1.);
+    let at = |x, y| rect.center() + Vec2::new(x, y) * scale;
+    let screen = Rect::from_min_max(at(-82., -34.), at(70., 33.));
+    painter.rect(
+        screen,
+        8,
+        p.base,
+        Stroke::new(1., p.border),
+        egui::StrokeKind::Inside,
+    );
+    let window = Rect::from_min_max(at(-60., -25.), at(45., 22.));
+    painter.rect(
+        window,
+        5,
+        p.paper,
+        Stroke::new(1., p.border),
+        egui::StrokeKind::Inside,
+    );
+    painter.line_segment([at(-60., -14.), at(45., -14.)], Stroke::new(1., p.border));
+    for x in [-53., -47., -41.] {
+        painter.circle_filled(at(x, -19.5), 1.35 * scale, p.muted);
+    }
+    let panel = Rect::from_min_max(at(-52., -7.), at(-29., 15.));
+    painter.rect_filled(panel, 3, p.cream);
+    for (y, end) in [(-5., 31.), (2., 14.), (9., 25.)] {
+        painter.line_segment([at(-20., y), at(end, y)], Stroke::new(2. * scale, p.muted));
+    }
+    let outline = |bounds| {
+        painter.rect_stroke(
+            bounds,
+            3,
+            Stroke::new(1.5, accent),
+            egui::StrokeKind::Inside,
+        );
+    };
+    match mode {
+        CaptureMode::Region | CaptureMode::Scrolling => {
+            let region = Rect::from_min_max(at(-55., -10.), at(29., 17.));
+            outline(region);
+            for corner in [
+                region.left_top(),
+                region.right_top(),
+                region.left_bottom(),
+                region.right_bottom(),
+            ] {
+                painter.rect_filled(
+                    Rect::from_center_size(corner, Vec2::splat(4. * scale)),
+                    1,
+                    accent,
+                );
+            }
+        }
+        CaptureMode::MultiRegion => {
+            outline(panel.expand(2. * scale));
+            outline(Rect::from_min_max(at(-23., -9.), at(35., 13.)));
+        }
+        CaptureMode::Window => outline(window),
+        CaptureMode::FullScreen => outline(screen),
+        CaptureMode::Text => {
+            let selection = Rect::from_min_max(at(-23., -10.), at(35., 14.));
+            painter.rect_filled(selection, 3, accent.gamma_multiply(0.23));
+            outline(selection);
+        }
+        CaptureMode::Video => {
+            outline(window);
+            painter.circle_filled(at(35., -19.5), 2.8 * scale, Color32::from_rgb(248, 94, 87));
+        }
+    }
+    let badge = at(69., 23.);
+    appearance::sculpted_tile(&painter, badge, mode_tone(mode), 30. * scale);
+    mode_icon(
+        &painter,
+        mode,
+        Rect::from_center_size(badge, Vec2::new(18., 15.) * scale),
+        Color32::WHITE,
+    );
 }
 
 pub(super) fn mode_icon(painter: &egui::Painter, mode: CaptureMode, rect: Rect, color: Color32) {
@@ -437,7 +838,7 @@ pub(super) fn mode_icon(painter: &egui::Painter, mode: CaptureMode, rect: Rect, 
             rect.height(),
         ),
         CaptureMode::MultiRegion => {
-            for offset in [Vec2::ZERO, Vec2::splat(10.)] {
+            for offset in [Vec2::ZERO, rect.size() * 0.35] {
                 painter.rect_stroke(
                     Rect::from_min_size(rect.min + offset, rect.size() * 0.65),
                     2,
@@ -483,19 +884,71 @@ pub(super) fn mode_icon(painter: &egui::Painter, mode: CaptureMode, rect: Rect, 
         }
     }
 }
-pub(super) fn mode_tile(
-    ui: &mut egui::Ui,
-    mode: CaptureMode,
-    selected: bool,
-    width: f32,
-) -> egui::Response {
-    sized_mode_tile(
-        ui,
+
+fn mode_tone(mode: CaptureMode) -> appearance::TileTone {
+    use appearance::TileTone;
+    match mode {
+        CaptureMode::Region => TileTone::Blue,
+        CaptureMode::MultiRegion | CaptureMode::Text => TileTone::Violet,
+        CaptureMode::Window | CaptureMode::Scrolling => TileTone::Teal,
+        CaptureMode::FullScreen => TileTone::Slate,
+        CaptureMode::Video => TileTone::Clay,
+    }
+}
+
+fn mode_tile(ui: &mut egui::Ui, mode: CaptureMode, selected: bool, width: f32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, 73.), egui::Sense::click());
+    mode_widget_info(ui, mode, selected, &response);
+    let p = appearance::palette(ui.ctx());
+    let tone = mode_tone(mode);
+    let ink = appearance::satin_ink(ui.ctx(), tone);
+    let fill = if selected {
+        0.20
+    } else if response.hovered() {
+        0.13
+    } else {
+        0.06
+    };
+    appearance::gradient(
+        ui.painter(),
+        rect,
+        12.,
+        p.surface.lerp_to_gamma(ink, fill),
+        p.surface,
+    );
+    let emphasized = selected || response.hovered() || response.has_focus();
+    ui.painter().rect_stroke(
+        rect,
+        12,
+        Stroke::new(
+            if selected { 1.7 } else { 1. },
+            if emphasized { ink } else { p.border },
+        ),
+        egui::StrokeKind::Inside,
+    );
+    let center = rect.center_top() + Vec2::new(0., 25.);
+    appearance::sculpted_tile(ui.painter(), center, tone, 34.);
+    mode_icon(
+        ui.painter(),
         mode,
-        selected,
-        Vec2::new(width, 64.),
-        appearance::palette(ui.ctx()),
-    )
+        Rect::from_center_size(center, Vec2::new(20., 16.)),
+        Color32::WHITE,
+    );
+    ui.painter().text(
+        rect.center_bottom() - Vec2::new(0., 16.),
+        egui::Align2::CENTER_CENTER,
+        mode.label(),
+        egui::FontId::proportional(13.),
+        p.ink,
+    );
+    if selected {
+        let mark = rect.right_top() + Vec2::new(-12., 12.);
+        ui.painter().circle_filled(mark, 6.5, ink);
+        appearance::icon(ui.painter(), mark, appearance::Icon::Check, p.surface, 8.);
+    }
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(mode.hint())
 }
 
 pub(super) fn compact_mode_tile(
@@ -505,18 +958,57 @@ pub(super) fn compact_mode_tile(
     size: Vec2,
     palette: appearance::Palette,
 ) -> egui::Response {
-    sized_mode_tile(ui, mode, selected, size, palette)
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    mode_widget_info(ui, mode, selected, &response);
+    let p = palette;
+    if selected {
+        appearance::satin_with_palette(
+            ui.painter(),
+            rect,
+            8.,
+            true,
+            response.is_pointer_button_down_on(),
+            p,
+        );
+    } else if response.hovered() {
+        ui.painter().rect_filled(rect, 8, p.cream);
+    }
+    let color = if selected {
+        Color32::WHITE
+    } else if response.hovered() {
+        p.ink
+    } else {
+        p.muted
+    };
+    mode_icon(
+        ui.painter(),
+        mode,
+        Rect::from_center_size(
+            rect.center_top() + Vec2::new(0., size.y * 0.32),
+            Vec2::new(19., 15.),
+        ),
+        color,
+    );
+    ui.painter().text(
+        rect.center_bottom() - Vec2::new(0., size.y * 0.22),
+        egui::Align2::CENTER_CENTER,
+        mode.label(),
+        egui::FontId::proportional(11.5),
+        color,
+    );
+    if response.has_focus() {
+        ui.painter().rect_stroke(
+            rect,
+            8,
+            Stroke::new(1.5, p.accent),
+            egui::StrokeKind::Inside,
+        );
+    }
+    // The compact launcher shows help in its header instead of a popup.
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-fn sized_mode_tile(
-    ui: &mut egui::Ui,
-    mode: CaptureMode,
-    selected: bool,
-    size: Vec2,
-    palette: appearance::Palette,
-) -> egui::Response {
-    let compact = size.y < 64.;
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+fn mode_widget_info(ui: &egui::Ui, mode: CaptureMode, selected: bool, response: &egui::Response) {
     response.widget_info(|| {
         egui::WidgetInfo::selected(
             egui::WidgetType::SelectableLabel,
@@ -525,121 +1017,6 @@ fn sized_mode_tile(
             mode.label(),
         )
     });
-    if compact {
-        let p = palette;
-        if selected {
-            appearance::satin_with_palette(
-                ui.painter(),
-                rect,
-                8.,
-                true,
-                response.is_pointer_button_down_on(),
-                p,
-            );
-        } else if response.hovered() {
-            ui.painter().rect_filled(rect, 8, p.cream);
-        }
-        let color = if selected {
-            Color32::WHITE
-        } else if response.hovered() {
-            p.ink
-        } else {
-            p.muted
-        };
-        mode_icon(
-            ui.painter(),
-            mode,
-            Rect::from_center_size(
-                rect.center_top() + Vec2::new(0., size.y * 0.32),
-                Vec2::new(19., 15.),
-            ),
-            color,
-        );
-        ui.painter().text(
-            rect.center_bottom() - Vec2::new(0., size.y * 0.22),
-            egui::Align2::CENTER_CENTER,
-            mode.label(),
-            egui::FontId::proportional(11.5),
-            color,
-        );
-        if response.has_focus() {
-            ui.painter().rect_stroke(
-                rect,
-                8,
-                Stroke::new(1.5, p.accent),
-                egui::StrokeKind::Inside,
-            );
-        }
-        // The compact launcher shows help in its header instead of a popup.
-        return response.on_hover_cursor(egui::CursorIcon::PointingHand);
-    }
-    let color = if selected && appearance::palette(ui.ctx()).is_dark() {
-        Color32::WHITE
-    } else if selected {
-        appearance::palette(ui.ctx()).cream
-    } else {
-        appearance::palette(ui.ctx()).ink
-    };
-    ui.painter().rect_filled(
-        rect,
-        10,
-        if selected {
-            appearance::palette(ui.ctx()).navy
-        } else {
-            crate::appearance::surface(ui.ctx())
-        },
-    );
-    ui.painter().rect_stroke(
-        rect,
-        10,
-        Stroke::new(
-            if selected || response.has_focus() {
-                2.
-            } else {
-                1.
-            },
-            if selected || response.hovered() {
-                appearance::palette(ui.ctx()).ginger
-            } else {
-                appearance::palette(ui.ctx()).border
-            },
-        ),
-        egui::StrokeKind::Inside,
-    );
-    if selected {
-        appearance::satin(
-            ui.painter(),
-            rect,
-            10.,
-            true,
-            response.is_pointer_button_down_on(),
-        );
-    }
-    mode_icon(
-        ui.painter(),
-        mode,
-        Rect::from_center_size(
-            rect.center_top() + Vec2::new(0., if compact { 17. } else { 21. }),
-            Vec2::new(25., 20.),
-        ),
-        color,
-    );
-    ui.painter().text(
-        rect.center_bottom() - Vec2::new(0., 13.),
-        egui::Align2::CENTER_CENTER,
-        mode.label(),
-        egui::FontId::proportional(if compact { 12. } else { 13. }),
-        color,
-    );
-    if !selected && response.hovered() {
-        ui.painter().rect_stroke(
-            rect,
-            10,
-            Stroke::new(1.5, appearance::palette(ui.ctx()).accent),
-            egui::StrokeKind::Inside,
-        );
-    }
-    response.on_hover_text(mode.hint())
 }
 
 #[cfg(test)]
@@ -648,15 +1025,28 @@ mod tests {
     use eframe::egui::Pos2;
     #[test]
     fn capture_modes_and_primary_action_are_visible_and_interactive() {
+        for (size, capture_theme) in [
+            (Vec2::new(940., 480.), CaptureTheme::Midnight),
+            (Vec2::new(635., 900.), CaptureTheme::Porcelain),
+        ] {
+            exercise_capture_console(size, capture_theme);
+        }
+    }
+
+    fn exercise_capture_console(size: Vec2, capture_theme: CaptureTheme) {
         let ctx = egui::Context::default();
         appearance::apply(&ctx);
-        let mut settings = Settings::default();
+        let mut settings = Settings {
+            capture_theme,
+            ..Default::default()
+        };
+        let hotkey = settings.capture_shortcut.keycaps().pop().unwrap();
         let mut shape = CaptureShape::Rectangle;
         let mut frame = |events| {
             let mut response = Response::default();
             let output = ctx.run(
                 egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(940., 480.))),
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
                     events,
                     ..Default::default()
                 },
@@ -691,6 +1081,8 @@ mod tests {
             "Editor",
             "Clipboard",
             "Capture Now",
+            "Capture panel",
+            &hotkey,
         ] {
             let t = output
                 .shapes
@@ -719,16 +1111,18 @@ mod tests {
                 })
                 .unwrap()
         };
-        for label in [
-            "Window",
-            "Multi-region",
-            "Full screen",
-            "Region",
-            "Include pointer",
-            "Capture immediately after selection",
-            "Clipboard",
-            "Editor",
-            "Capture Now",
+        for (label, action) in [
+            ("Capture panel", Some(Action::Panel)),
+            ("Window", None),
+            ("Multi-region", None),
+            ("Full screen", None),
+            ("Region", None),
+            ("Include pointer", None),
+            ("Capture immediately after selection", None),
+            ("Clipboard", None),
+            ("Editor", None),
+            ("Capture Now", Some(Action::Capture)),
+            (hotkey.as_str(), Some(Action::EditHotkey)),
         ] {
             let (output, _) = frame(vec![]);
             let at = center(&output, label);
@@ -740,8 +1134,12 @@ mod tests {
             };
             frame(vec![egui::Event::PointerMoved(at), button(true)]);
             let (_, response) = frame(vec![button(false)]);
-            if label == "Capture Now" {
-                assert_eq!(response.action, Some(Action::Capture));
+            if let Some(action) = action {
+                assert_eq!(
+                    response.action,
+                    Some(action),
+                    "{label} at {at:?} in {size:?}"
+                );
             } else {
                 assert!(
                     response.changed,

@@ -47,6 +47,7 @@ try {
         Copy-Item LICENSE (Join-Path $layout 'LICENSE.txt')
         Copy-Item assets/stamps/LICENSE-GRAPHICS (Join-Path $layout 'Twemoji-LICENSE.txt')
         Copy-Item assets/stamps/ATTRIBUTION.txt (Join-Path $layout 'Twemoji-ATTRIBUTION.txt')
+        Copy-Item assets/fonts/Font-LICENSES.txt -Destination $layout
         # ICO supports an embedded PNG; retain the existing 256px artwork exactly.
         $png = [IO.File]::ReadAllBytes((Join-Path $source 'assets/branding/myimage-app-icon-256.png'))
         $ico = [IO.BinaryWriter]::new([IO.File]::Create((Join-Path $layout 'MyImage.ico')))

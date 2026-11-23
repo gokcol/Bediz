@@ -664,10 +664,7 @@ pub(super) fn text_controls(
         " px",
     );
     ui.horizontal(|ui| {
-        ui.toggle_value(&mut style.italic, egui::RichText::new("I").italics())
-            .on_hover_text("Italic");
-        ui.toggle_value(&mut style.underline, egui::RichText::new("U").underline())
-            .on_hover_text("Underline");
+        style.emphasis_buttons(ui);
         ui.separator();
         ui.selectable_value(&mut style.alignment, Alignment::Left, "Left");
         ui.selectable_value(&mut style.alignment, Alignment::Center, "Center");

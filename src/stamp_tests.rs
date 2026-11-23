@@ -187,6 +187,17 @@ fn formatted_text_has_distinct_rendering_and_portable_properties() {
             alignment: crate::text_style::Alignment::Right,
             ..Default::default()
         },
+        crate::text_style::TextStyle {
+            bold: true,
+            ..Default::default()
+        },
+        crate::text_style::TextStyle {
+            bold: true,
+            monospace: true,
+            italic: true,
+            underline: true,
+            ..Default::default()
+        },
     ] {
         d.annotations[0].text_style = style;
         assert_ne!(render::flatten(&d).unwrap(), plain);
@@ -194,12 +205,19 @@ fn formatted_text_has_distinct_rendering_and_portable_properties() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("text.myimage");
     document::save_project(&d, &path).unwrap();
+    let encoded = std::fs::read(&path).unwrap();
+    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 26);
     let read = document::load_project(&path).unwrap();
     assert_eq!(d.annotations, read.annotations);
     assert_eq!(
         render::flatten(&d).unwrap(),
         render::flatten(&read).unwrap()
     );
+    d.annotations[0].text_style.bold = false;
+    document::save_project(&d, &path).unwrap();
+    let encoded = std::fs::read(&path).unwrap();
+    assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 23);
+    assert!(!encoded.windows(6).any(|window| window == b"\"bold\""));
 }
 #[test]
 #[ignore = "Creates a disposable native review fixture"]

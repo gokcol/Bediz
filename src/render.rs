@@ -33,7 +33,7 @@ thread_local! {
         egui::epaint::text::Fonts::new(
             TEXT_ATLAS_SIDE,
             TEXT_ALPHA,
-            egui::FontDefinitions::default(),
+            crate::text_style::font_definitions(),
         )
     );
     static TEXT_CACHE: RefCell<TextCache> = RefCell::new(TextCache::default());
@@ -350,25 +350,7 @@ fn styled_layout(
         crate::text_style::Alignment::Center => egui::Align::Center,
         crate::text_style::Alignment::Right => egui::Align::Max,
     };
-    job.append(
-        &annotation.text,
-        0.,
-        egui::TextFormat {
-            font_id: if style.monospace {
-                FontId::monospace(size)
-            } else {
-                FontId::proportional(size)
-            },
-            color: Color32::WHITE,
-            italics: style.italic,
-            underline: if style.underline {
-                Stroke::new((size / 18.).max(1.), Color32::WHITE)
-            } else {
-                Stroke::NONE
-            },
-            ..Default::default()
-        },
-    );
+    job.append(&annotation.text, 0., style.format(size, Color32::WHITE));
     fonts.with_pixels_per_point(1.0).layout_job(job)
 }
 

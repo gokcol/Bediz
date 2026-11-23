@@ -337,6 +337,10 @@ fn bundle(
         workspace.join("assets/stamps/ATTRIBUTION.txt"),
         contents.join("Resources/Twemoji-ATTRIBUTION.txt"),
     )?;
+    fs::copy(
+        workspace.join("assets/fonts/Font-LICENSES.txt"),
+        contents.join("Resources/Font-LICENSES.txt"),
+    )?;
     fs::copy(executable, macos.join("Bediz"))?;
     // Earlier Seyir versions probe this legacy path, then open the bundle.
     // Launch Services uses CFBundleExecutable for the running process.
@@ -459,12 +463,16 @@ fn bundle(
     release: bool,
 ) -> TaskResult<()> {
     let mut stage = StagingDirectory::create(destination)?;
-    for name in ["LICENSE-GRAPHICS", "ATTRIBUTION.txt"] {
+    for (source, name) in [
+        ("assets/stamps/LICENSE-GRAPHICS", "Twemoji-LICENSE-GRAPHICS"),
+        ("assets/stamps/ATTRIBUTION.txt", "Twemoji-ATTRIBUTION.txt"),
+        ("assets/fonts/Font-LICENSES.txt", "Font-LICENSES.txt"),
+    ] {
         let staged = stage.path.join(name);
-        fs::copy(workspace.join("assets/stamps").join(name), &staged)?;
+        fs::copy(workspace.join(source), &staged)?;
         stage.publish(
             &staged,
-            &destination.join(format!("Twemoji-{name}")),
+            &destination.join(name),
             &format!("previous-{name}"),
         )?;
     }
@@ -510,6 +518,7 @@ mod packaging_tests {
             "assets/branding/MyImage.icns",
             "assets/stamps/LICENSE-GRAPHICS",
             "assets/stamps/ATTRIBUTION.txt",
+            "assets/fonts/Font-LICENSES.txt",
             "packaging/macos/Info.plist",
         ] {
             let output = root.join(relative);

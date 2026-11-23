@@ -92,6 +92,7 @@ try {
         Copy-Item -Path @('README.md', 'LICENSE', 'PRIVACY.md') -Destination $layout
         Copy-Item 'assets/stamps/LICENSE-GRAPHICS' (Join-Path $layout 'Twemoji-LICENSE.txt')
         Copy-Item 'assets/stamps/ATTRIBUTION.txt' (Join-Path $layout 'Twemoji-ATTRIBUTION.txt')
+        Copy-Item 'assets/fonts/Font-LICENSES.txt' -Destination $layout
         & $assetsTool (Join-Path $layout 'Assets')
         if ($LASTEXITCODE -ne 0) { throw 'MSIX artwork generation failed.' }
         [xml]$manifest = Get-Content packaging/windows/msix/AppxManifest.xml -Raw

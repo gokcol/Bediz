@@ -307,7 +307,7 @@ pub fn apply(ctx: &egui::Context) {
             "seguisym.ttf",
         )
     };
-    let mut fonts = egui::FontDefinitions::default();
+    let mut fonts = crate::text_style::font_definitions();
     let proportional = fonts
         .families
         .entry(egui::FontFamily::Proportional)
