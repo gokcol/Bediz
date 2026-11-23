@@ -2,6 +2,16 @@ use super::*;
 use crate::{capture::CaptureMode, scroll_capture::Stitcher};
 
 const SELECTION_FADE_SECONDS: f64 = 0.16;
+const CAPTURE_GUIDE_STROKES: [Stroke; 2] = [
+    Stroke {
+        width: 3.,
+        color: Color32::from_gray(24),
+    },
+    Stroke {
+        width: 1.,
+        color: Color32::WHITE,
+    },
+];
 
 fn selection_shade_alpha(elapsed: f64) -> u8 {
     let t = (elapsed / SELECTION_FADE_SECONDS).clamp(0., 1.);
@@ -1197,21 +1207,17 @@ impl MyImageApp {
                     && let Some(p) = pointer.filter(|p| !bar.contains(*p))
                     && chosen.is_none()
                 {
-                    let stroke = Stroke::new(1., Color32::from_white_alpha(170));
-                    painter.line_segment(
-                        [
-                            Pos2::new(bounds.left(), p.y),
-                            Pos2::new(bounds.right(), p.y),
-                        ],
-                        stroke,
-                    );
-                    painter.line_segment(
-                        [
-                            Pos2::new(p.x, bounds.top()),
-                            Pos2::new(p.x, bounds.bottom()),
-                        ],
-                        stroke,
-                    );
+                    // Draw both outlines first so the light center stays clear at the crossing.
+                    for stroke in CAPTURE_GUIDE_STROKES {
+                        painter.line_segment(
+                            [Pos2::new(bounds.left(), p.y), Pos2::new(bounds.right(), p.y)],
+                            stroke,
+                        );
+                        painter.line_segment(
+                            [Pos2::new(p.x, bounds.top()), Pos2::new(p.x, bounds.bottom())],
+                            stroke,
+                        );
+                    }
                 }
                 if selection.magnifier
                     && !matches!(target_mode, CaptureMode::Window | CaptureMode::FullScreen)
@@ -2305,7 +2311,9 @@ mod tests {
         );
         assert!(!output.shapes.iter().any(|shape| matches!(
             &shape.shape,
-            egui::Shape::LineSegment { stroke, .. } if stroke.color == Color32::from_white_alpha(170)
+            egui::Shape::LineSegment { points: [start, end], stroke }
+                if CAPTURE_GUIDE_STROKES.contains(stroke)
+                    && ((start.x == 0. && end.x == 800.) || (start.y == 0. && end.y == 600.))
         )));
         assert!(screen.drag.bounds().is_none());
         #[cfg(target_os = "macos")]
@@ -3138,9 +3146,9 @@ mod tests {
                 .iter()
                 .filter_map(|shape| {
                     if let egui::Shape::LineSegment { points, stroke } = &shape.shape
-                        && stroke.color == Color32::from_white_alpha(170)
+                        && CAPTURE_GUIDE_STROKES.contains(stroke)
                     {
-                        Some(*points)
+                        Some((*points, *stroke))
                     } else {
                         None
                     }
@@ -3149,11 +3157,16 @@ mod tests {
             if screen.display.is_primary {
                 assert!(guides.is_empty());
             } else {
+                let horizontal = [Pos2::new(0., 75.), Pos2::new(400., 75.)];
+                let vertical = [Pos2::new(100., 0.), Pos2::new(100., 300.)];
+                let [outline, center] = CAPTURE_GUIDE_STROKES;
                 assert_eq!(
                     guides,
                     [
-                        [Pos2::new(0., 75.), Pos2::new(400., 75.)],
-                        [Pos2::new(100., 0.), Pos2::new(100., 300.)],
+                        (horizontal, outline),
+                        (vertical, outline),
+                        (horizontal, center),
+                        (vertical, center),
                     ]
                 );
                 assert_eq!(

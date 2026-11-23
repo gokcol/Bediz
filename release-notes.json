@@ -1,8 +1,9 @@
 {
   "version": "4.0.0",
-  "build": 168,
-  "store_version": "4.0.0.0",
+  "build": 169,
+  "store_version": "4.0.1.0",
   "changes": [
+    "Capture guides use a white center with a dark outline so they stay visible over both light and dark content.",
     "Open videos in the main Bediz workspace. Playback controls and Recents stay within reach.",
     "Hover over a Library thumbnail for its filename, size, date and dimensions.",
     "The scrolling-capture preview leaves more room for the image with a simpler footer.",
