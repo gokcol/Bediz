@@ -286,7 +286,7 @@ impl Drop for Frames {
     }
 }
 
-struct FrameMap {
+pub(super) struct FrameMap {
     width: usize,
     height: usize,
     offset: [usize; 2],
@@ -295,7 +295,7 @@ struct FrameMap {
 }
 
 impl FrameMap {
-    fn new(source_width: u32, source_height: u32, width: u32, height: u32) -> Self {
+    pub(super) fn new(source_width: u32, source_height: u32, width: u32, height: u32) -> Self {
         let scale = (f64::from(width) / f64::from(source_width))
             .min(f64::from(height) / f64::from(source_height));
         let w = ((f64::from(source_width) * scale).round() as usize & !1).max(2);
@@ -313,6 +313,32 @@ impl FrameMap {
     }
 
     fn nv12(&self, bgra: &[u8], pitch: usize, output: &mut [u8]) {
+        self.convert(bgra, pitch, output, |pixel| {
+            [
+                i32::from(pixel[2]),
+                i32::from(pixel[1]),
+                i32::from(pixel[0]),
+            ]
+        });
+    }
+
+    pub(super) fn rgba_to_nv12(&self, rgba: &image::RgbaImage, output: &mut [u8]) {
+        self.convert(rgba.as_raw(), rgba.width() as usize * 4, output, |pixel| {
+            [
+                i32::from(pixel[0]),
+                i32::from(pixel[1]),
+                i32::from(pixel[2]),
+            ]
+        });
+    }
+
+    fn convert(
+        &self,
+        pixels: &[u8],
+        pitch: usize,
+        output: &mut [u8],
+        rgb: impl Fn(&[u8]) -> [i32; 3],
+    ) {
         let (luma, chroma) = output.split_at_mut(self.width * self.height);
         luma.fill(16);
         chroma.fill(128);
@@ -324,10 +350,10 @@ impl FrameMap {
             let mut y2 = y1 + self.width;
             let (first, second) = (source_rows[0] * pitch, source_rows[1] * pitch);
             for columns in self.xs.chunks_exact(2) {
-                let a = rgb(bgra, first + columns[0]);
-                let b = rgb(bgra, first + columns[1]);
-                let c = rgb(bgra, second + columns[0]);
-                let d = rgb(bgra, second + columns[1]);
+                let a = rgb(&pixels[first + columns[0]..]);
+                let b = rgb(&pixels[first + columns[1]..]);
+                let c = rgb(&pixels[second + columns[0]..]);
+                let d = rgb(&pixels[second + columns[1]..]);
                 luma[y1] = y_value(a);
                 luma[y1 + 1] = y_value(b);
                 luma[y2] = y_value(c);
@@ -344,11 +370,6 @@ impl FrameMap {
             }
         }
     }
-}
-
-fn rgb(bgra: &[u8], offset: usize) -> [i32; 3] {
-    let bgr = &bgra[offset..][..3];
-    [i32::from(bgr[2]), i32::from(bgr[1]), i32::from(bgr[0])]
 }
 
 fn y_value([r, g, b]: [i32; 3]) -> u8 {

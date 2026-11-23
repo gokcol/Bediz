@@ -125,7 +125,7 @@ impl Media {
         object(|out| unsafe { (self.create_attributes)(out, 4) })
     }
 
-    fn media_type(&self, major: &GUID, subtype: &GUID) -> Result<IMFMediaType> {
+    pub(super) fn media_type(&self, major: &GUID, subtype: &GUID) -> Result<IMFMediaType> {
         let format: IMFMediaType = object(|out| unsafe { (self.create_type)(out) })?;
         // SAFETY: The returned COM media type and the GUIDs are valid.
         unsafe {
@@ -133,6 +133,32 @@ impl Media {
             format.SetGUID(&MF_MT_SUBTYPE, subtype)?;
         }
         Ok(format)
+    }
+
+    pub(super) fn reader(&self, path: &Path, rgb: bool) -> Result<IMFSourceReader> {
+        let attributes = self.attributes()?;
+        let path = HSTRING::from(path.as_os_str());
+        // SAFETY: These locally owned values remain valid during initialization.
+        unsafe {
+            if rgb {
+                attributes.SetUINT32(&MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, 1)?;
+            }
+            object(|out| (self.create_reader)(PCWSTR(path.as_ptr()), attributes.as_raw(), out))
+        }
+    }
+
+    pub(super) fn rgb_stride(&self, format: &IMFMediaType, width: u32) -> Result<i32> {
+        // SAFETY: Media Foundation writes to live local storage for a known RGB32 format.
+        unsafe {
+            format
+                .GetUINT32(&MF_MT_DEFAULT_STRIDE)
+                .map(|stride| stride as i32)
+                .or_else(|_| {
+                    let mut stride = 0;
+                    (self.default_stride)(MFVideoFormat_RGB32.data1, width, &mut stride).ok()?;
+                    Ok(stride)
+                })
+        }
     }
 
     fn sample(&self, bytes: &[u8], time: i64, duration: i64) -> Result<IMFSample> {
@@ -250,7 +276,11 @@ impl<'a> Writer<'a> {
     pub(super) fn video(&self, bytes: &[u8], frame: i64) -> Result<()> {
         let start = frame * TICKS / i64::from(FPS);
         let end = (frame + 1) * TICKS / i64::from(FPS);
-        self.write(self.video, bytes, start, end - start)
+        self.video_at(bytes, start, end - start)
+    }
+
+    pub(super) fn video_at(&self, bytes: &[u8], time: i64, duration: i64) -> Result<()> {
+        self.write(self.video, bytes, time, duration)
     }
 
     pub(super) fn audio(&self, bytes: &[u8], time: i64, duration: i64) -> Result<()> {

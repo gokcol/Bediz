@@ -49,6 +49,9 @@ jobs:
         run: rustup toolchain install 1.93.1 --profile minimal
       - name: Build desktop app and Store artwork
         run: cargo build --locked --release --target x86_64-pc-windows-msvc --bin myimage --example msix_assets
+      - name: Verify native video editing and export
+        if: ${{ inputs.mode == 'store' }}
+        run: cargo test --locked --release --target x86_64-pc-windows-msvc --bin myimage native_windows_edit -- --nocapture
       - name: Package and validate
         shell: pwsh
         env:

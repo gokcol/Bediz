@@ -928,10 +928,9 @@ impl MyImageApp {
 
 pub(super) fn is_video_path(path: &Path) -> bool {
     crate::library::is_recording(path)
-        || cfg!(target_os = "macos")
-            && path
-                .extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("bedizvideo"))
+        || path
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("bedizvideo"))
 }
 
 #[cfg(target_os = "macos")]
@@ -987,7 +986,9 @@ pub(super) fn save_project() {
 }
 
 #[cfg(target_os = "windows")]
-pub(super) use windows::Player as WindowsPlayer;
+pub(super) use windows::{
+    Player as WindowsPlayer, publish as publish_video, render_mp4, video_frame,
+};
 
 #[cfg(target_os = "windows")]
 impl MyImageApp {
@@ -1007,7 +1008,8 @@ impl MyImageApp {
             && let Some(path) = &self.video_path
         {
             self.video_open_pending = false;
-            match WindowsPlayer::open(HWND(handle.hwnd.get() as *mut _), path, ctx) {
+            let path = self.windows_timeline.player_file(path);
+            match WindowsPlayer::open(HWND(handle.hwnd.get() as *mut _), &path, ctx) {
                 Ok(player) => self.video_player = Some(player),
                 Err(error) => {
                     self.error = Some(format!("Could not open this video in Bediz: {error}"))

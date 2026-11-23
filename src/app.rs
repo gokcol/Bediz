@@ -12,7 +12,6 @@ mod capture_launcher;
 mod capture_output;
 #[path = "capture_session.rs"]
 mod capture_session;
-#[cfg(target_os = "macos")]
 #[path = "video/frame_annotation.rs"]
 mod frame_annotation;
 #[path = "screen_text.rs"]
@@ -21,6 +20,12 @@ mod screen_text;
 mod updates_ui;
 #[path = "video_session.rs"]
 pub(crate) mod video_session;
+#[cfg(any(target_os = "windows", test))]
+#[path = "video/windows_project.rs"]
+mod windows_project;
+#[cfg(target_os = "windows")]
+#[path = "video/windows_timeline.rs"]
+mod windows_timeline;
 use crate::{
     appearance::{self, Icon},
     capture::{self, DisplayInfo},
@@ -88,14 +93,14 @@ enum WorkEvent {
     StoragePrepared(Result<crate::storage_move::PreparedMove, String>),
     StorageProgress(usize, usize),
     StorageFinished(usize, Vec<String>),
-    #[cfg(target_os = "macos")]
     VideoFrameOpened(frame_annotation::Request, Result<Document, String>),
-    #[cfg(target_os = "macos")]
     VideoFrameArtwork(
         frame_annotation::Request,
         i64,
         Result<frame_annotation::Artwork, String>,
     ),
+    #[cfg(target_os = "windows")]
+    WindowsVideoRendered(Result<windows_timeline::Rendered, String>),
 }
 
 #[path = "file_browser.rs"]
@@ -211,7 +216,6 @@ pub struct MyImageApp {
     selection: Option<SelectionSession>,
     scroll_session: Option<ScrollSession>,
     recording: Option<video_session::Recording>,
-    #[cfg(target_os = "macos")]
     frame_reference: Option<frame_annotation::Reference>,
     video_path: Option<PathBuf>,
     video_bounds: Option<egui::Rect>,
@@ -219,6 +223,8 @@ pub struct MyImageApp {
     video_player: Option<video_session::WindowsPlayer>,
     #[cfg(target_os = "windows")]
     video_open_pending: bool,
+    #[cfg(target_os = "windows")]
+    windows_timeline: windows_timeline::Timeline,
     busy: bool,
     opening_image: bool,
     recent_browse_forward: bool,
@@ -369,7 +375,6 @@ impl MyImageApp {
             selection: None,
             scroll_session: None,
             recording: None,
-            #[cfg(target_os = "macos")]
             frame_reference: None,
             video_path: None,
             video_bounds: None,
@@ -377,6 +382,8 @@ impl MyImageApp {
             video_player: None,
             #[cfg(target_os = "windows")]
             video_open_pending: false,
+            #[cfg(target_os = "windows")]
+            windows_timeline: Default::default(),
             busy: false,
             opening_image: false,
             recent_browse_forward: true,
@@ -436,10 +443,7 @@ impl MyImageApp {
     }
 
     fn open_video(&mut self, ctx: &egui::Context) {
-        #[cfg(target_os = "macos")]
-        let extensions = &["mp4", "mov", "bedizvideo"][..];
-        #[cfg(target_os = "windows")]
-        let extensions = &["mp4", "mov"][..];
+        let extensions = &["mp4", "mov", "bedizvideo"];
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Open video")
             .add_filter("Video files", extensions)
@@ -466,17 +470,12 @@ impl MyImageApp {
             }
         }
         #[cfg(target_os = "windows")]
-        {
-            if !path.is_file() {
-                self.error = Some(format!(
-                    "This video is no longer available at {}.",
-                    path.display()
-                ));
+        match self.load_windows_video(&path) {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(error) => {
+                self.error = Some(error);
                 return;
-            }
-            if self.video_path.as_ref() != Some(&path) || self.video_player.is_none() {
-                self.video_player = None;
-                self.video_open_pending = true;
             }
         }
         self.finish_edit();
@@ -1330,14 +1329,14 @@ impl MyImageApp {
         }
         while let Ok(event) = self.work_rx.try_recv() {
             match event {
-                #[cfg(target_os = "macos")]
                 WorkEvent::VideoFrameOpened(request, result) => {
                     self.open_frame_reference(ctx, request, result)
                 }
-                #[cfg(target_os = "macos")]
                 WorkEvent::VideoFrameArtwork(request, duration, result) => {
                     self.frame_artwork_ready(ctx, request, duration, result)
                 }
+                #[cfg(target_os = "windows")]
+                WorkEvent::WindowsVideoRendered(result) => self.windows_video_rendered(result),
                 WorkEvent::Recovery(event) => self.recovery_event(ctx, event),
                 WorkEvent::StoragePrepared(result) => {
                     self.storage_prepared(ctx, result);
@@ -1746,7 +1745,6 @@ impl MyImageApp {
     }
 
     fn request_quit(&mut self, ctx: &egui::Context) {
-        #[cfg(target_os = "macos")]
         if self.focus_frame_reference(ctx) {
             return;
         }
@@ -1770,6 +1768,10 @@ impl MyImageApp {
             return;
         }
         if !self.can_replace_image(ctx, PendingAction::Quit) {
+            return;
+        }
+        #[cfg(target_os = "windows")]
+        if !self.allow_windows_video_change() {
             return;
         }
         #[cfg(target_os = "macos")]
@@ -2288,6 +2290,19 @@ impl MyImageApp {
                         ui.close();
                         video_session::save_project();
                     }
+                    #[cfg(target_os = "windows")]
+                    if app_menu::row(
+                        ui,
+                        "Save Video Project…",
+                        Icon::Save,
+                        true,
+                        &shortcut(egui::Key::S, command),
+                    )
+                    .clicked()
+                    {
+                        ui.close();
+                        self.save_windows_video();
+                    }
                     return;
                 }
                 if app_menu::row(
@@ -2427,10 +2442,11 @@ impl MyImageApp {
     }
 
     fn editing_video_frame(&self) -> bool {
-        #[cfg(target_os = "macos")]
-        return self.frame_reference.is_some();
         #[cfg(target_os = "windows")]
-        false
+        if self.windows_timeline.opening_frame() {
+            return true;
+        }
+        self.frame_reference.is_some()
     }
 
     fn video_workspace_active(&self) -> bool {
@@ -2459,27 +2475,16 @@ impl MyImageApp {
                 View::Viewer => self.viewer_ui(ui, ctx),
                 View::Editor => self.editor_ui(ui, ctx),
                 View::Video => {
-                    #[cfg(target_os = "macos")]
                     if self.frame_reference.is_some() {
                         ui.push_id("video-frame-editor", |ui| self.frame_reference_ui(ui, ctx));
                         return;
                     }
                     #[cfg(target_os = "windows")]
-                    if let Some(player) = &mut self.video_player {
-                        let mut canvas = ui.available_rect_before_wrap();
-                        let deck_height = 64.0_f32.min(canvas.height() * 0.35);
-                        canvas.max.y -= deck_height;
-                        let deck = egui::Rect::from_min_max(
-                            egui::pos2(canvas.left(), canvas.bottom() + 6.),
-                            egui::pos2(canvas.right(), canvas.bottom() + deck_height),
-                        );
-                        ui.scope_builder(egui::UiBuilder::new().max_rect(deck), |ui| {
-                            player.controls(ui)
-                        });
-                        self.video_bounds = Some(canvas);
-                        return;
+                    self.windows_timeline_ui(ui, ctx);
+                    #[cfg(target_os = "macos")]
+                    {
+                        self.video_bounds = Some(ui.available_rect_before_wrap());
                     }
-                    self.video_bounds = Some(ui.available_rect_before_wrap());
                 }
                 View::Create => {
                     if let Some(spec) = self.create_panel.ui(ui) {
@@ -2742,7 +2747,6 @@ impl MyImageApp {
             return;
         }
         self.prepare_updates(ctx);
-        #[cfg(target_os = "macos")]
         if self.video_workspace_active()
             && !self.editing_video_frame()
             && self.workspace_unobscured()
@@ -2753,7 +2757,10 @@ impl MyImageApp {
                 ))
             })
         {
+            #[cfg(target_os = "macos")]
             video_session::save_project();
+            #[cfg(target_os = "windows")]
+            self.save_windows_video();
         }
         if !self.busy
             && !self.video_workspace_active()

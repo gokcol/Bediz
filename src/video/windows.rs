@@ -1,10 +1,13 @@
 //! Windows recorder. COM objects, D3D capture and the MP4 writer stay on one worker.
 #[path = "windows_audio.rs"]
 mod windows_audio;
+#[path = "windows_edit_media.rs"]
+mod windows_edit_media;
 #[path = "windows_frames.rs"]
 mod windows_frames;
 #[path = "windows_media.rs"]
 mod windows_media;
+pub(in crate::app) use windows_edit_media::{reference as video_frame, render_mp4};
 #[path = "windows_player.rs"]
 mod windows_player;
 pub(in crate::app) use windows_player::Player;
@@ -243,7 +246,7 @@ fn ticks(time: Duration) -> i64 {
     (time.as_nanos() / 100) as i64
 }
 
-pub(super) fn publish(source: &Path, destination: &Path) -> io::Result<()> {
+pub(in crate::app) fn publish(source: &Path, destination: &Path) -> io::Result<()> {
     use ::windows::{
         Win32::Storage::FileSystem::{MOVE_FILE_FLAGS, MoveFileExW},
         core::{HSTRING, PCWSTR},

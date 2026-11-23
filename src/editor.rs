@@ -438,7 +438,6 @@ impl Default for EditorState {
 }
 
 impl EditorState {
-    #[cfg(target_os = "macos")]
     pub(crate) fn lock_reference(&mut self) {
         self.locked_reference = true;
         self.move_pixels = false;

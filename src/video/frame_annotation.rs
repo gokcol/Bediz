@@ -1,15 +1,17 @@
 use super::*;
 use image::ImageFormat;
-use std::{io::Cursor, sync::Mutex};
+use std::io::Cursor;
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
 
 const MAX_ARTWORK: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy)]
 pub(super) struct Request {
-    id: u64,
-    time: i64,
-    available: i64,
-    editing: bool,
+    pub(super) id: u64,
+    pub(super) time: i64,
+    pub(super) available: i64,
+    pub(super) editing: bool,
 }
 
 pub(super) struct Reference {
@@ -25,22 +27,34 @@ pub(super) struct Reference {
     confirm_cancel: bool,
 }
 
+#[cfg(target_os = "macos")]
 pub(super) struct Artwork {
     bytes: Vec<u8>,
     composite: bool,
     objects: Option<Vec<u8>>,
 }
 
+#[cfg(target_os = "windows")]
+pub(super) struct Artwork {
+    pub(super) reference: String,
+    pub(super) annotations: Vec<document::Annotation>,
+}
+
+#[cfg(target_os = "macos")]
 struct Bridge {
     ctx: egui::Context,
     tx: mpsc::Sender<WorkEvent>,
 }
 
+#[cfg(target_os = "macos")]
 static BRIDGE: Mutex<Option<Bridge>> = Mutex::new(None);
 
+#[cfg(target_os = "macos")]
 type OpenReference = extern "C" fn(u64, *const u8, usize, i64, i64, *const u8, usize) -> bool;
+#[cfg(target_os = "macos")]
 type ApplyArtwork = extern "C" fn(*const u8, usize, *mut u8, usize, u32, u32) -> bool;
 
+#[cfg(target_os = "macos")]
 unsafe extern "C" {
     fn bediz_video_frame_bridge(open: OpenReference, apply: ApplyArtwork);
     fn bediz_video_frame_result(
@@ -54,6 +68,7 @@ unsafe extern "C" {
     ) -> bool;
 }
 
+#[cfg(target_os = "macos")]
 pub(super) fn connect(ctx: &egui::Context, tx: mpsc::Sender<WorkEvent>) {
     if let Ok(mut bridge) = BRIDGE.lock() {
         *bridge = Some(Bridge {
@@ -65,6 +80,7 @@ pub(super) fn connect(ctx: &egui::Context, tx: mpsc::Sender<WorkEvent>) {
     unsafe { bediz_video_frame_bridge(open_reference, apply_artwork) };
 }
 
+#[cfg(target_os = "macos")]
 extern "C" fn open_reference(
     id: u64,
     bytes: *const u8,
@@ -113,6 +129,7 @@ extern "C" fn open_reference(
     true
 }
 
+#[cfg(target_os = "macos")]
 fn decode_reference(png: &[u8], objects: Option<&[u8]>) -> Result<Document, String> {
     let image = image::load_from_memory_with_format(png, ImageFormat::Png)
         .map(image::DynamicImage::into_rgba8)
@@ -131,6 +148,7 @@ fn decode_reference(png: &[u8], objects: Option<&[u8]>) -> Result<Document, Stri
     Ok(document)
 }
 
+#[cfg(target_os = "macos")]
 fn complete(request: Request, duration: i64, artwork: Option<&Artwork>) -> bool {
     let (ptr, len, kind) = artwork.map_or((std::ptr::null(), 0, 0), |artwork| {
         (
@@ -146,6 +164,7 @@ fn complete(request: Request, duration: i64, artwork: Option<&Artwork>) -> bool 
     unsafe { bediz_video_frame_result(request.id, ptr, len, duration, kind, objects, size) }
 }
 
+#[cfg(target_os = "macos")]
 fn encode_artwork(mut document: Document, editing: bool) -> Result<Artwork, String> {
     if document.geometry != Default::default() {
         return Err("Frame annotations need the original video dimensions.".into());
@@ -191,6 +210,7 @@ fn encode_artwork(mut document: Document, editing: bool) -> Result<Artwork, Stri
     })
 }
 
+#[cfg(target_os = "macos")]
 extern "C" fn apply_artwork(
     program: *const u8,
     program_len: usize,
@@ -232,6 +252,35 @@ extern "C" fn apply_artwork(
     true
 }
 
+#[cfg(target_os = "windows")]
+pub(super) fn encode_artwork(document: Document, editing: bool) -> Result<Artwork, String> {
+    use base64::{Engine, engine::general_purpose::STANDARD};
+    if document.geometry != Default::default() {
+        return Err("Frame annotations need the original video dimensions.".into());
+    }
+    if !editing
+        && !document
+            .annotations
+            .iter()
+            .any(document::Annotation::visible)
+    {
+        return Err("Add or show an annotation before sending it to the video.".into());
+    }
+    document::validate_document(&document)?;
+    let mut png = Cursor::new(Vec::new());
+    document
+        .image
+        .write_to(&mut png, ImageFormat::Png)
+        .map_err(|error| error.to_string())?;
+    if png.get_ref().len() > MAX_ARTWORK {
+        return Err("This frame exceeds the video artwork limit of 32 MB.".into());
+    }
+    Ok(Artwork {
+        reference: STANDARD.encode(png.into_inner()),
+        annotations: document.annotations,
+    })
+}
+
 fn clock(time: i64) -> String {
     format!(
         "{:02}:{:02}:{:02}.{:03}",
@@ -243,6 +292,18 @@ fn clock(time: i64) -> String {
 }
 
 impl MyImageApp {
+    fn complete_frame(
+        &mut self,
+        request: Request,
+        duration: i64,
+        artwork: Option<Artwork>,
+    ) -> bool {
+        #[cfg(target_os = "macos")]
+        return complete(request, duration, artwork.as_ref());
+        #[cfg(target_os = "windows")]
+        self.complete_windows_frame(request, duration, artwork)
+    }
+
     pub(super) fn open_frame_reference(
         &mut self,
         ctx: &egui::Context,
@@ -253,12 +314,12 @@ impl MyImageApp {
             Ok(document) => document,
             Err(error) => {
                 self.error = Some(error);
-                complete(request, 0, None);
+                self.complete_frame(request, 0, None);
                 return;
             }
         };
         if self.frame_reference.is_some() || self.quitting {
-            complete(request, 0, None);
+            self.complete_frame(request, 0, None);
             return;
         }
         let texture = load_texture(ctx, "video-frame-reference", &document.image);
@@ -300,25 +361,28 @@ impl MyImageApp {
         duration: i64,
         result: Result<Artwork, String>,
     ) {
-        let Some(reference) = &mut self.frame_reference else {
-            return;
-        };
-        if reference.request.id != request.id {
+        if self
+            .frame_reference
+            .as_ref()
+            .is_none_or(|reference| reference.request.id != request.id)
+        {
             return;
         }
-        reference.sending = false;
-        match result {
-            Ok(artwork) if complete(request, duration, Some(&artwork)) => {
-                self.frame_reference = None;
-                ctx.request_repaint();
+        let error = match result {
+            Ok(artwork) => {
+                if self.complete_frame(request, duration, Some(artwork)) {
+                    self.frame_reference = None;
+                    ctx.request_repaint();
+                    return;
+                }
+                "The video timeline could not receive these annotations. Try again or cancel."
+                    .into()
             }
-            Ok(_) => {
-                reference.error = Some(
-                    "The video player could not receive these annotations. Try again or cancel."
-                        .into(),
-                )
-            }
-            Err(error) => reference.error = Some(error),
+            Err(error) => error,
+        };
+        if let Some(reference) = &mut self.frame_reference {
+            reference.sending = false;
+            reference.error = Some(error);
         }
     }
 
@@ -422,7 +486,8 @@ impl MyImageApp {
             }
         }
         if cancel {
-            complete(reference.request, 0, None);
+            let request = reference.request;
+            self.complete_frame(request, 0, None);
             self.frame_reference = None;
             ctx.request_repaint();
         } else if send {
@@ -452,7 +517,7 @@ impl MyImageApp {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     use super::*;
     use image::{Rgba, RgbaImage};

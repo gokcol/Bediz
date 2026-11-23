@@ -1,7 +1,7 @@
 {
   "version": "4.0.0",
-  "build": 167,
-  "store_version": "3.2.4.0",
+  "build": 168,
+  "store_version": "4.0.0.0",
   "changes": [
     "Open videos in the main Bediz workspace. Playback controls and Recents stay within reach.",
     "Hover over a Library thumbnail for its filename, size, date and dimensions.",
@@ -92,6 +92,8 @@
     "Scrolling controls stay outside the captured image while the editor remains hidden."
   ],
   "windows": [
+    "Pause a video and choose Annotate This Frame to add editable Bediz objects for a set duration.",
+    "Trim or split clips, save an editable Windows video project, and preview or export the edited timeline as MP4 with audio.",
     "Capture Now can record a window or a display to MP4 with pause, resume, resolution settings, a countdown and a choice of microphone or system audio.",
     "Play recordings inside Bediz with seeking, speed and mute controls.",
     "Windows video capture and playback are experimental and may not work properly on all devices.",

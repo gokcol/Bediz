@@ -172,6 +172,28 @@ impl Player {
         }
     }
 
+    pub(in crate::app) fn position(&self) -> Option<(i64, i64)> {
+        // SAFETY: These are read-only calls on the UI thread that owns Media Engine.
+        let (position, duration) =
+            unsafe { (self.engine.GetCurrentTime(), self.engine.GetDuration()) };
+        (position.is_finite() && duration.is_finite() && duration > 0.0).then(|| {
+            (
+                (position.max(0.0) * 1000.0).round() as i64,
+                (duration * 1000.0).ceil() as i64,
+            )
+        })
+    }
+
+    pub(in crate::app) fn pause(&self) {
+        // SAFETY: The player belongs to the current UI thread.
+        let _ = unsafe { self.engine.Pause() };
+    }
+
+    pub(in crate::app) fn seek(&self, time: i64) {
+        // SAFETY: The player belongs to the current UI thread.
+        let _ = unsafe { self.engine.SetCurrentTime(time as f64 / 1000.0) };
+    }
+
     pub(in crate::app) fn controls(&mut self, ui: &mut egui::Ui) {
         // SAFETY: This player is only accessed from the root UI thread.
         unsafe {
