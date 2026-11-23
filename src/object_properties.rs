@@ -628,34 +628,8 @@ pub(super) fn text_controls(
     size: &mut f32,
 ) -> bool {
     let before = style.clone();
-    let mut changed = false;
-    if egui::containers::menu::is_in_menu(ui) {
-        ui.horizontal(|ui| {
-            changed |= ui
-                .selectable_value(&mut style.monospace, false, "Sans serif")
-                .changed();
-            changed |= ui
-                .selectable_value(&mut style.monospace, true, "Monospace")
-                .changed();
-        });
-        changed |= font_size_menu(ui, size);
-    } else {
-        ui.horizontal(|ui| {
-            property_menu(
-                ui,
-                if style.monospace {
-                    "Monospace ▾"
-                } else {
-                    "Sans serif ▾"
-                },
-                |ui| {
-                    ui.selectable_value(&mut style.monospace, false, "Sans serif");
-                    ui.selectable_value(&mut style.monospace, true, "Monospace");
-                },
-            );
-            changed |= font_size_menu(ui, size);
-        });
-    }
+    style.font_face_picker(ui);
+    let mut changed = font_size_menu(ui, size);
     changed |= slider(
         ui,
         size,

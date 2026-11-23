@@ -557,35 +557,8 @@ fn color_controls(ui: &mut egui::Ui, color: &mut [u8; 4]) {
 }
 
 fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) {
-    let palette = appearance::palette(ui.ctx());
-    ui.weak("Font family");
-
-    egui::Frame::new()
-        .fill(palette.base)
-        .corner_radius(7)
-        .inner_margin(2)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                for (monospace, label) in [
-                    (false, egui::RichText::new("Sans serif")),
-                    (true, egui::RichText::new("Monospace").monospace()),
-                ] {
-                    if ui
-                        .add_sized(
-                            [101.5, 24.],
-                            egui::Button::selectable(
-                                annotation.text_style.monospace == monospace,
-                                label,
-                            )
-                            .corner_radius(5),
-                        )
-                        .clicked()
-                    {
-                        annotation.text_style.monospace = monospace;
-                    }
-                }
-            });
-        });
+    ui.weak("Typeface");
+    annotation.text_style.font_face_picker(ui);
 
     let size = &mut annotation.font_size;
     let max = crate::document::MAX_FONT_SIZE;
@@ -665,17 +638,21 @@ mod tests {
                 .new_annotation(AnnotationKind::Text, Point { x: 20., y: 20. });
             let mut popup_id = egui::Id::NULL;
             let bounds = Rect::from_min_size(Pos2::ZERO, egui::vec2(1200., 800.));
-            let mut custom_label = None;
-            for frame in 0..6 {
+            let mut expander = None;
+            let mut font_option = None;
+            for frame in 0..10 {
                 let mut events = vec![];
-                if let Some(pos) = custom_label
-                    && matches!(frame, 3 | 4)
-                {
+                let target = match frame {
+                    3 | 4 => expander,
+                    7 | 8 => font_option,
+                    _ => None,
+                };
+                if let Some(pos) = target {
                     events.push(egui::Event::PointerMoved(pos));
                     events.push(egui::Event::PointerButton {
                         pos,
                         button: PointerButton::Primary,
-                        pressed: frame == 3,
+                        pressed: matches!(frame, 3 | 7),
                         modifiers: Modifiers::NONE,
                     });
                 }
@@ -705,14 +682,21 @@ mod tests {
                             });
                     },
                 );
-                if !font && frame == 2 {
-                    custom_label = output.shapes.iter().find_map(|shape| match &shape.shape {
-                        egui::Shape::Text(text) if text.galley.text() == "Custom color" => {
+                let find_label = |label| {
+                    output.shapes.iter().find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text) if text.galley.text() == label => {
                             Some(text.pos + text.galley.size() * 0.5)
                         }
                         _ => None,
-                    });
-                    assert!(custom_label.is_some());
+                    })
+                };
+                if frame == 2 {
+                    expander = find_label(if font { "Sans serif" } else { "Custom color" });
+                    assert!(expander.is_some());
+                }
+                if font && frame == 6 {
+                    font_option = find_label("Crimson Text");
+                    assert!(font_option.is_some());
                 }
             }
             let popup = ctx.memory(|memory| memory.area_rect(popup_id)).unwrap();
@@ -721,7 +705,13 @@ mod tests {
                 popup.width() >= width && popup.width() <= width + 19.,
                 "{popup:?}"
             );
-            if !font {
+            if font {
+                assert_eq!(
+                    annotation.text_style.face,
+                    Some(crate::text_style::FontFace::CrimsonText)
+                );
+                assert!(popup.height() < 295., "{popup:?}");
+            } else {
                 assert!(popup.height() > 175. && popup.height() < 330., "{popup:?}");
             }
         }

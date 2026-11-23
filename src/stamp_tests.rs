@@ -218,6 +218,30 @@ fn formatted_text_has_distinct_rendering_and_portable_properties() {
     let encoded = std::fs::read(&path).unwrap();
     assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 23);
     assert!(!encoded.windows(6).any(|window| window == b"\"bold\""));
+
+    use crate::text_style::{FontFace, TextStyle};
+    for face in [
+        FontFace::Lato,
+        FontFace::CrimsonText,
+        FontFace::BarlowCondensed,
+        FontFace::AtkinsonHyperlegible,
+    ] {
+        d.annotations[0].text_style = TextStyle {
+            face: Some(face),
+            ..Default::default()
+        };
+        let regular = render::flatten(&d).unwrap();
+        assert_ne!(regular, plain);
+        d.annotations[0].text_style.bold = true;
+        let bold = render::flatten(&d).unwrap();
+        assert_ne!(bold, regular);
+        document::save_project(&d, &path).unwrap();
+        let encoded = std::fs::read(&path).unwrap();
+        assert_eq!(u32::from_le_bytes(encoded[8..12].try_into().unwrap()), 27);
+        let reopened = document::load_project(&path).unwrap();
+        assert_eq!(d.annotations, reopened.annotations);
+        assert_eq!(bold, render::flatten(&reopened).unwrap());
+    }
 }
 #[test]
 #[ignore = "Creates a disposable native review fixture"]

@@ -15,6 +15,7 @@
 //! Version 14 adds focus effects, pixel-selection masks and reversible cut-out strips.
 //! Version 24 adds photographed page correction and selection-based tone adjustments.
 //! Version 26 adds bold annotation text.
+//! Version 27 adds bundled typefaces for annotations.
 
 use crate::geometry::ImageGeometry;
 use image::{ImageDecoder, ImageFormat, ImageReader, RgbaImage};
@@ -28,7 +29,7 @@ use std::{
 };
 
 const MAGIC: &[u8; 8] = b"MYIMAGE\0";
-const VERSION: u32 = 26;
+const VERSION: u32 = 27;
 const HEADER_BYTES: u64 = 24;
 const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
 pub(crate) const MAX_METADATA_BYTES: usize = 48 * 1024 * 1024;
@@ -690,8 +691,14 @@ fn write_contents(
     json: &[u8],
 ) -> Result<(), String> {
     // Older builds can still read projects that use only existing edits.
-    let version = if document.annotations.iter().any(|a| a.text_style.bold) {
+    let version = if document
+        .annotations
+        .iter()
+        .any(|a| a.text_style.face.is_some())
+    {
         VERSION
+    } else if document.annotations.iter().any(|a| a.text_style.bold) {
+        26
     } else if document
         .annotations
         .iter()
@@ -797,6 +804,14 @@ pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Docum
         serde_json::from_slice(&json)
             .map_err(|error| format!("Cannot read project metadata: {error}"))?
     };
+    if version < 27
+        && metadata
+            .annotations
+            .iter()
+            .any(|a| a.text_style.face.is_some())
+    {
+        return Err("Bundled typefaces require Bediz project version 27.".into());
+    }
     if version < 26 && metadata.annotations.iter().any(|a| a.text_style.bold) {
         return Err("Bold text requires Bediz project version 26.".into());
     }
