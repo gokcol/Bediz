@@ -178,9 +178,9 @@ fn capture_hero(ui: &mut egui::Ui, width: f32, mascot: egui::TextureId) -> Optio
     content.add_space(7.);
     content
         .horizontal_wrapped(|ui| {
-            if home_button(ui, HomeAction::Capture, 156., true) {
+            if home_button(ui, HomeAction::Capture, 168., true) {
                 Some(HomeAction::Capture)
-            } else if home_button(ui, HomeAction::Record, 148., false) {
+            } else if home_button(ui, HomeAction::Record, 160., false) {
                 Some(HomeAction::Record)
             } else {
                 None
@@ -194,7 +194,7 @@ fn home_button(ui: &mut egui::Ui, action: HomeAction, width: f32, primary: bool)
     let response = ui.add(
         egui::Button::new("")
             .frame(false)
-            .min_size(vec2(width, 50.)),
+            .min_size(vec2(width, 58.)),
     );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
@@ -233,14 +233,14 @@ fn home_button(ui: &mut egui::Ui, action: HomeAction, width: f32, primary: bool)
         Stroke::new(1., if active { p.accent_top } else { border }),
         StrokeKind::Inside,
     );
-    let center = rect.left_center() + vec2(25., 0.);
-    painter.rect_filled(Rect::from_center_size(center, Vec2::splat(30.)), 8, tile);
-    appearance::icon(painter, center, icon, if primary { ink } else { tint }, 17.);
+    let center = rect.left_center() + vec2(26., 0.);
+    painter.rect_filled(Rect::from_center_size(center, Vec2::splat(34.)), 9, tile);
+    appearance::icon(painter, center, icon, if primary { ink } else { tint }, 19.);
     painter.text(
-        rect.left_center() + vec2(48., 0.),
+        rect.left_center() + vec2(52., 0.),
         Align2::LEFT_CENTER,
         label,
-        FontId::proportional(14.),
+        FontId::proportional(15.),
         ink,
     );
     response
