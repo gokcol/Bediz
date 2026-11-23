@@ -313,8 +313,7 @@ pub(in crate::app) fn reference(path: &Path, position: i64) -> Result<Arc<RgbaIm
 
 struct Composite {
     active: Vec<usize>,
-    objects: Vec<crate::document::Annotation>,
-    overlay: Option<RgbaImage>,
+    overlay: Option<Arc<RgbaImage>>,
     effects: bool,
 }
 
@@ -322,7 +321,6 @@ impl Composite {
     fn new() -> Self {
         Self {
             active: Vec::new(),
-            objects: Vec::new(),
             overlay: None,
             effects: false,
         }
@@ -342,40 +340,44 @@ impl Composite {
             .collect::<Vec<_>>();
         if self.active != active {
             self.active = active;
-            self.objects = self
+            self.effects = self
                 .active
                 .iter()
-                .flat_map(|&index| project.layers[index].annotations.iter().cloned())
-                .collect();
-            self.effects = self
-                .objects
-                .iter()
-                .any(|a| a.visible() && a.kind.needs_composite());
-            self.overlay = if self.objects.is_empty() || self.effects {
+                .flat_map(|&index| &project.layers[index].annotations)
+                .any(|a| a.visible() && a.needs_composite());
+            self.overlay = if self.active.is_empty() || self.effects {
                 None
             } else {
-                Some(render::flatten(&Document {
-                    image: Arc::new(RgbaImage::new(frame.width(), frame.height())),
-                    annotations: self.objects.clone(),
-                    geometry: Default::default(),
-                })?)
+                let base = Arc::new(RgbaImage::new(frame.width(), frame.height()));
+                Some(self.composite_layers(project, base)?)
             };
         }
         if self.effects {
-            return render::flatten(&Document {
-                image: frame,
-                annotations: self.objects.clone(),
-                geometry: Default::default(),
-            })
-            .map(Arc::new);
+            return self.composite_layers(project, frame);
         }
         if let Some(layer) = &self.overlay {
             let mut result = (*frame).clone();
-            image::imageops::overlay(&mut result, layer, 0, 0);
+            image::imageops::overlay(&mut result, layer.as_ref(), 0, 0);
             Ok(Arc::new(result))
         } else {
             Ok(frame)
         }
+    }
+
+    fn composite_layers(
+        &self,
+        project: &Project,
+        mut frame: Arc<RgbaImage>,
+    ) -> Result<Arc<RgbaImage>, String> {
+        // Object and group identities are local to the frame in which they were created.
+        for &index in &self.active {
+            frame = Arc::new(render::flatten(&Document {
+                image: frame,
+                annotations: project.layers[index].annotations.clone(),
+                geometry: Default::default(),
+            })?);
+        }
+        Ok(frame)
     }
 }
 
@@ -527,7 +529,7 @@ mod tests {
             "end": { "x": 54.0, "y": 54.0 },
             "color": [250, 0, 0, 255], "stroke_width": 2.0, "fill": true,
             "text": "", "font_size": 16.0,
-            "opacity": 1.0
+            "layer": {"object_id": 1}
         }))
         .unwrap();
         let mut project = Project::new(source, 2000);
@@ -555,12 +557,20 @@ mod tests {
             false,
         )
         .unwrap();
-        assert!(project.add_layer(Layer {
+        let primary = Layer {
             start: 250,
             duration: 300,
             reference: art.reference,
             annotations: art.annotations,
-        }));
+        };
+        let mut overlapping = primary.clone();
+        overlapping.start = 400;
+        overlapping.duration = 100;
+        overlapping.annotations[0].start = crate::document::Point { x: 4.0, y: 4.0 };
+        overlapping.annotations[0].end = crate::document::Point { x: 24.0, y: 24.0 };
+        overlapping.annotations[0].color = [0, 0, 250, 255];
+        assert!(project.add_layer(primary));
+        assert!(project.add_layer(overlapping));
         project.save(&file).unwrap();
         let project = Project::load(&file).unwrap();
         assert_eq!(project.length(), 1300);
@@ -572,8 +582,13 @@ mod tests {
         assert_eq!(progress.load(Ordering::Relaxed), 1300);
         let before = reference(&edited, 40).unwrap().get_pixel(32, 32).0;
         let during = reference(&edited, 360).unwrap().get_pixel(32, 32).0;
+        let overlapped = reference(&edited, 360).unwrap().get_pixel(16, 16).0;
         let after = reference(&edited, 850).unwrap().get_pixel(32, 32).0;
         assert!(during[0] > 150 && during[0] > during[1] + 60, "{during:?}");
+        assert!(
+            overlapped[2] > 150 && overlapped[2] > overlapped[0] + 60,
+            "{overlapped:?}"
+        );
         assert!(
             (i16::from(before[0]) - i16::from(before[1])).abs() < 20,
             "{before:?}"
