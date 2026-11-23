@@ -1,9 +1,9 @@
 {
   "version": "4.0.0",
-  "build": 170,
+  "build": 171,
   "store_version": "4.0.2.0",
   "changes": [
-    "Home puts recent images and recordings beside shortcuts for capturing, opening, pasting and creating.",
+    "Capture Studio puts Capture image and Record video at the top of Home, with Open, Paste, and Create shortcuts above Recents.",
     "The Video tab opens a start screen with Record and Open actions. Open a file or select a recording from Recents to go to its player and timeline.",
     "Finished recordings open in the video workspace. Removing the open video returns to the Video start screen.",
     "Capture guides use a white center with a dark outline so they stay visible over both light and dark content.",

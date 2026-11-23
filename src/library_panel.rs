@@ -43,12 +43,6 @@ pub enum LibraryAction {
     RevealLibrary(PathBuf),
 }
 
-pub(crate) struct RecentPreview {
-    pub entry: LibraryEntry,
-    pub texture: Option<egui::TextureHandle>,
-    pub dimensions: Option<[u32; 2]>,
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum DateFilter {
     #[default]
@@ -268,43 +262,6 @@ impl LibraryPanel {
             .collect()
     }
 
-    pub(crate) fn recent_previews(
-        &mut self,
-        ctx: &egui::Context,
-        root: &Path,
-        paths: &[PathBuf],
-        limit: usize,
-    ) -> Vec<RecentPreview> {
-        self.update_library(ctx, root);
-        let mut entries = self.recent_entries(paths);
-        entries.truncate(limit);
-        let paths: Vec<_> = entries.iter().map(|entry| entry.path.clone()).collect();
-        self.check_paths(ctx, &paths);
-        entries
-            .into_iter()
-            .map(|entry| {
-                self.request_preview(&entry);
-                let mut item = RecentPreview {
-                    entry,
-                    texture: None,
-                    dimensions: None,
-                };
-                if let Some(cache) = self.previews.get_mut(&item.entry.path) {
-                    cache.used = self.frame;
-                    if let Preview::Ready {
-                        texture,
-                        original_size,
-                    } = &cache.preview
-                    {
-                        item.texture = Some(texture.clone());
-                        item.dimensions = Some(*original_size);
-                    }
-                }
-                item
-            })
-            .collect()
-    }
-
     fn recent_entries(&self, paths: &[PathBuf]) -> Vec<LibraryEntry> {
         let mut entries = Vec::new();
         let mut seen = HashSet::new();
@@ -467,7 +424,13 @@ impl LibraryPanel {
         active: Option<&Path>,
         dirty: bool,
     ) -> Option<LibraryAction> {
-        self.update_library(ui.ctx(), root);
+        if self.root.as_deref() != Some(root) {
+            self.refresh();
+            self.root = Some(root.to_owned());
+        }
+        self.frame = self.frame.wrapping_add(1);
+        self.receive(ui.ctx());
+        self.request_scan(ui.ctx(), root);
         let entries = self.recent_entries(paths);
         let order: Vec<_> = entries.iter().map(|e| e.path.clone()).collect();
         self.check_paths(ui.ctx(), &order);
@@ -671,16 +634,6 @@ impl LibraryPanel {
         }
         chosen
     }
-    fn update_library(&mut self, ctx: &egui::Context, root: &Path) {
-        if self.root.as_deref() != Some(root) {
-            self.refresh();
-            self.root = Some(root.to_owned());
-        }
-        self.frame = self.frame.wrapping_add(1);
-        self.receive(ctx);
-        self.request_scan(ctx, root);
-    }
-
     pub fn refresh(&mut self) {
         self.cancel_marquee();
         self.generation.fetch_add(1, Ordering::Relaxed);

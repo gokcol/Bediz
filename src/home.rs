@@ -1,6 +1,31 @@
 use super::*;
-use crate::{appearance::TileTone, library::EntryKind, library_panel::RecentPreview};
-use egui::{Align, Align2, FontId, Layout, Rect, Stroke, StrokeKind, Vec2, pos2, vec2};
+use crate::appearance::TileTone;
+use egui::{Align, Align2, FontId, Layout, Rect, Stroke, StrokeKind, UiBuilder, Vec2, pos2, vec2};
+
+#[derive(Clone, Copy)]
+enum HomeAction {
+    Capture,
+    Record,
+    OpenImage,
+    OpenVideo,
+    Paste,
+    Create,
+}
+
+impl HomeAction {
+    const OTHER: [Self; 4] = [Self::OpenImage, Self::OpenVideo, Self::Paste, Self::Create];
+
+    fn presentation(self) -> (&'static str, Icon, TileTone) {
+        match self {
+            Self::Capture => ("Capture image", Icon::Scan, TileTone::Blue),
+            Self::Record => ("Record video", Icon::Video, TileTone::Clay),
+            Self::OpenImage => ("Open image", Icon::Open, TileTone::Clay),
+            Self::OpenVideo => ("Open video", Icon::Play, TileTone::Teal),
+            Self::Paste => ("Paste image", Icon::Copy, TileTone::Blue),
+            Self::Create => ("Create", Icon::Create, TileTone::Violet),
+        }
+    }
+}
 
 impl MyImageApp {
     pub(super) fn home_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -20,316 +45,291 @@ impl MyImageApp {
             self.paste_new_image(ctx);
         }
 
-        let top_space = ((ui.available_height() - 340.) * 0.45).clamp(16., 88.);
+        let top_space = ((ui.available_height() - 330.) * 0.24).clamp(16., 62.);
+        let mut action = None;
         egui::ScrollArea::vertical()
-            .id_salt("home-shelf")
+            .id_salt("capture-studio")
             .show(ui, |ui| {
                 let width = (ui.available_width() - 24.).clamp(1., 920.);
-                let wide = width >= 680.;
-                ui.add_space(if wide { top_space } else { 16. });
+                ui.add_space(top_space);
                 ui.vertical_centered(|ui| {
                     ui.allocate_ui_with_layout(
                         vec2(width, 0.),
                         Layout::top_down(Align::Min),
                         |ui| {
-                            if wide {
-                                let gap = 20.;
-                                let shelf = (width - gap) * 0.62;
-                                ui.spacing_mut().item_spacing.x = gap;
-                                ui.horizontal_top(|ui| {
-                                    ui.allocate_ui_with_layout(
-                                        vec2(shelf, 0.),
-                                        Layout::top_down(Align::Min),
-                                        |ui| self.home_recent_work(ui, shelf),
-                                    );
-                                    self.home_quick_actions(ui, width - shelf - gap);
+                            action = capture_hero(ui, width, self.app_icon.id());
+                            ui.add_space(6.);
+                            let columns = if width >= 680. { 4 } else { 2 };
+                            let gap = 9.;
+                            let button_width = ((width + gap) / columns as f32 - gap).max(1.);
+                            for row in HomeAction::OTHER.chunks(columns) {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = gap;
+                                    for &item in row {
+                                        if home_button(ui, item, button_width, false) {
+                                            action = Some(item);
+                                        }
+                                    }
                                 });
-                            } else {
-                                self.home_recent_work(ui, width);
-                                ui.add_space(14.);
-                                self.home_quick_actions(ui, width);
                             }
+                            ui.add_space(3.);
+                            ui.vertical_centered(|ui| {
+                                ui.weak("Drop an image or video anywhere");
+                                if self.document.is_some()
+                                    && appearance::toolbar_action_button(
+                                        ui,
+                                        "Continue editing",
+                                        Icon::Edit,
+                                        true,
+                                        false,
+                                    )
+                                    .clicked()
+                                {
+                                    self.view = View::Editor;
+                                }
+                            });
                         },
                     );
                 });
-                ui.add_space(18.);
+                ui.add_space(16.);
             });
-    }
 
-    fn home_recent_work(&mut self, ui: &mut egui::Ui, width: f32) {
-        let ctx = ui.ctx().clone();
-        let items = self.library.recent_previews(
-            &ctx,
-            &self.settings.output_dir,
-            &self.settings.recent_files,
-            3,
-        );
-        self.sync_library_references();
-
-        ui.horizontal(|ui| {
-            ui.set_min_height(30.);
-            ui.heading(egui::RichText::new("Recent work").size(24.).strong());
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if appearance::toolbar_action_button(ui, "Library", Icon::Library, true, false)
-                    .on_hover_text("Browse the full library")
-                    .clicked()
-                {
-                    self.view = View::Library;
+        match action {
+            Some(HomeAction::Capture) => {
+                if !self.settings.capture_mode.makes_image() {
+                    self.settings.capture_mode = capture::CaptureMode::Region;
+                    self.persist_settings();
                 }
-            });
-        });
-        let Some((featured, rest)) = items.split_first() else {
-            empty_shelf(ui, width);
-            return;
-        };
-
-        let mut picked = recent_card(ui, featured, width, true).then_some(featured);
-        if !rest.is_empty() {
-            ui.horizontal(|ui| {
-                let gap = 9.;
-                ui.spacing_mut().item_spacing.x = gap;
-                let card_width = ((width - gap) * 0.5).max(1.);
-                for item in rest {
-                    if recent_card(ui, item, card_width, false) {
-                        picked = Some(item);
-                    }
-                }
-            });
+                self.view = View::Capture;
+            }
+            Some(HomeAction::Record) => self.show_video_capture(),
+            Some(HomeAction::OpenImage) => self.open_image(ctx),
+            Some(HomeAction::OpenVideo) => self.open_video(ctx),
+            Some(HomeAction::Paste) => self.paste_new_image(ctx),
+            Some(HomeAction::Create) => self.view = View::Create,
+            None => {}
         }
-        if let Some(item) = picked {
-            let path = &item.entry.path;
-            let active = self.project_path.as_ref().or(self.last_path.as_ref());
-            if self.document.is_some() && Some(path) == active {
-                self.view = View::Editor;
-            } else {
-                self.library_action(&ctx, LibraryAction::Open(path.clone()));
-            }
-        }
-    }
-
-    fn home_quick_actions(&mut self, ui: &mut egui::Ui, width: f32) {
-        use TileTone::{Blue, Clay, Teal, Violet};
-        ui.allocate_ui_with_layout(vec2(width, 0.), Layout::top_down(Align::Min), |ui| {
-            ui.add_sized(
-                [width, 30.],
-                egui::Label::new(egui::RichText::new("Quick actions").size(15.).strong())
-                    .halign(Align::Min),
-            );
-            ui.spacing_mut().item_spacing.y = 5.;
-            for (title, icon, tone) in [
-                ("Capture image", Icon::Scan, Blue),
-                ("Record video", Icon::Camera, Clay),
-                ("Open image", Icon::Open, Clay),
-                ("Open video", Icon::Video, Teal),
-                ("Paste image", Icon::Copy, Blue),
-                ("Create", Icon::Create, Violet),
-            ] {
-                let tint = appearance::satin_ink(ui.ctx(), tone);
-                let button = shelf_button(ui, title, vec2(width, 41.), tint);
-                let rect = button.rect;
-                let center = rect.left_center() + vec2(20., 0.);
-                let palette = appearance::palette(ui.ctx());
-                let painter = ui.painter();
-                painter.rect_filled(
-                    Rect::from_center_size(center, Vec2::splat(26.)),
-                    7,
-                    palette.surface.lerp_to_gamma(tint, 0.13),
-                );
-                appearance::icon(painter, center, icon, tint, 16.);
-                painter.text(
-                    rect.left_center() + vec2(40., 0.),
-                    Align2::LEFT_CENTER,
-                    title,
-                    FontId::proportional(14.),
-                    palette.ink,
-                );
-                appearance::icon(
-                    painter,
-                    rect.right_center() - vec2(16., 0.),
-                    Icon::Forward,
-                    palette.muted,
-                    11.,
-                );
-                if button.clicked() {
-                    let ctx = ui.ctx().clone();
-                    match icon {
-                        Icon::Scan => {
-                            if !self.settings.capture_mode.makes_image() {
-                                self.settings.capture_mode = capture::CaptureMode::Region;
-                                self.persist_settings();
-                            }
-                            self.view = View::Capture;
-                        }
-                        Icon::Camera => self.show_video_capture(),
-                        Icon::Open => self.open_image(&ctx),
-                        Icon::Video => self.open_video(&ctx),
-                        Icon::Copy => self.paste_new_image(&ctx),
-                        Icon::Create => self.view = View::Create,
-                        _ => unreachable!(),
-                    }
-                }
-            }
-            if self.document.is_some() {
-                ui.add_space(3.);
-                if appearance::toolbar_action_button(
-                    ui,
-                    "Continue editing",
-                    Icon::Edit,
-                    true,
-                    false,
-                )
-                .clicked()
-                {
-                    self.view = View::Editor;
-                }
-            }
-        });
     }
 }
 
-fn shelf_button(ui: &mut egui::Ui, label: &str, size: Vec2, accent: Color32) -> egui::Response {
-    let response = ui.add(egui::Button::new("").frame(false).min_size(size));
+fn capture_hero(ui: &mut egui::Ui, width: f32, mascot: egui::TextureId) -> Option<HomeAction> {
+    let wide = width >= 660.;
+    let height = if wide { 234. } else { 310. };
+    let (rect, _) = ui.allocate_exact_size(vec2(width, height), egui::Sense::hover());
+    let p = appearance::palette(ui.ctx());
+    let painter = ui.painter().with_clip_rect(rect.intersect(ui.clip_rect()));
+    let teal = appearance::satin_ink(ui.ctx(), TileTone::Teal);
+    let (start, end) = if p.is_dark() {
+        (
+            p.navy.lerp_to_gamma(p.accent, 0.28),
+            p.navy.lerp_to_gamma(teal, 0.20),
+        )
+    } else {
+        (
+            p.surface.lerp_to_gamma(p.accent, 0.13),
+            p.surface.lerp_to_gamma(teal, 0.08),
+        )
+    };
+    appearance::gradient(&painter, rect, 16., start, end);
+    painter.rect_stroke(rect, 16, Stroke::new(1., p.border), StrokeKind::Inside);
+
+    let art = if wide {
+        Rect::from_min_max(
+            pos2(rect.left() + width * 0.57, rect.top() + 18.),
+            rect.max - vec2(24., 14.),
+        )
+    } else {
+        Rect::from_center_size(
+            pos2(rect.center().x, rect.top() + 75.),
+            vec2((width - 32.).clamp(1., 320.), 128.),
+        )
+    };
+    paint_capture_art(&painter, art, mascot, p, teal);
+
+    let copy = Rect::from_min_max(
+        rect.min
+            + if wide {
+                vec2(30., 41.)
+            } else {
+                vec2(18., 151.)
+            },
+        pos2(
+            if wide {
+                art.left() - 8.
+            } else {
+                rect.right() - 18.
+            },
+            rect.bottom() - 12.,
+        ),
+    );
+    let mut content = ui.new_child(
+        UiBuilder::new()
+            .id_salt("capture-hero-actions")
+            .max_rect(copy)
+            .layout(Layout::top_down(Align::Min)),
+    );
+    content.spacing_mut().item_spacing = vec2(8., 7.);
+    content.heading(
+        egui::RichText::new("Capture your screen")
+            .size(if wide { 34. } else { 27. })
+            .strong(),
+    );
+    content.weak("Take a screenshot or record a video.");
+    content.add_space(7.);
+    content
+        .horizontal_wrapped(|ui| {
+            if home_button(ui, HomeAction::Capture, 156., true) {
+                Some(HomeAction::Capture)
+            } else if home_button(ui, HomeAction::Record, 148., false) {
+                Some(HomeAction::Record)
+            } else {
+                None
+            }
+        })
+        .inner
+}
+
+fn home_button(ui: &mut egui::Ui, action: HomeAction, width: f32, primary: bool) -> bool {
+    let (label, icon, tone) = action.presentation();
+    let response = ui.add(
+        egui::Button::new("")
+            .frame(false)
+            .min_size(vec2(width, 50.)),
+    );
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
     let p = appearance::palette(ui.ctx());
-    let hovered = response.hovered() || response.has_focus();
-    let tint = if response.is_pointer_button_down_on() {
-        0.13
-    } else if hovered {
-        0.07
-    } else {
-        0.
-    };
-    ui.painter().rect(
-        response.rect,
-        12,
-        p.surface.lerp_to_gamma(accent, tint),
-        Stroke::new(1., if hovered { accent } else { p.border }),
-        StrokeKind::Inside,
-    );
-    response.on_hover_cursor(egui::CursorIcon::PointingHand)
-}
-
-fn recent_card(ui: &mut egui::Ui, item: &RecentPreview, width: f32, featured: bool) -> bool {
-    let path = &item.entry.path;
-    let title = path.file_stem().unwrap_or_default().to_string_lossy();
-    let recording = item.entry.kind == EntryKind::Recording;
-    let tone = if recording {
-        TileTone::Teal
-    } else {
-        TileTone::Blue
-    };
-    let ink = appearance::satin_ink(ui.ctx(), tone);
-    let response = ui
-        .push_id(path, |ui| {
-            shelf_button(
-                ui,
-                &title,
-                vec2(width, if featured { 140. } else { 102. }),
-                ink,
-            )
-        })
-        .inner
-        .on_hover_text(path.display().to_string());
-    let rect = response.rect;
-    let palette = appearance::palette(ui.ctx());
-    let painter = ui.painter();
-    let image_rect = Rect::from_min_max(
-        rect.min + Vec2::splat(8.),
-        if featured {
-            pos2(rect.left() + rect.width() * 0.58, rect.bottom() - 8.)
+    let tint = appearance::satin_ink(ui.ctx(), tone);
+    let (fill, ink, tile, border) = if primary {
+        let (fill, ink) = if p.is_dark() {
+            (tint, p.navy)
         } else {
-            rect.max - vec2(8., 30.)
-        },
-    );
-    painter.rect_filled(image_rect, 7, palette.base.lerp_to_gamma(ink, 0.13));
-    if let Some(texture) = &item.texture {
-        let size = texture.size_vec2();
-        let fit = (image_rect.width() / size.x).min(image_rect.height() / size.y);
-        let bounds = Rect::from_center_size(image_rect.center(), size * fit);
-        let painter = painter.with_clip_rect(bounds.intersect(ui.clip_rect()));
-        crate::editor::paint_checkerboard(&painter, bounds);
-        painter.image(
-            texture.id(),
-            bounds,
-            Rect::from_min_max(egui::Pos2::ZERO, pos2(1., 1.)),
-            Color32::WHITE,
-        );
-    } else if !recording {
-        appearance::icon(painter, image_rect.center(), Icon::View, ink, 22.);
-    }
-    if recording {
-        let center = image_rect.center();
-        painter.circle_filled(center, 14., palette.surface);
-        appearance::icon(painter, center, Icon::Play, ink, 13.);
-    }
-
-    let (title_pos, title_size) = if featured {
-        (pos2(image_rect.right() + 12., rect.center().y - 20.), 16.)
-    } else {
-        (pos2(image_rect.left(), image_rect.bottom() + 5.), 13.)
-    };
-    let mut title_job = egui::text::LayoutJob::simple_singleline(
-        title.into_owned(),
-        FontId::proportional(title_size),
-        palette.ink,
-    );
-    title_job.wrap.max_width = (rect.right() - 10. - title_pos.x).max(1.);
-    title_job.wrap.max_rows = 1;
-    painter.galley(title_pos, painter.layout_job(title_job), palette.ink);
-    if featured {
-        let kind = match item.entry.kind {
-            EntryKind::Recording => "Video",
-            EntryKind::Project => "Editable project",
-            EntryKind::Image => "Image",
+            (p.accent, Color32::WHITE)
         };
-        let detail = item
-            .dimensions
-            .map_or_else(|| kind.to_owned(), |[w, h]| format!("{kind} · {w} × {h}"));
-        painter
-            .with_clip_rect(rect.shrink(8.).intersect(ui.clip_rect()))
-            .text(
-                title_pos + vec2(0., 24.),
-                Align2::LEFT_TOP,
-                detail,
-                FontId::proportional(12.),
-                palette.muted,
-            );
-    }
-    response.clicked()
-}
-
-fn empty_shelf(ui: &mut egui::Ui, width: f32) {
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 251.), egui::Sense::hover());
-    let p = appearance::palette(ui.ctx());
+        (fill, ink, fill.lerp_to_gamma(ink, 0.16), fill)
+    } else {
+        (
+            p.surface,
+            p.ink,
+            p.surface.lerp_to_gamma(tint, 0.13),
+            p.border,
+        )
+    };
+    let active = response.hovered() || response.has_focus();
+    let fill = if response.is_pointer_button_down_on() {
+        fill.lerp_to_gamma(ink, 0.14)
+    } else if active {
+        fill.lerp_to_gamma(ink, 0.07)
+    } else {
+        fill
+    };
     let painter = ui.painter();
+    let rect = response.rect;
     painter.rect(
         rect,
         12,
-        p.surface,
-        Stroke::new(1., p.border),
+        fill,
+        Stroke::new(1., if active { p.accent_top } else { border }),
         StrokeKind::Inside,
     );
-    let center = rect.center();
-    let ink = appearance::satin_ink(ui.ctx(), TileTone::Blue);
-    let icon_center = center - vec2(0., 34.);
-    painter.rect_filled(
-        Rect::from_center_size(icon_center, Vec2::splat(46.)),
-        12,
-        p.surface.lerp_to_gamma(ink, 0.11),
+    let center = rect.left_center() + vec2(25., 0.);
+    painter.rect_filled(Rect::from_center_size(center, Vec2::splat(30.)), 8, tile);
+    appearance::icon(painter, center, icon, if primary { ink } else { tint }, 17.);
+    painter.text(
+        rect.left_center() + vec2(48., 0.),
+        Align2::LEFT_CENTER,
+        label,
+        FontId::proportional(14.),
+        ink,
     );
-    appearance::icon(painter, icon_center, Icon::Library, ink, 24.);
-    for (offset, text, size, color) in [
-        (7., "No recent work yet", 16., p.ink),
-        (29., "Drop an image or video here.", 13., p.muted),
-    ] {
-        painter.text(
-            center + vec2(0., offset),
-            Align2::CENTER_CENTER,
-            text,
-            FontId::proportional(size),
-            color,
-        );
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .clicked()
+}
+
+fn paint_capture_art(
+    painter: &egui::Painter,
+    rect: Rect,
+    mascot: egui::TextureId,
+    palette: appearance::Palette,
+    teal: Color32,
+) {
+    let scale = (rect.width() / 365.).min(rect.height() / 190.);
+    let size = vec2(260., 132.) * scale;
+    let card = |offset: Vec2, angle: f32, front: bool| {
+        let center = rect.center() + offset * scale;
+        let rotation = egui::emath::Rot2::from_angle(angle);
+        let at = |x: f32, y: f32| center + rotation * vec2(x * size.x, y * size.y);
+        let corners = |left, top, right, bottom| {
+            vec![
+                at(left, top),
+                at(right, top),
+                at(right, bottom),
+                at(left, bottom),
+            ]
+        };
+        let panel = corners(-0.5, -0.5, 0.5, 0.5);
+        painter.add(egui::Shape::convex_polygon(
+            panel
+                .iter()
+                .map(|&point| point + vec2(0., 7.) * scale)
+                .collect(),
+            Color32::from_black_alpha(if palette.is_dark() { 65 } else { 24 }),
+            Stroke::NONE,
+        ));
+        painter.add(egui::Shape::convex_polygon(
+            panel,
+            if front { palette.surface } else { palette.base },
+            Stroke::new(1., palette.border),
+        ));
+        painter.add(egui::Shape::convex_polygon(
+            corners(-0.495, -0.495, 0.495, -0.32),
+            palette.paper,
+            Stroke::NONE,
+        ));
+        if front {
+            for y in [-0.16, -0.03, 0.10, 0.23] {
+                painter.line_segment(
+                    [at(-0.37, y), at(0.37, y)],
+                    Stroke::new(1., palette.border.gamma_multiply(0.52)),
+                );
+            }
+            painter.add(egui::Shape::closed_line(
+                corners(-0.37, -0.22, 0.37, 0.32),
+                Stroke::new(1.8, teal),
+            ));
+        }
+    };
+    card(vec2(0., -17.), 0.16, false);
+    card(vec2(-24., 13.), -0.12, true);
+    let mascot_rect = Rect::from_min_size(
+        rect.center() + vec2(31., -63.) * scale,
+        Vec2::splat(150. * scale),
+    );
+    painter.image(
+        mascot,
+        mascot_rect,
+        Rect::from_min_max(egui::Pos2::ZERO, pos2(1., 1.)),
+        Color32::WHITE,
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn actions_below_the_hero_clear_its_artwork() {
+        let ctx = egui::Context::default();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                for (width, height) in [(890., 234.), (580., 310.)] {
+                    let top = ui.next_widget_position().y;
+                    capture_hero(ui, width, egui::TextureId::default());
+                    assert!(ui.next_widget_position().y >= top + height);
+                }
+            });
+        });
     }
 }
