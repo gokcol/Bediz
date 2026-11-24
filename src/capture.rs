@@ -96,9 +96,7 @@ impl CaptureMode {
             Self::Scrolling => {
                 "Click a window or select part of it. Scroll down, then finish. Sections are collected automatically."
             }
-            Self::Video => {
-                "Record a window or a full display. Choose a resolution and audio source."
-            }
+            Self::Video => "Record one window, two windows together, or a full display.",
             Self::Text => {
                 "Select a screen region and copy its text. No image or project is created."
             }
@@ -150,7 +148,7 @@ pub fn windows() -> Result<Vec<WindowInfo>, String> {
 pub fn capture_window(id: u32, pointer: bool) -> Result<RgbaImage, String> {
     #[cfg(target_os = "macos")]
     {
-        macos::capture(id, true, pointer)
+        macos::capture(id, true, pointer, None)
     }
     #[cfg(target_os = "windows")]
     {
@@ -169,6 +167,13 @@ pub fn capture_window(id: u32, pointer: bool) -> Result<RgbaImage, String> {
         }
         Ok(image)
     }
+}
+
+pub fn window_thumbnail(id: u32, max_side: u32) -> Result<RgbaImage, String> {
+    #[cfg(target_os = "macos")]
+    return macos::capture(id, true, false, Some(max_side));
+    #[cfg(target_os = "windows")]
+    capture_window(id, false).map(|image| image::imageops::thumbnail(&image, max_side, max_side))
 }
 
 #[cfg(target_os = "windows")]
@@ -341,7 +346,7 @@ pub fn capture_targets(
 pub fn capture_display(id: u32, pointer: bool) -> Result<RgbaImage, String> {
     #[cfg(target_os = "macos")]
     {
-        macos::capture(id, false, pointer)
+        macos::capture(id, false, pointer, None)
     }
     #[cfg(target_os = "windows")]
     {
@@ -451,7 +456,12 @@ mod macos {
 
     type CaptureResult = Result<RgbaImage, String>;
 
-    pub(super) fn capture(target_id: u32, window: bool, pointer: bool) -> CaptureResult {
+    pub(super) fn capture(
+        target_id: u32,
+        window: bool,
+        pointer: bool,
+        max_side: Option<u32>,
+    ) -> CaptureResult {
         if !objc2::available!(macos = 14.0) {
             return Err("Native screenshots require macOS 14 or later.".into());
         }
@@ -483,6 +493,7 @@ mod macos {
                                     target_id,
                                     window,
                                     pointer,
+                                    max_side,
                                     sender.clone(),
                                     deadline,
                                 )
@@ -518,6 +529,7 @@ mod macos {
         target_id: u32,
         window: bool,
         pointer: bool,
+        max_side: Option<u32>,
         sender: mpsc::Sender<CaptureResult>,
         deadline: Instant,
     ) -> Result<(), String> {
@@ -573,11 +585,14 @@ mod macos {
                 return Err("ScreenCaptureKit returned invalid display dimensions.".into());
             }
             let configuration = SCStreamConfiguration::new();
-            configuration.setWidth(width as usize);
-            configuration.setHeight(height as usize);
+            let factor = max_side.map_or(1., |max_side| {
+                (f64::from(max_side) / width.max(height)).min(1.)
+            });
+            configuration.setWidth((width * factor).round().max(1.) as usize);
+            configuration.setHeight((height * factor).round().max(1.) as usize);
             configuration.setShowsCursor(pointer);
             configuration.setIgnoreShadowsSingleWindow(true);
-            configuration.setScalesToFit(false);
+            configuration.setScalesToFit(max_side.is_some());
             configuration.setPixelFormat(u32::from_be_bytes(*b"BGRA"));
             configuration.setColorSpaceName(kCGColorSpaceSRGB);
 

@@ -1,10 +1,13 @@
 //! Direct controls drawn in the capture overlay, above the selection surface.
 use super::*;
+use super::{multi_window::WINDOW_LIMIT, window_picker::Action};
 use crate::{appearance::TileTone, capture_panel::CaptureLook};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub(in crate::app) enum VideoPanel {
     Recording,
+    WindowPicker,
+    Windows,
     #[cfg(target_os = "macos")]
     Camera,
 }
@@ -13,6 +16,8 @@ impl VideoPanel {
     fn title(self) -> &'static str {
         match self {
             Self::Recording => "Recording options",
+            Self::WindowPicker => "Choose windows",
+            Self::Windows => "Arrange windows",
             #[cfg(target_os = "macos")]
             Self::Camera => "Presenter camera",
         }
@@ -24,23 +29,78 @@ pub(in crate::app) fn show_video_panel(
     screen: &mut Selection,
     settings: &mut Settings,
     toolbar: Rect,
+    windows: &mut WindowSetup,
+    demo: bool,
 ) -> bool {
     let Some(panel) = screen.video_panel else {
         return false;
     };
     let menu_was_open = egui::Popup::is_any_open(ctx);
     let look = settings.capture_theme.look();
+    if panel == VideoPanel::WindowPicker {
+        let multiple = settings.video.target == VideoTarget::MultipleWindows;
+        let limit = if multiple { WINDOW_LIMIT } else { 1 };
+        match windows.picker.show(
+            ctx,
+            &screen.windows,
+            settings.video.target,
+            limit,
+            &look,
+            demo,
+        ) {
+            Some(Action::UseSelection) => {
+                windows.apply_pick(&screen.windows, settings.include_pointer, multiple);
+                screen.video_panel = multiple.then_some(VideoPanel::Windows);
+            }
+            Some(Action::Back) => {
+                screen.video_panel = (multiple && windows.ready()).then_some(VideoPanel::Windows);
+            }
+            Some(Action::ChangeTarget(target)) => {
+                settings.video.target = target;
+                screen.video_target = target;
+                screen.window_id = None;
+                screen.drag = Default::default();
+                if target == VideoTarget::FullScreen {
+                    windows.picker_target = None;
+                    screen.video_panel = None;
+                } else {
+                    windows.open_picker(target);
+                }
+                return true;
+            }
+            None => {}
+        }
+        return false;
+    }
     let viewport = ctx.content_rect().shrink(10.);
-    let width = viewport.width().clamp(180., 344.);
+    let max_width = if panel == VideoPanel::Windows {
+        580.
+    } else {
+        344.
+    };
+    let width = viewport.width().clamp(180., max_width);
     let above = toolbar.top() - viewport.top();
     let below = viewport.bottom() - toolbar.bottom();
     let place_above = above >= 410. || above >= below;
     let space = if place_above { above } else { below };
+    let max_height = (space - 8.).clamp(126., 504.);
+    let panel_height = if panel == VideoPanel::Windows {
+        max_height.min(windows.panel_height())
+    } else {
+        max_height
+    };
     let x = (toolbar.center().x - width / 2.).clamp(
         viewport.left(),
         (viewport.right() - width).max(viewport.left()),
     );
-    let (anchor, pivot) = if place_above {
+    // As previews appear, an area positioned by its previous bottom edge can
+    // run out of room to grow. Reserve room from the top for the window setup.
+    let (anchor, pivot) = if place_above && panel == VideoPanel::Windows {
+        (
+            Pos2::new(x, toolbar.top() - 8. - panel_height),
+            egui::Align2::LEFT_TOP,
+        )
+    } else if place_above {
         (Pos2::new(x, toolbar.top() - 8.), egui::Align2::LEFT_BOTTOM)
     } else {
         (Pos2::new(x, toolbar.bottom() + 8.), egui::Align2::LEFT_TOP)
@@ -52,7 +112,7 @@ pub(in crate::app) fn show_video_panel(
     )))
     .order(egui::Order::Foreground)
     .movable(false)
-    .default_size(egui::vec2(width, (space - 8.).clamp(126., 504.)))
+    .default_size(egui::vec2(width, panel_height))
     .pivot(pivot)
     .fixed_pos(anchor)
     .constrain_to(viewport)
@@ -71,11 +131,21 @@ pub(in crate::app) fn show_video_panel(
             })
             .show(ui, |ui| {
                 ui.set_width(width - 24.);
+                if panel == VideoPanel::Windows {
+                    // The area starts this frame at its previous measured size.
+                    // Grow the setup and its scroll viewport with the preview.
+                    ui.set_min_height(panel_height - 26.);
+                }
                 ui.spacing_mut().item_spacing = egui::vec2(6., 5.);
                 let close = panel_header(ui, panel, &look);
                 ui.separator();
-                let changed = egui::ScrollArea::vertical()
-                    .max_height((space - 72.).clamp(54., 430.))
+                let content_height = if panel == VideoPanel::Windows {
+                    panel_height - 64.
+                } else {
+                    space - 72.
+                };
+                let (changed, change_windows) = egui::ScrollArea::vertical()
+                    .max_height(content_height.clamp(54., 430.))
                     .auto_shrink([false, true])
                     .show(ui, |ui| match panel {
                         VideoPanel::Recording => {
@@ -86,24 +156,34 @@ pub(in crate::app) fn show_video_panel(
                                 VideoTarget::FullScreen => {
                                     Some([screen.image.width(), screen.image.height()])
                                 }
+                                VideoTarget::MultipleWindows => Some(WINDOW_COMPOSITION_SIZE),
                             };
-                            preferences_ui(
-                                ui,
-                                &mut settings.video,
-                                &settings.output_dir,
-                                dimensions,
-                                &look,
+                            (
+                                preferences_ui(
+                                    ui,
+                                    &mut settings.video,
+                                    &settings.output_dir,
+                                    dimensions,
+                                    &look,
+                                ),
+                                false,
                             )
                         }
+                        VideoPanel::Windows => {
+                            let [width, height] = WINDOW_COMPOSITION_SIZE;
+                            let plan = settings.video.plan(width, height);
+                            (false, windows.ui(ui, [plan.width, plan.height], demo))
+                        }
+                        VideoPanel::WindowPicker => unreachable!(),
                         #[cfg(target_os = "macos")]
                         VideoPanel::Camera => {
                             let changed = screen.webcam.setup_ui(ui, &look);
                             settings.video.presenter_camera = screen.webcam.enabled;
-                            changed
+                            (changed, false)
                         }
                     })
                     .inner;
-                (changed, close)
+                (changed, close, change_windows)
             })
             .inner
     });
@@ -115,8 +195,11 @@ pub(in crate::app) fn show_video_panel(
                     !toolbar.contains(point) && !view.response.rect.contains(point)
                 })
         });
-    let (changed, close) = view.inner;
-    if close || pressed_outside {
+    let (changed, close, change_windows) = view.inner;
+    if change_windows {
+        windows.open_picker(settings.video.target);
+        screen.video_panel = Some(VideoPanel::WindowPicker);
+    } else if close || pressed_outside {
         screen.video_panel = None;
     }
     changed
@@ -127,6 +210,7 @@ fn panel_header(ui: &mut egui::Ui, panel: VideoPanel, look: &CaptureLook) -> boo
         let (tile, _) = ui.allocate_exact_size(Vec2::splat(30.), egui::Sense::hover());
         let (icon, tone) = match panel {
             VideoPanel::Recording => (Icon::Settings, TileTone::Blue),
+            VideoPanel::WindowPicker | VideoPanel::Windows => (Icon::Layers, TileTone::Teal),
             #[cfg(target_os = "macos")]
             VideoPanel::Camera => (Icon::Camera, TileTone::Teal),
         };

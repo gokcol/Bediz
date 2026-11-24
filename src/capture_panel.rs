@@ -580,8 +580,11 @@ fn capture_options(
                         ui.label("Record");
                         result.changed |= settings.video.target.ui(ui, &look);
                     });
-                    result.changed |= crate::app::video_session::preferences_ui(
-                        ui, &mut settings.video, &settings.output_dir, None, &look,
+                    use crate::app::video_session::{VideoTarget, WINDOW_COMPOSITION_SIZE, preferences_ui};
+                    let dimensions = (settings.video.target == VideoTarget::MultipleWindows)
+                        .then_some(WINDOW_COMPOSITION_SIZE);
+                    result.changed |= preferences_ui(
+                        ui, &mut settings.video, &settings.output_dir, dimensions, &look,
                     );
                     library_destination(ui, settings, result);
                 }

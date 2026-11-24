@@ -12,21 +12,21 @@ pub(in crate::app) use windows_edit_media::{reference as video_frame, render_mp4
 mod windows_player;
 pub(in crate::app) use windows_player::Player;
 
-use super::{Command, DisplayInfo, Status, options};
-use options::RecordingPlan;
+use super::{Command, DisplayInfo, Status, WindowTile, options};
+use options::{FrameRate, RecordingPlan};
 use std::{
     io,
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
-        mpsc::{Receiver, RecvTimeoutError, Sender, channel},
+        mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 use windows_audio::Audio;
 use windows_frames::{Frames, Target};
-use windows_media::{Apartment, FPS, Media, TICKS, Writer};
+use windows_media::{Apartment, Media, TICKS, Writer};
 
 type State = Arc<Mutex<(Status, String)>>;
 
@@ -43,6 +43,7 @@ impl Recorder {
         window: Option<u32>,
         cursor: bool,
         plan: RecordingPlan,
+        tiles: Vec<WindowTile>,
     ) -> Result<Self, String> {
         let target = Target::new(display, window);
         let state = Arc::new(Mutex::new((Status::Starting, String::new())));
@@ -51,11 +52,12 @@ impl Recorder {
         let worker = thread::Builder::new()
             .name("bediz-windows-recorder".into())
             .spawn(move || {
-                let final_state = match record(&movie, target, cursor, &plan, &updates, &receiver) {
-                    Ok(Some(note)) => (Status::Finished, note),
-                    Ok(None) => (Status::Canceled, String::new()),
-                    Err(error) => (Status::Failed, error),
-                };
+                let final_state =
+                    match record(&movie, target, cursor, &plan, tiles, &updates, &receiver) {
+                        Ok(Some(note)) => (Status::Finished, note),
+                        Ok(None) => (Status::Canceled, String::new()),
+                        Err(error) => (Status::Failed, error),
+                    };
                 *updates.lock().unwrap() = final_state;
             })
             .map_err(|error| format!("Could not start the recorder: {error}"))?;
@@ -93,11 +95,76 @@ impl Drop for Recorder {
     }
 }
 
+enum Sources {
+    Single(Box<Frames>),
+    Composition(Vec<WindowFrames>),
+}
+
+struct WindowFrames {
+    tile: WindowTile,
+    frames: Frames,
+    pixels: Vec<u8>,
+    ready: bool,
+}
+
+impl Sources {
+    fn new(target: Target, cursor: bool, tiles: Vec<WindowTile>) -> windows::core::Result<Self> {
+        if tiles.is_empty() {
+            return Ok(Self::Single(Box::new(Frames::new(target, cursor)?)));
+        }
+        let windows = tiles
+            .into_iter()
+            .map(|tile| {
+                Ok(WindowFrames {
+                    frames: Frames::new(Target::Window(tile.id), tile.cursor)?,
+                    pixels: vec![0; tile.width as usize * tile.height as usize * 3 / 2],
+                    ready: false,
+                    tile,
+                })
+            })
+            .collect::<windows::core::Result<_>>()?;
+        Ok(Self::Composition(windows))
+    }
+
+    fn closed(&self) -> bool {
+        match self {
+            Self::Single(frames) => frames.closed(),
+            Self::Composition(windows) => windows.iter().any(|window| window.frames.closed()),
+        }
+    }
+
+    fn poll(&mut self, plan: &RecordingPlan, pixels: &mut [u8]) -> windows::core::Result<bool> {
+        match self {
+            Self::Single(frames) => frames.poll(plan.width, plan.height, pixels),
+            Self::Composition(windows) => {
+                let mut updated = false;
+                for window in windows.iter_mut() {
+                    let tile = window.tile;
+                    if window.frames.poll_framed(
+                        tile.width,
+                        tile.height,
+                        tile.fill,
+                        tile.detail,
+                        &mut window.pixels,
+                    )? {
+                        tile.blit_nv12(plan.width, plan.height, &window.pixels, pixels);
+                        window.ready = true;
+                        updated = true;
+                    }
+                }
+                // Wait for every source before starting the shared timeline.
+                Ok(updated && windows.iter().all(|window| window.ready))
+            }
+        }
+    }
+}
+
 fn record(
     movie: &Path,
     target: Target,
     cursor: bool,
     plan: &RecordingPlan,
+    tiles: Vec<WindowTile>,
     state: &State,
     commands: &Receiver<Command>,
 ) -> Result<Option<String>, String> {
@@ -125,29 +192,56 @@ fn record(
     }
     update(Status::Starting, String::new());
 
-    let mut frames = Frames::new(target, cursor)
+    let mut frames = Sources::new(target, cursor, tiles)
         .map_err(|e| format!("Could not capture the selected window or display: {e}"))?;
     let mut audio = (plan.audio_source != 0).then(|| Audio::new(plan.audio_source == 1, plan.audio_sample_rate))
         .transpose()
         .map_err(|e| format!("Could not open the chosen audio source. Check your Windows audio and microphone settings. {e}"))?;
-    let writer = Writer::new(
-        &media,
-        movie,
-        plan,
-        audio.as_ref().map(|audio| audio.channels),
-    )
-    .map_err(|e| format!("Could not start the MP4 encoder. Try a lower resolution. {e}"))?;
+    let mut plan = *plan;
+    let requested_rate = plan.frame_rate;
+    let channels = audio.as_ref().map(|audio| audio.channels);
+    let open_writer = |plan: RecordingPlan| {
+        Writer::new(&media, movie, &plan, channels)
+            .map_err(|e| format!("Could not start the MP4 encoder. Try a lower resolution. {e}"))
+    };
+    let mut writer = match open_writer(plan) {
+        Err(_) if requested_rate != FrameRate::DEFAULT => {
+            remove_unfinished_movie(movie)?;
+            plan = plan.fallback();
+            open_writer(plan)?
+        }
+        result => result?,
+    };
+    let fallback_note = "Recorded at 30 fps because the encoder could not use the selected rate.";
 
-    let mut pixels = vec![0; plan.width as usize * plan.height as usize * 3 / 2];
+    let frame_area = plan.width as usize * plan.height as usize;
+    let mut pixels = vec![16; frame_area * 3 / 2];
+    pixels[frame_area..].fill(128);
     let mut active = Duration::ZERO;
     let mut started: Option<Instant> = None;
-    let mut last_frame = None;
+    let mut last_frame: Option<i64> = None;
     let mut paused = false;
     let opening = Instant::now();
     let mut space_checked = opening;
     let note = loop {
-        match commands.recv_timeout(Duration::from_millis(5)) {
-            Ok(Command::Stop) | Err(RecvTimeoutError::Disconnected) => break String::new(),
+        let frame_interval =
+            Duration::from_nanos(plan.frame_rate.frame_time(1, 1_000_000_000) as u64);
+        let poll_interval = if paused {
+            Duration::from_millis(5)
+        } else {
+            (frame_interval / 4).min(Duration::from_millis(5))
+        };
+        let command = match commands.try_recv() {
+            Err(TryRecvError::Empty) => {
+                // The Windows implementation of sleep uses a high-resolution
+                // timer. Channel timeout granularity can miss 120 fps ticks.
+                thread::sleep(poll_interval);
+                commands.try_recv()
+            }
+            pending => pending,
+        };
+        match command {
+            Ok(Command::Stop) | Err(TryRecvError::Disconnected) => break String::new(),
             Ok(Command::Pause) if !paused && started.is_some() => {
                 active += started.take().unwrap().elapsed();
                 if let Some(audio) = &mut audio {
@@ -193,15 +287,30 @@ fn record(
                 break "Recording stopped to preserve free disk space".into();
             }
         }
-        let position = ticks(elapsed) * i64::from(FPS) / TICKS;
+        let position = plan.frame_rate.frame_at(ticks(elapsed), TICKS);
         if last_frame.is_none_or(|previous| position > previous) {
             let updated = frames
-                .poll(plan.width, plan.height, &mut pixels)
+                .poll(&plan, &mut pixels)
                 .map_err(|e| format!("Windows could not read the selected video frame: {e}"))?;
             if updated || last_frame.is_some() {
-                writer
-                    .video(&pixels, position)
-                    .map_err(|e| format!("Could not encode a screen frame: {e}"))?;
+                // Fill short gaps without accumulating a backlog if encoding
+                // cannot keep up with the selected rate.
+                let first_frame = last_frame.map_or(0, |last| (last + 1).max(position - 2));
+                for frame in first_frame..=position {
+                    if let Err(error) = writer.video(&pixels, frame) {
+                        if last_frame.is_some() || plan.frame_rate == FrameRate::DEFAULT {
+                            return Err(format!("Could not encode a screen frame: {error}"));
+                        }
+                        drop(writer);
+                        remove_unfinished_movie(movie)?;
+                        plan = plan.fallback();
+                        writer = open_writer(plan)?;
+                        writer.video(&pixels, 0).map_err(|e| {
+                            format!("Could not encode a screen frame at 30 fps: {e}")
+                        })?;
+                    }
+                    last_frame = Some(frame);
+                }
                 if started.is_none() {
                     if let Some(audio) = &mut audio {
                         audio
@@ -211,7 +320,6 @@ fn record(
                     started = Some(Instant::now());
                     update(Status::Recording, String::new());
                 }
-                last_frame = Some(position);
             }
         }
         if last_frame.is_none() && opening.elapsed() > Duration::from_secs(8) {
@@ -233,13 +341,32 @@ fn record(
     drop(frames);
     if let Some(mut audio) = audio {
         audio
-            .finish(&writer, (last_frame + 1) * TICKS / i64::from(FPS))
+            .finish(&writer, plan.frame_rate.frame_time(last_frame + 1, TICKS))
             .map_err(|e| format!("Could not finish recording audio: {e}"))?;
     }
     writer
         .finish()
         .map_err(|e| format!("Could not finalize the MP4 recording: {e}"))?;
+    let note = if plan.frame_rate == requested_rate {
+        note
+    } else if note.is_empty() {
+        fallback_note.into()
+    } else {
+        format!("{note} · {fallback_note}")
+    };
     Ok(Some(note))
+}
+
+fn remove_unfinished_movie(movie: &Path) -> Result<(), String> {
+    std::fs::remove_file(movie)
+        .or_else(|error| {
+            if error.kind() == io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(error)
+            }
+        })
+        .map_err(|error| format!("Could not retry with a 30 fps recording: {error}"))
 }
 
 fn ticks(time: Duration) -> i64 {

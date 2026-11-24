@@ -4,9 +4,15 @@ use super::*;
 #[path = "video/options.rs"]
 mod options;
 pub(crate) use options::{VideoPreferences, VideoTarget, preferences_ui};
+#[path = "video/multi_window.rs"]
+mod multi_window;
+pub(crate) use multi_window::WINDOW_COMPOSITION_SIZE;
+pub(super) use multi_window::{WindowSetup, WindowTile};
 #[path = "video/setup.rs"]
 mod setup;
 pub(super) use setup::{VideoPanel, show_video_panel};
+#[path = "video/window_picker.rs"]
+mod window_picker;
 #[cfg(target_os = "windows")]
 #[path = "video/windows.rs"]
 mod windows;
@@ -338,6 +344,7 @@ struct LiveWebcam {
     position: Vec2,
     window: Option<u32>,
     framing: CameraFraming,
+    show_overlay: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -377,6 +384,9 @@ unsafe extern "C" {
         output_width: u32,
         output_height: u32,
         bits_per_second: u32,
+        rate_numerator: u32,
+        rate_denominator: u32,
+        fallback_bits_per_second: u32,
         max_seconds: u32,
         disk_reserve: u64,
         audio_source: u32,
@@ -384,6 +394,7 @@ unsafe extern "C" {
         audio_bits_per_second: u32,
         voice_processing: i32,
         countdown_seconds: u32,
+        window_tiles: *const c_char,
     ) -> *mut c_void;
     fn bediz_record_status(handle: *mut c_void, out: *mut c_char, capacity: usize) -> i32;
     fn bediz_record_command(handle: *mut c_void, command: i32);
@@ -458,6 +469,7 @@ impl Recording {
         region: selection::PixelRect,
         window: Option<u32>,
         position: Pos2,
+        tiles: Vec<WindowTile>,
     ) -> Result<Self, String> {
         if region.width < 16 || region.height < 16 {
             return Err("Choose a window or display at least 16 × 16 pixels to record.".into());
@@ -495,10 +507,21 @@ impl Recording {
                 position: camera,
                 window,
                 framing,
+                show_overlay: tiles.is_empty(),
             });
             let webcam_ptr = webcam.as_ref().map_or(std::ptr::null(), |webcam| {
                 webcam.preview.0.as_ptr().cast_const()
             });
+            let composition = if tiles.is_empty() {
+                None
+            } else {
+                Some(
+                    serde_json::to_vec(&tiles)
+                        .ok()
+                        .and_then(|data| CString::new(data).ok())
+                        .ok_or("Could not prepare the recording layout.")?,
+                )
+            };
             // SAFETY: Swift copies the UTF-8 path while this call is active, and
             // returns a retained handle for the UI to poll and release.
             let native = unsafe {
@@ -515,6 +538,9 @@ impl Recording {
                     plan.width,
                     plan.height,
                     plan.bits_per_second,
+                    plan.frame_rate.numerator,
+                    plan.frame_rate.denominator,
+                    plan.fallback_bits_per_second,
                     plan.max_seconds,
                     options::DISK_RESERVE,
                     plan.audio_source,
@@ -522,6 +548,9 @@ impl Recording {
                     plan.audio_bits_per_second,
                     i32::from(plan.voice_processing),
                     plan.countdown_seconds,
+                    composition
+                        .as_ref()
+                        .map_or(std::ptr::null(), |config| config.as_ptr()),
                 )
             };
             let native = NonNull::new(native).ok_or("The native recorder could not be started.")?;
@@ -534,6 +563,7 @@ impl Recording {
             window,
             settings.include_pointer,
             plan,
+            tiles,
         )?;
         Ok(Self {
             native,
@@ -676,6 +706,39 @@ impl MyImageApp {
         region: selection::PixelRect,
         window: Option<u32>,
     ) {
+        self.start_recording_with_tiles(ctx, screen, region, window, Vec::new());
+    }
+
+    pub(super) fn start_window_composition(
+        &mut self,
+        ctx: &egui::Context,
+        screen: &mut Selection,
+        sources: &WindowSetup,
+    ) {
+        let [width, height] = WINDOW_COMPOSITION_SIZE;
+        let plan = self.settings.video.plan(width, height);
+        self.start_recording_with_tiles(
+            ctx,
+            screen,
+            selection::PixelRect {
+                x: 0,
+                y: 0,
+                width,
+                height,
+            },
+            None,
+            sources.tiles(plan.width, plan.height),
+        );
+    }
+
+    fn start_recording_with_tiles(
+        &mut self,
+        ctx: &egui::Context,
+        screen: &mut Selection,
+        region: selection::PixelRect,
+        window: Option<u32>,
+        tiles: Vec<WindowTile>,
+    ) {
         let display = &screen.display;
         let scale = ctx.zoom_factor()
             * if cfg!(target_os = "windows") {
@@ -685,7 +748,11 @@ impl MyImageApp {
             };
         let w = display.width as f32 / scale;
         let h = display.height as f32 / scale;
-        let selection_bottom = (region.y + region.height) as f32 / screen.image.height() as f32 * h;
+        let selection_bottom = if tiles.is_empty() {
+            (region.y + region.height) as f32 / screen.image.height() as f32 * h
+        } else {
+            h
+        };
         let y = if selection_bottom + 68. <= h {
             selection_bottom + 8.
         } else {
@@ -700,6 +767,7 @@ impl MyImageApp {
                 display.x as f32 / scale + ((w - 230.) / 2.).max(8.),
                 display.y as f32 / scale + y,
             ),
+            tiles,
         );
         match result {
             Ok(recording) => {
@@ -770,7 +838,9 @@ impl MyImageApp {
         #[cfg(target_os = "macos")]
         if recording.stopping || status == Status::Saving {
             recording.webcam = None;
-        } else if let Some(webcam) = &recording.webcam {
+        } else if let Some(webcam) = &recording.webcam
+            && webcam.show_overlay
+        {
             webcam.preview.show(
                 webcam.target,
                 webcam.position,

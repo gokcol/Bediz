@@ -13,6 +13,54 @@ const MIB: u64 = 1024 * 1024;
 pub(super) const DISK_RESERVE: u64 = 256 * MIB;
 const MIN_START_SPACE: u64 = DISK_RESERVE + 16 * MIB;
 const MAX_MINUTES: u32 = 240;
+const MIN_FPS: f64 = 1.;
+const MAX_FPS: f64 = 240.;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FrameRate {
+    pub numerator: u32,
+    pub denominator: u32,
+}
+
+impl FrameRate {
+    pub const DEFAULT: Self = Self {
+        numerator: 30,
+        denominator: 1,
+    };
+
+    fn new(fps: f64) -> Self {
+        if !(MIN_FPS..=MAX_FPS).contains(&fps) {
+            return Self::DEFAULT;
+        }
+        let numerator = (fps * 1_000.).round() as u32;
+        let (mut a, mut b) = (numerator, 1_000);
+        while b != 0 {
+            (a, b) = (b, a % b);
+        }
+        Self {
+            numerator: numerator / a,
+            denominator: 1_000 / a,
+        }
+    }
+
+    fn fps(self) -> f64 {
+        f64::from(self.numerator) / f64::from(self.denominator)
+    }
+
+    fn label(self) -> String {
+        format!("{} fps", self.fps())
+    }
+
+    #[cfg(any(target_os = "windows", test))]
+    pub fn frame_time(self, frame: i64, ticks_per_second: i64) -> i64 {
+        frame * ticks_per_second * i64::from(self.denominator) / i64::from(self.numerator)
+    }
+
+    #[cfg(any(target_os = "windows", test))]
+    pub fn frame_at(self, ticks: i64, ticks_per_second: i64) -> i64 {
+        ticks * i64::from(self.numerator) / (ticks_per_second * i64::from(self.denominator))
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 enum Quality {
@@ -76,13 +124,14 @@ pub(crate) enum VideoTarget {
     #[serde(alias = "Region")]
     Window,
     FullScreen,
+    MultipleWindows,
 }
 
 impl VideoTarget {
     pub(crate) fn mode(self) -> crate::capture::CaptureMode {
         use crate::capture::CaptureMode;
         match self {
-            Self::Window => CaptureMode::Window,
+            Self::Window | Self::MultipleWindows => CaptureMode::Window,
             Self::FullScreen => CaptureMode::FullScreen,
         }
     }
@@ -98,6 +147,12 @@ impl VideoTarget {
                     "Window",
                     Some(Icon::View),
                     "Record a single window",
+                ),
+                (
+                    Self::MultipleWindows,
+                    "Two windows",
+                    Some(Icon::Layers),
+                    "Record two windows together in one video",
                 ),
                 (
                     Self::FullScreen,
@@ -224,6 +279,7 @@ pub(crate) struct VideoPreferences {
     #[cfg(target_os = "macos")]
     pub presenter_camera: bool,
     quality: Quality,
+    frame_rate: f64,
     max_minutes: u32,
     audio_source: AudioSource,
     audio_quality: AudioQuality,
@@ -240,6 +296,7 @@ impl Default for VideoPreferences {
             #[cfg(target_os = "macos")]
             presenter_camera: true,
             quality: Quality::Balanced,
+            frame_rate: FrameRate::DEFAULT.fps(),
             max_minutes: 30,
             audio_source: Default::default(),
             audio_quality: Default::default(),
@@ -251,10 +308,13 @@ impl Default for VideoPreferences {
     }
 }
 
+#[derive(Clone, Copy)]
 pub(super) struct RecordingPlan {
     pub width: u32,
     pub height: u32,
+    pub frame_rate: FrameRate,
     pub bits_per_second: u32,
+    pub fallback_bits_per_second: u32,
     pub max_seconds: u32,
     pub audio_source: u32,
     pub audio_sample_rate: u32,
@@ -273,13 +333,18 @@ impl VideoPreferences {
         let even = |pixels| ((f64::from(pixels) * scale).floor() as u32) & !1;
         let width = even(width).max(16);
         let height = even(height).max(16);
-        let bits_per_second = (f64::from(width * height) * 30. * bits_per_pixel)
-            .round()
-            .clamp(160_000., 32_000_000.) as u32;
+        let frame_rate = FrameRate::new(self.frame_rate);
+        let bitrate = |rate: FrameRate| {
+            (f64::from(width * height) * rate.fps() * bits_per_pixel)
+                .round()
+                .clamp(160_000., 32_000_000.) as u32
+        };
         RecordingPlan {
             width,
             height,
-            bits_per_second,
+            frame_rate,
+            bits_per_second: bitrate(frame_rate),
+            fallback_bits_per_second: bitrate(FrameRate::DEFAULT),
             max_seconds: self.max_minutes.clamp(1, MAX_MINUTES) * 60,
             audio_source: self.audio_source as u32,
             audio_sample_rate: self.audio_sample_rate.normalized() as u32,
@@ -296,6 +361,15 @@ impl VideoPreferences {
 }
 
 impl RecordingPlan {
+    #[cfg(target_os = "windows")]
+    pub(super) fn fallback(self) -> Self {
+        Self {
+            frame_rate: FrameRate::DEFAULT,
+            bits_per_second: self.fallback_bits_per_second,
+            ..self
+        }
+    }
+
     fn bytes_per_second(&self) -> u64 {
         // Leave headroom for file metadata and variable-rate encoding.
         u64::from(self.bits_per_second + self.audio_bits_per_second) * 110 / 800
@@ -385,6 +459,59 @@ fn space_label(bytes: u64) -> String {
     }
 }
 
+fn frame_rate_ui(ui: &mut egui::Ui, fps: &mut f64, look: &CaptureLook) -> bool {
+    let previous = *fps;
+    let rate = FrameRate::new(*fps);
+    *fps = rate.fps();
+    ui.horizontal(|ui| {
+        heading(ui, look, Icon::Timer, "Frame rate");
+        let edit_id = ui.id().with("custom-recording-frame-rate");
+        let reset_edit = |ui: &egui::Ui| ui.data_mut(|data| data.remove::<String>(edit_id));
+        egui::ComboBox::from_id_salt("recording-frame-rate")
+            .selected_text(rate.label())
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .show_ui(ui, |ui| {
+                for preset in [15., 30., 60., 120.] {
+                    let label = if preset == 30. { "30 fps (default)".into() } else { format!("{preset} fps") };
+                    if ui.selectable_label(*fps == preset, label).clicked() {
+                        *fps = preset;
+                        reset_edit(ui);
+                        ui.close();
+                        return;
+                    }
+                }
+                ui.separator();
+                ui.label("Custom frame rate");
+                ui.horizontal(|ui| {
+                    let mut input = ui.data_mut(|data| data.get_temp::<String>(edit_id))
+                        .unwrap_or_else(|| rate.fps().to_string());
+                    let field = ui.add(
+                        egui::TextEdit::singleline(&mut input)
+                            .hint_text("1–240 fps")
+                            .desired_width(72.),
+                    );
+                    if ui.button("Apply").clicked()
+                        || (field.lost_focus() && ui.input(|input| input.key_pressed(egui::Key::Enter)))
+                    {
+                        *fps = parse_frame_rate(&input);
+                        reset_edit(ui);
+                        ui.close();
+                    } else if field.changed() {
+                        ui.data_mut(|data| data.insert_temp(edit_id, input));
+                    }
+                });
+            })
+            .response
+            .on_hover_text("Choose a preset or enter a custom rate from 1 to 240 fps. Falls back to 30 fps when unavailable.");
+    });
+    *fps != previous
+}
+
+fn parse_frame_rate(input: &str) -> f64 {
+    let value = input.trim().replace(',', ".").parse().unwrap_or(f64::NAN);
+    FrameRate::new(value).fps()
+}
+
 pub(crate) fn preferences_ui(
     ui: &mut egui::Ui,
     prefs: &mut VideoPreferences,
@@ -409,6 +536,7 @@ pub(crate) fn preferences_ui(
             });
     });
     let mut changed = quality != prefs.quality;
+    changed |= frame_rate_ui(ui, &mut prefs.frame_rate, look);
     ui.horizontal(|ui| {
         ui.label("Maximum recording time");
         changed |= ui
@@ -494,9 +622,10 @@ pub(crate) fn preferences_ui(
     if let Some([width, height]) = region {
         let plan = prefs.plan(width, height);
         ui.label(format!(
-            "{} × {} · 30 fps · about {} at {} min",
+            "{} × {} · {} · about {} at {} min",
             plan.width,
             plan.height,
+            plan.frame_rate.label(),
             space_label(plan.estimated_bytes()),
             plan.max_seconds / 60
         ));
@@ -554,6 +683,35 @@ pub(super) fn heading(ui: &mut egui::Ui, look: &CaptureLook, icon: Icon, label: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_frame_rate_drives_recording_timing_bitrate_and_disk_estimate() {
+        let defaults = VideoPreferences::default();
+        let baseline = defaults.plan(1280, 720);
+        let fast = VideoPreferences {
+            frame_rate: 120.,
+            ..defaults
+        }
+        .plan(1280, 720);
+        assert_eq!(fast.frame_rate.numerator, 120);
+        assert_eq!(fast.frame_rate.denominator, 1);
+        assert_eq!(fast.bits_per_second, baseline.bits_per_second * 4);
+        assert_eq!(fast.fallback_bits_per_second, baseline.bits_per_second);
+        assert!(fast.estimated_bytes() > baseline.estimated_bytes());
+        let fractional = FrameRate::new(parse_frame_rate(" 23,976 "));
+        assert_eq!(fractional.label(), "23.976 fps");
+        assert_eq!(fractional.frame_time(2_997, 10_000_000), 1_250_000_000);
+        assert_eq!(fractional.frame_at(1_250_000_000, 10_000_000), 2_997);
+
+        for invalid in ["", "NaN", "-1", "0", "241", "invalid"] {
+            assert_eq!(
+                FrameRate::new(parse_frame_rate(invalid)),
+                FrameRate::DEFAULT
+            );
+        }
+        let legacy: VideoPreferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(legacy.plan(1280, 720).frame_rate, FrameRate::DEFAULT);
+    }
 
     #[test]
     fn saved_region_recording_preferences_open_as_window_capture() {

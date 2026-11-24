@@ -588,7 +588,7 @@ fn launcher_content(
                 CaptureMode::FullScreen => "Capture a whole display",
                 CaptureMode::Scrolling => "Scroll a window to capture all of it",
                 CaptureMode::Text => "Copy the text in a region",
-                CaptureMode::Video => "Record a window or a full display to MP4",
+                CaptureMode::Video => "Record one window, two windows, or a display to MP4",
             },
         );
         if tile.clicked() {

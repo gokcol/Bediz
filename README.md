@@ -12,6 +12,23 @@ Bediz automatically creates and saves **`.myimage` projects**, keeping each orig
 
 Real capture, rounded PNG saving/viewing, and both physical capture shortcuts were verified on macOS in the capture milestone. Annotation and library milestones include automated tests and native macOS browsing, save/reopen, and editing checks. The export, image-edit, privacy, markup, freehand, grouping, layout, layers, clipboard, and 0.13.0 preset milestones add independent image/PDF checks and native macOS editing, export, and project-reopening checks. Results are recorded in [the validation record](docs/RELEASE-VALIDATION.md). Windows runtime validation remains pending.
 
+## Pick windows for video capture
+
+In **Record video**, choose **Window** or **Two windows**. The picker shows
+thumbnails and window titles. Type in the filter to find a window, then select
+its thumbnail. Choose **Use window** to return to the recording controls.
+
+For two windows, choose **Arrange windows** to preview them side by side or
+stacked. Set Fit or Fill, source detail and pointer visibility for each window.
+Adjust the split or reorder the windows to change the composition. Choose
+**Change windows** to reopen the picker or **Refresh previews** to refresh the
+selected snapshots. **Record** saves both windows in one MP4.
+
+In **Recording options**, set **Frame rate** to 15, 30, 60 or 120 fps, or
+enter a custom value from 1 to 240 fps. The rate applies to the whole MP4.
+Bediz falls back to 30 fps for invalid values or when the encoder rejects a
+chosen rate at startup.
+
 ## Bediz 3.1 · build 127
 
 Capturing keeps existing Recents thumbnails visible while only the new capture loads. Temporary capture hiding and clipboard retries preserve the cached previews. Intentional backgrounding still releases caches, and thumbnail storage remains bounded.

@@ -1,5 +1,5 @@
 //! Media Foundation MP4 and poster I/O on the recording worker.
-use super::super::options::RecordingPlan;
+use super::super::options::{FrameRate, RecordingPlan};
 use std::{ffi::c_void, path::Path, ptr};
 use windows::{
     Win32::{
@@ -13,7 +13,7 @@ use windows::{
     core::{Error, GUID, HRESULT, HSTRING, Interface, PCWSTR, Result, s, w},
 };
 
-pub(super) const FPS: u32 = 30;
+pub(super) const FPS: u32 = FrameRate::DEFAULT.numerator;
 pub(super) const TICKS: i64 = 10_000_000;
 
 pub(super) struct Apartment;
@@ -205,6 +205,7 @@ pub(super) struct Writer<'a> {
     inner: IMFSinkWriter,
     video: u32,
     audio: Option<u32>,
+    frame_rate: FrameRate,
 }
 
 impl<'a> Writer<'a> {
@@ -223,7 +224,10 @@ impl<'a> Writer<'a> {
             let video_type = |subtype| -> Result<IMFMediaType> {
                 let format = media.media_type(&MFMediaType_Video, subtype)?;
                 format.SetUINT64(&MF_MT_FRAME_SIZE, pair(plan.width, plan.height))?;
-                format.SetUINT64(&MF_MT_FRAME_RATE, pair(FPS, 1))?;
+                format.SetUINT64(
+                    &MF_MT_FRAME_RATE,
+                    pair(plan.frame_rate.numerator, plan.frame_rate.denominator),
+                )?;
                 format.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, pair(1, 1))?;
                 format.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32)?;
                 format.SetUINT32(&MF_MT_VIDEO_NOMINAL_RANGE, MFNominalRange_16_235.0 as u32)?;
@@ -269,13 +273,14 @@ impl<'a> Writer<'a> {
                 inner,
                 video,
                 audio,
+                frame_rate: plan.frame_rate,
             })
         }
     }
 
     pub(super) fn video(&self, bytes: &[u8], frame: i64) -> Result<()> {
-        let start = frame * TICKS / i64::from(FPS);
-        let end = (frame + 1) * TICKS / i64::from(FPS);
+        let start = self.frame_rate.frame_time(frame, TICKS);
+        let end = self.frame_rate.frame_time(frame + 1, TICKS);
         self.video_at(bytes, start, end - start)
     }
 

@@ -1,6 +1,9 @@
 //! Native decoding and MP4 rendering for the Windows video workspace.
 use super::{
-    super::{super::windows_project::Project, options::RecordingPlan},
+    super::{
+        super::windows_project::Project,
+        options::{FrameRate, RecordingPlan},
+    },
     windows_frames::FrameMap,
     windows_media::{Apartment, FPS, Media, TICKS, Writer},
 };
@@ -407,10 +410,13 @@ pub(in crate::app) fn render_mp4(
     video.seek(first).map_err(|e| e.to_string())?;
     let initial = video.frame(first).map_err(|e| e.to_string())?;
     let (width, height) = initial.dimensions();
+    let bitrate = (width * height * 4).clamp(1_000_000, 32_000_000);
     let plan = RecordingPlan {
         width: (width & !1).max(16),
         height: (height & !1).max(16),
-        bits_per_second: (width * height * 4).clamp(1_000_000, 32_000_000),
+        frame_rate: FrameRate::DEFAULT,
+        bits_per_second: bitrate,
+        fallback_bits_per_second: bitrate,
         max_seconds: 0,
         audio_source: 0,
         audio_sample_rate: AUDIO_RATE as u32,
@@ -500,7 +506,9 @@ mod tests {
         let plan = RecordingPlan {
             width: 64,
             height: 64,
+            frame_rate: FrameRate::DEFAULT,
             bits_per_second: 700_000,
+            fallback_bits_per_second: 700_000,
             max_seconds: 0,
             audio_source: 0,
             audio_sample_rate: 48_000,

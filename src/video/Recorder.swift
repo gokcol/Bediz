@@ -285,6 +285,49 @@ public func bediz_webcam_release(_ handle: UnsafeRawPointer) {
 
 // Screen frames, controls and the writer run on one serial queue.
 // The UI reads the current status without blocking that queue.
+private struct WindowTile: Decodable {
+    let id: CGWindowID
+    let x: Int
+    let y: Int
+    let width: Int
+    let height: Int
+    let cursor: Bool
+    let fill: Bool
+    let detail: Int
+
+    func place(_ image: CIImage, canvasHeight: Int) -> CIImage {
+        let box = CGRect(x: x, y: canvasHeight - y - height, width: width, height: height)
+        let original = image.extent
+        let scales = (box.width / original.width, box.height / original.height)
+        let scale = fill ? max(scales.0, scales.1) : min(scales.0, scales.1)
+        let scaled = image.transformed(by: CGAffineTransform(
+            a: scale, b: 0, c: 0, d: scale,
+            tx: box.midX - original.midX * scale,
+            ty: box.midY - original.midY * scale
+        ))
+        return scaled.cropped(to: box)
+    }
+}
+
+private struct RecordingRate: Equatable {
+    static let fallback = RecordingRate(numerator: 30, denominator: 1)
+    let numerator: Int32
+    let denominator: Int64
+
+    var fps: Double { Double(numerator) / Double(denominator) }
+    var tickNanoseconds: Int { Int((Double(denominator) * 1_000_000_000 / Double(numerator)).rounded()) }
+
+    func time(atFrame frame: Int64) -> CMTime {
+        CMTime(value: frame * denominator, timescale: numerator)
+    }
+
+    func frame(at elapsed: UInt64, nearest: Bool = false) -> Int64 {
+        let scale = UInt64(denominator) * 1_000_000_000
+        let rounding = nearest ? scale / 2 : 0
+        return Int64((elapsed * UInt64(numerator) + rounding) / scale)
+    }
+}
+
 private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     AVCaptureAudioDataOutputSampleBufferDelegate,
     @unchecked Sendable
@@ -311,7 +354,12 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private var lastAudioEnd: Double = 0
     private var audioInput: AVAssetWriterInput?
     private var lastDiskCheck: UInt64 = 0
-    private var stream: SCStream?
+    private let windowTiles: [WindowTile]
+    private var streams: [SCStream] = []
+    private var screenStreams: [SCStream] = []
+    private var screenConfigurations: [SCStreamConfiguration] = []
+    private var windowFrames: [ObjectIdentifier: CIImage] = [:]
+    private var pendingStarts = 0
     private var deviceSession: AVCaptureSession?
     private var screenFrame: CVPixelBuffer?
     private var timer: DispatchSourceTimer?
@@ -324,7 +372,12 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private var elapsed: UInt64 = 0
     private var lastFrameIndex: Int64 = -1
     private var finishing = false
-    private let fps: Int32 = 30
+    private var frameRate: RecordingRate
+    private let fallbackBitrate: Int
+    private var usedFallbackRate = false
+    private var outputWidth = 0
+    private var outputHeight = 0
+    private let fallbackNotice = "Recorded at 30 fps because the encoder could not use the selected rate."
 
     fileprivate enum AudioSource: UInt32 {
         case off, system, microphone
@@ -333,7 +386,8 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     init(destination: URL, cameraPosition: CGPoint?, cameraSize: CGFloat, cameraMirrored: Bool,
          webcam: WebcamSource?, maxSeconds: UInt32, diskReserve: UInt64,
          audioSource: AudioSource, audioSampleRate: Int, audioBitsPerSecond: Int,
-         voiceProcessing: Bool, countdownSeconds: UInt32) {
+         voiceProcessing: Bool, countdownSeconds: UInt32, windowTiles: [WindowTile],
+         frameRate: RecordingRate, fallbackBitrate: Int) {
         self.destination = destination
         self.cameraPosition = cameraPosition
         self.cameraSize = cameraSize
@@ -346,6 +400,9 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         self.audioBitsPerSecond = audioBitsPerSecond
         self.voiceProcessing = voiceProcessing
         self.countdownNanoseconds = UInt64(countdownSeconds) * 1_000_000_000
+        self.windowTiles = windowTiles
+        self.frameRate = frameRate
+        self.fallbackBitrate = fallbackBitrate
     }
 
     func statusSnapshot() -> (Int32, String) {
@@ -379,15 +436,8 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
                     }
                 }
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-                let filter: SCContentFilter
-                let config = SCStreamConfiguration()
-                if windowID != 0 {
-                    guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
-                        throw RecorderError("The window chosen for recording is no longer available.")
-                    }
-                    filter = SCContentFilter(desktopIndependentWindow: window)
-                    config.ignoreShadowsSingleWindow = true
-                } else {
+                var sources: [(filter: SCContentFilter, config: SCStreamConfiguration, screen: Bool, audio: Bool)] = []
+                func displayFilter() throws -> SCContentFilter {
                     let mirrorID = CGDisplayMirrorsDisplay(displayID)
                     guard let display = content.displays.first(where: { $0.displayID == displayID })
                         ?? content.displays.first(where: { $0.displayID == mirrorID }) else {
@@ -396,47 +446,93 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
                     let applications = content.applications.filter {
                         $0.processID == ProcessInfo.processInfo.processIdentifier
                     }
-                    filter = SCContentFilter(display: display, excludingApplications: applications, exceptingWindows: [])
+                    return SCContentFilter(display: display, excludingApplications: applications, exceptingWindows: [])
                 }
-                config.width = width
-                config.height = height
-                config.preservesAspectRatio = false
-                config.pixelFormat = kCVPixelFormatType_32BGRA
-                config.minimumFrameInterval = CMTime(value: 1, timescale: fps)
-                config.queueDepth = 4
-                config.showsCursor = cursor
-                config.colorSpaceName = CGColorSpace.sRGB
-                if audioSource == .system {
-                    config.capturesAudio = true
-                    config.excludesCurrentProcessAudio = true
-                    config.sampleRate = 48_000
-                    config.channelCount = 2
+                if !windowTiles.isEmpty {
+                    for tile in windowTiles {
+                        guard let window = content.windows.first(where: { $0.windowID == tile.id }) else {
+                            throw RecorderError("One of the selected windows is no longer available.")
+                        }
+                        let filter = SCContentFilter(desktopIndependentWindow: window)
+                        let retina = CGFloat(filter.pointPixelScale)
+                        let w = max(2, window.frame.width * retina)
+                        let h = max(2, window.frame.height * retina)
+                        let scales = (CGFloat(tile.width) / w, CGFloat(tile.height) / h)
+                        let tileScale = tile.fill ? max(scales.0, scales.1) : min(scales.0, scales.1)
+                        let detail = tile.detail > 0 ? CGFloat(tile.detail) / min(w, h) : 1
+                        let scale = min(1, tileScale, detail, 3840 / max(w, h))
+                        let config = streamConfiguration(
+                            width: max(2, Int(w * scale) & ~1),
+                            height: max(2, Int(h * scale) & ~1),
+                            cursor: tile.cursor,
+                            window: true,
+                            audio: false
+                        )
+                        config.preservesAspectRatio = true
+                        sources.append((filter, config, true, false))
+                    }
+                    if audioSource == .system {
+                        // Capture system audio once. It must not be limited to one of
+                        // the windows, or counted twice when both are in the same app.
+                        let config = streamConfiguration(width: 2, height: 2, cursor: false, window: false, audio: true)
+                        sources.append((try displayFilter(), config, false, true))
+                    }
+                } else if windowID != 0 {
+                    guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+                        throw RecorderError("The window chosen for recording is no longer available.")
+                    }
+                    let audio = audioSource == .system
+                    let config = streamConfiguration(width: width, height: height, cursor: cursor, window: true, audio: audio)
+                    sources.append((SCContentFilter(desktopIndependentWindow: window), config, true, audio))
+                } else {
+                    let audio = audioSource == .system
+                    let config = streamConfiguration(width: width, height: height, cursor: cursor, window: false, audio: audio)
+                    sources.append((try displayFilter(), config, true, audio))
                 }
-                queue.async {
+                queue.async { [sources] in
                     guard !self.finishing else { return }
                     do {
-                        try self.configureWriter(width: width, height: height, bitsPerSecond: bitsPerSecond)
-                        if self.webcam != nil { self.compositor = CIContext() }
+                        self.outputWidth = width
+                        self.outputHeight = height
+                        do {
+                            try self.configureWriter(bitsPerSecond: bitsPerSecond)
+                        } catch where self.frameRate != .fallback {
+                            try self.configureFallbackWriter()
+                        }
+                        if self.webcam != nil || !self.windowTiles.isEmpty {
+                            self.compositor = CIContext(options: [.cacheIntermediates: false])
+                        }
                         if self.audioSource == .microphone && !self.voiceProcessing {
                             try self.configureMicrophone()
                         }
                         if self.audioSource == .microphone && self.voiceProcessing {
                             try self.configureProcessedMicrophone()
                         }
-                        let stream = SCStream(filter: filter, configuration: config, delegate: self)
-                        self.stream = stream
-                        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
-                        if self.audioSource == .system {
-                            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.queue)
+                        for source in sources {
+                            source.config.minimumFrameInterval = self.frameRate.time(atFrame: 1)
+                            let stream = SCStream(filter: source.filter, configuration: source.config, delegate: self)
+                            if source.screen {
+                                try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: self.queue)
+                                self.screenStreams.append(stream)
+                                self.screenConfigurations.append(source.config)
+                            }
+                            if source.audio {
+                                try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: self.queue)
+                            }
+                            self.streams.append(stream)
                         }
-                        stream.startCapture { [weak self] error in
-                            guard let self else { return }
-                            self.queue.async {
-                                guard !self.finishing else { return }
-                                if let error {
-                                    self.fail(error)
-                                } else {
-                                    self.startTimer()
+                        self.pendingStarts = self.streams.count
+                        for stream in self.streams {
+                            stream.startCapture { [weak self] error in
+                                guard let self else { return }
+                                self.queue.async {
+                                    guard !self.finishing else { return }
+                                    if let error {
+                                        self.fail(error)
+                                    } else {
+                                        self.pendingStarts -= 1
+                                        if self.pendingStarts == 0 { self.startTimer() }
+                                    }
                                 }
                             }
                         }
@@ -453,25 +549,46 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         }
     }
 
-    private func configureWriter(width: Int, height: Int, bitsPerSecond: Int) throws {
+    private func streamConfiguration(width: Int, height: Int, cursor: Bool, window: Bool,
+                                     audio: Bool) -> SCStreamConfiguration {
+        let config = SCStreamConfiguration()
+        config.width = width
+        config.height = height
+        config.preservesAspectRatio = false
+        config.ignoreShadowsSingleWindow = window
+        config.pixelFormat = kCVPixelFormatType_32BGRA
+        config.queueDepth = 4
+        config.showsCursor = cursor
+        config.colorSpaceName = CGColorSpace.sRGB
+        if audio {
+            config.capturesAudio = true
+            config.excludesCurrentProcessAudio = true
+            config.sampleRate = 48_000
+            config.channelCount = 2
+        }
+        return config
+    }
+
+    private func configureWriter(bitsPerSecond: Int) throws {
         let writer = try AVAssetWriter(outputURL: destination, fileType: .mp4)
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: [
             AVVideoCodecKey: AVVideoCodecType.h264,
-            AVVideoWidthKey: width,
-            AVVideoHeightKey: height,
+            AVVideoWidthKey: outputWidth,
+            AVVideoHeightKey: outputHeight,
             AVVideoCompressionPropertiesKey: [
-                AVVideoExpectedSourceFrameRateKey: fps,
+                AVVideoExpectedSourceFrameRateKey: frameRate.fps,
                 AVVideoAverageBitRateKey: bitsPerSecond,
             ],
         ])
         input.expectsMediaDataInRealTime = true
+        input.mediaTimeScale = frameRate.numerator
         guard writer.canAdd(input) else {
             throw RecorderError("The H.264 recorder could not use the selected dimensions.")
         }
         let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput: input, sourcePixelBufferAttributes: [
             kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
-            kCVPixelBufferWidthKey as String: width,
-            kCVPixelBufferHeightKey as String: height,
+            kCVPixelBufferWidthKey as String: outputWidth,
+            kCVPixelBufferHeightKey as String: outputHeight,
             kCVPixelBufferIOSurfacePropertiesKey as String: [:],
         ])
         writer.add(input)
@@ -505,6 +622,39 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         self.writer = writer
         self.input = input
         self.pixels = adaptor
+    }
+
+    private func configureFallbackWriter() throws {
+        if writer?.status == .writing { writer?.cancelWriting() }
+        writer = nil
+        input = nil
+        pixels = nil
+        audioInput = nil
+        if FileManager.default.fileExists(atPath: destination.path) {
+            try FileManager.default.removeItem(at: destination)
+        }
+        frameRate = .fallback
+        usedFallbackRate = true
+        try configureWriter(bitsPerSecond: fallbackBitrate)
+    }
+
+    private func handleWriterFailure(_ error: Error) {
+        guard lastFrameIndex < 0, frameRate != .fallback else {
+            fail(error)
+            return
+        }
+        do {
+            try configureFallbackWriter()
+            activeStart = nil
+            for (stream, configuration) in zip(screenStreams, screenConfigurations) {
+                configuration.minimumFrameInterval = frameRate.time(atFrame: 1)
+                stream.updateConfiguration(configuration) { _ in }
+            }
+            timer?.cancel()
+            startTimer()
+        } catch {
+            fail(error)
+        }
     }
 
     private func configureMicrophone() throws {
@@ -587,7 +737,24 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
                 as? [[SCStreamFrameInfo: Any]])?.first,
               let value = metadata[.status] as? Int,
               SCFrameStatus(rawValue: value) == .complete else { return }
-        screenFrame = frame
+        if windowTiles.isEmpty {
+            screenFrame = frame
+        } else {
+            let image = CIImage(cvPixelBuffer: frame)
+            var content = image
+            if let dictionary = metadata[.contentRect] as? [String: Any],
+               let rect = CGRect(dictionaryRepresentation: dictionary as CFDictionary),
+               let scale = metadata[.scaleFactor] as? CGFloat, scale > 0 {
+                // The attachments use top-left points and Core Image uses bottom-left pixels.
+                let crop = CGRect(x: rect.minX * scale, y: image.extent.height - rect.maxY * scale,
+                                  width: rect.width * scale, height: rect.height * scale)
+                    .intersection(image.extent)
+                if !crop.isNull && crop.width >= 2 && crop.height >= 2 {
+                    content = image.cropped(to: crop)
+                }
+            }
+            windowFrames[ObjectIdentifier(stream)] = content
+        }
     }
 
     func stream(_ stream: SCStream, didStopWithError error: Error) {
@@ -650,7 +817,9 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
 
     private func startTimer() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now(), repeating: .nanoseconds(1_000_000_000 / Int(fps)), leeway: .milliseconds(3))
+        let interval = frameRate.tickNanoseconds
+        timer.schedule(deadline: .now(), repeating: .nanoseconds(interval),
+                       leeway: .nanoseconds(min(3_000_000, interval / 10)))
         timer.setEventHandler { [weak self] in self?.tick() }
         self.timer = timer
         timer.resume()
@@ -663,10 +832,11 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
             fail(RecorderError(failure))
             return
         }
-        guard let screenFrame, cameraPosition == nil || cameraFrame != nil else {
+        let captureReady = windowTiles.isEmpty ? screenFrame != nil : windowFrames.count == windowTiles.count
+        guard captureReady, cameraPosition == nil || cameraFrame != nil else {
             if lastFrameIndex == -1 {
                 startupTicks += 1
-                if startupTicks > Int(fps) * 8 {
+                if startupTicks > Int(frameRate.fps * 8) {
                     fail(RecorderError("No screen or webcam frames arrived. Check the permissions and try again."))
                 }
             }
@@ -700,15 +870,17 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
         }
         guard let start = activeStart, let input, let pixels, input.isReadyForMoreMediaData else {
             if writer?.status == .failed {
-                fail(writer?.error ?? RecorderError("The encoder stopped."))
+                handleWriterFailure(writer?.error ?? RecorderError("The encoder stopped."))
             }
             return
         }
-        let frameIndex = lastFrameIndex < 0 ? 0 : Int64(Double(elapsed + now - start) * Double(fps) / 1_000_000_000)
+        let lastAllowedFrame = max(0, frameRate.frame(at: maxNanoseconds) - 1)
+        let frameIndex = lastFrameIndex < 0 ? 0
+            : min(lastAllowedFrame, frameRate.frame(at: elapsed + now - start, nearest: true))
         guard frameIndex > lastFrameIndex else { return }
         autoreleasepool {
             let frame: CVPixelBuffer
-            if let cameraFrame, let cameraPosition, let compositor {
+            if let compositor {
                 guard let pool = pixels.pixelBufferPool else {
                     fail(RecorderError("The video encoder could not allocate a frame."))
                     return
@@ -719,23 +891,43 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
                     fail(RecorderError("The video encoder ran out of frame buffers."))
                     return
                 }
-                renderCamera(cameraFrame, at: cameraPosition, over: screenFrame, into: target, using: compositor)
+                let canvas = CGRect(x: 0, y: 0, width: CVPixelBufferGetWidth(target), height: CVPixelBufferGetHeight(target))
+                var image: CIImage
+                if let screenFrame {
+                    image = CIImage(cvPixelBuffer: screenFrame)
+                } else {
+                    image = CIImage(color: .black).cropped(to: canvas)
+                    for (tile, stream) in zip(windowTiles, screenStreams) {
+                        guard let content = windowFrames[ObjectIdentifier(stream)] else { return }
+                        image = tile.place(content, canvasHeight: Int(canvas.height)).composited(over: image)
+                    }
+                }
+                if let cameraFrame, let cameraPosition {
+                    image = renderCamera(cameraFrame, at: cameraPosition, over: image)
+                }
+                compositor.render(image, to: target, bounds: canvas, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
                 frame = target
-            } else {
+            } else if let screenFrame {
                 frame = screenFrame
-            }
-            if pixels.append(frame, withPresentationTime: CMTime(value: frameIndex, timescale: fps)) {
-                if lastFrameIndex < 0 { publish(1) }
-                lastFrameIndex = frameIndex
             } else {
-                fail(writer?.error ?? RecorderError("The encoder could not write a video frame."))
+                return
+            }
+            // Fill brief scheduling gaps without building a backlog if the
+            // machine cannot sustain the selected rate.
+            let firstFrame = max(lastFrameIndex + 1, frameIndex - 2)
+            for index in firstFrame...frameIndex {
+                guard input.isReadyForMoreMediaData else { return }
+                guard pixels.append(frame, withPresentationTime: frameRate.time(atFrame: index)) else {
+                    handleWriterFailure(writer?.error ?? RecorderError("The encoder could not write a video frame."))
+                    return
+                }
+                if lastFrameIndex < 0 { publish(1, usedFallbackRate ? fallbackNotice : "") }
+                lastFrameIndex = index
             }
         }
     }
 
-    private func renderCamera(_ camera: CIImage, at position: CGPoint,
-                              over frame: CVPixelBuffer, into target: CVPixelBuffer, using context: CIContext) {
-        let screen = CIImage(cvPixelBuffer: frame)
+    private func renderCamera(_ camera: CIImage, at position: CGPoint, over screen: CIImage) -> CIImage {
         // Core Image's origin is at the bottom left of the captured frame.
         let box = webcamBounds(in: screen.extent, at: CGPoint(x: position.x, y: 1 - position.y),
                                sizeRatio: cameraSize)
@@ -749,14 +941,13 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
             "inputColor0": CIColor.white,
             "inputColor1": CIColor.black,
         ])?.outputImage?.cropped(to: box)
-        let composition = mask.flatMap {
+        return mask.flatMap {
             CIFilter(name: "CIBlendWithMask", parameters: [
                 kCIInputImageKey: face,
                 kCIInputBackgroundImageKey: CIImage(color: .clear).cropped(to: box),
                 kCIInputMaskImageKey: $0,
             ])?.outputImage?.composited(over: screen)
         } ?? screen
-        context.render(composition, to: target, bounds: screen.extent, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     }
 
     func command(_ command: Int32) {
@@ -783,8 +974,11 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
     private func releaseSources() {
         timer?.cancel()
         timer = nil
-        stream?.stopCapture(completionHandler: nil)
-        stream = nil
+        for stream in streams { stream.stopCapture(completionHandler: nil) }
+        streams.removeAll()
+        screenStreams.removeAll()
+        screenConfigurations.removeAll()
+        windowFrames.removeAll()
         deviceSession?.stopRunning()
         deviceSession = nil
         if let audioEngine {
@@ -818,13 +1012,14 @@ private final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate,
             return
         }
         let cappedDuration = min(activeDuration, maxNanoseconds)
-        let endFrame = max(lastFrameIndex + 1, Int64(Double(cappedDuration) * Double(fps) / 1_000_000_000))
-        writer.endSession(atSourceTime: CMTime(value: endFrame, timescale: fps))
+        let endFrame = max(lastFrameIndex + 1, frameRate.frame(at: cappedDuration))
+        writer.endSession(atSourceTime: frameRate.time(atFrame: endFrame))
         input.markAsFinished()
         audioInput?.markAsFinished()
         writer.finishWriting { [self] in
             if writer.status == .completed {
-                publish(4, note ?? "")
+                let messages = [note, usedFallbackRate ? fallbackNotice : nil].compactMap { $0 }
+                publish(4, messages.joined(separator: " · "))
             } else {
                 publish(-1, writer.error?.localizedDescription ?? "The video could not be finalized.")
             }
@@ -843,9 +1038,23 @@ public func bediz_record_start(
     _ cursor: Int32, _ webcamPreview: UnsafeRawPointer?, _ cameraX: Double, _ cameraY: Double,
     _ cameraSize: Double, _ cameraMirrored: Int32,
     _ outputWidth: UInt32, _ outputHeight: UInt32, _ bitsPerSecond: UInt32,
+    _ rateNumerator: UInt32, _ rateDenominator: UInt32, _ fallbackBitrate: UInt32,
     _ maxSeconds: UInt32, _ diskReserve: UInt64, _ audioSource: UInt32, _ audioSampleRate: UInt32, _ audioBitsPerSecond: UInt32,
-    _ voiceProcessing: Int32, _ countdownSeconds: UInt32
-) -> UnsafeMutableRawPointer {
+    _ voiceProcessing: Int32, _ countdownSeconds: UInt32, _ tilesJSON: UnsafePointer<CChar>?
+) -> UnsafeMutableRawPointer? {
+    let tiles: [WindowTile]
+    if let tilesJSON {
+        guard let parsed = try? JSONDecoder().decode([WindowTile].self, from: Data(String(cString: tilesJSON).utf8)),
+              (2...10).contains(parsed.count), Set(parsed.map(\.id)).count == parsed.count,
+              parsed.allSatisfy({ tile in
+                  tile.id != 0 && tile.x >= 0 && tile.y >= 0 && tile.width >= 2 && tile.height >= 2
+                      && tile.x <= Int(outputWidth) - tile.width && tile.y <= Int(outputHeight) - tile.height
+                      && (0...3840).contains(tile.detail)
+              }) else { return nil }
+        tiles = parsed
+    } else {
+        tiles = []
+    }
     let destination = URL(fileURLWithPath: String(cString: path))
     let webcam = webcamPreview.map { Unmanaged<WebcamPreview>.fromOpaque($0).takeUnretainedValue().source }
     let position = webcam.map { _ in CGPoint(x: cameraX, y: cameraY) }
@@ -854,7 +1063,9 @@ public func bediz_record_start(
                        diskReserve: diskReserve, audioSource: Recorder.AudioSource(rawValue: audioSource) ?? .off,
                        audioSampleRate: Int(audioSampleRate),
                        audioBitsPerSecond: Int(audioBitsPerSecond),
-                       voiceProcessing: voiceProcessing != 0, countdownSeconds: countdownSeconds)
+                       voiceProcessing: voiceProcessing != 0, countdownSeconds: countdownSeconds, windowTiles: tiles,
+                       frameRate: RecordingRate(numerator: Int32(rateNumerator), denominator: Int64(rateDenominator)),
+                       fallbackBitrate: Int(fallbackBitrate))
     job.start(displayID: display, windowID: window, cursor: cursor != 0,
               width: Int(outputWidth), height: Int(outputHeight), bitsPerSecond: Int(bitsPerSecond))
     return Unmanaged.passRetained(job).toOpaque()

@@ -191,6 +191,17 @@ impl Frames {
     }
 
     pub(super) fn poll(&mut self, width: u32, height: u32, pixels: &mut [u8]) -> Result<bool> {
+        self.poll_framed(width, height, false, 0, pixels)
+    }
+
+    pub(super) fn poll_framed(
+        &mut self,
+        width: u32,
+        height: u32,
+        fill: bool,
+        detail: u32,
+        pixels: &mut [u8],
+    ) -> Result<bool> {
         if !self.arrived.swap(false, Ordering::AcqRel) {
             return Ok(false);
         }
@@ -245,11 +256,13 @@ impl Frames {
                 desc.MiscFlags = 0;
                 self.d3d
                     .CreateTexture2D(&desc, None, Some(&mut self.staging))?;
-                self.mapping = Some(FrameMap::new(
+                self.mapping = Some(FrameMap::with_framing(
                     size.Width as u32,
                     size.Height as u32,
                     width,
                     height,
+                    fill,
+                    detail,
                 ));
             }
             let staging = self
@@ -296,19 +309,50 @@ pub(super) struct FrameMap {
 
 impl FrameMap {
     pub(super) fn new(source_width: u32, source_height: u32, width: u32, height: u32) -> Self {
-        let scale = (f64::from(width) / f64::from(source_width))
-            .min(f64::from(height) / f64::from(source_height));
-        let w = ((f64::from(source_width) * scale).round() as usize & !1).max(2);
-        let h = ((f64::from(source_height) * scale).round() as usize & !1).max(2);
-        let (width, height) = (width as usize, height as usize);
+        Self::with_framing(source_width, source_height, width, height, false, 0)
+    }
+
+    fn with_framing(
+        source_width: u32,
+        source_height: u32,
+        width: u32,
+        height: u32,
+        fill: bool,
+        detail: u32,
+    ) -> Self {
+        let horizontal = f64::from(width) / f64::from(source_width);
+        let vertical = f64::from(height) / f64::from(source_height);
+        let scale = if fill {
+            horizontal.max(vertical)
+        } else {
+            horizontal.min(vertical)
+        };
+        let detail_scale = if detail == 0 {
+            1.
+        } else {
+            (f64::from(detail) / f64::from(source_width.min(source_height))).min(1.)
+        };
+        let axis = |source: u32, target: usize, stride: usize| {
+            let fitted = ((f64::from(source) * scale).round() as usize & !1).max(2);
+            let visible = target.min(fitted);
+            let start = (fitted - visible) / 2;
+            let samples = ((f64::from(source) * detail_scale).round() as usize).max(1);
+            let coordinates = (start..start + visible)
+                .map(|position| {
+                    let sample = position * samples / fitted;
+                    sample * source as usize / samples * stride
+                })
+                .collect();
+            (((target - visible) / 2) & !1, coordinates)
+        };
+        let (left, xs) = axis(source_width, width as usize, 4);
+        let (top, ys) = axis(source_height, height as usize, 1);
         Self {
-            width,
-            height,
-            offset: [((width - w) / 2) & !1, ((height - h) / 2) & !1],
-            xs: (0..w)
-                .map(|x| (x * source_width as usize / w) * 4)
-                .collect(),
-            ys: (0..h).map(|y| y * source_height as usize / h).collect(),
+            width: width as usize,
+            height: height as usize,
+            offset: [left, top],
+            xs,
+            ys,
         }
     }
 
@@ -379,6 +423,14 @@ fn y_value([r, g, b]: [i32; 3]) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fill_crops_both_sides_and_retains_the_center() {
+        let mapping = FrameMap::with_framing(8, 4, 4, 4, true, 0);
+        assert_eq!(mapping.offset, [0, 0]);
+        assert_eq!(mapping.xs, [8, 12, 16, 20]);
+        assert_eq!(mapping.ys, [0, 1, 2, 3]);
+    }
 
     #[test]
     fn screen_pixels_convert_to_nv12_without_using_row_padding() {

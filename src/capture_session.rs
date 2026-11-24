@@ -481,6 +481,7 @@ pub(super) struct CapturedFrame {
 pub(super) struct SelectionSession {
     pub screens: Vec<Selection>,
     pub return_hidden: bool,
+    video_windows: video_session::WindowSetup,
 }
 
 const SELECTION_PLACEMENT_FRAMES: u8 = 4;
@@ -535,6 +536,7 @@ impl SelectionSession {
     ) -> Self {
         Self {
             return_hidden,
+            video_windows: Default::default(),
             screens: frames
                 .into_iter()
                 .map(|frame| Selection {
@@ -592,6 +594,7 @@ impl SelectionSession {
 #[derive(Debug, PartialEq)]
 enum SelectionAction {
     Cancel,
+    WindowComposition,
     Window(WindowCaptureRequest),
     Regions(Vec<selection::PixelRect>),
     Region(selection::PixelRect),
@@ -662,6 +665,12 @@ impl MyImageApp {
         } else {
             0
         };
+        if session.video_windows.initial_display.is_none()
+            && let Some(screen) = session.screens.get(focus_index)
+            && screen.placement_frames >= SELECTION_PLACEMENT_FRAMES
+        {
+            session.video_windows.initial_display = Some(screen.display.id);
+        }
         for (index, screen) in session.screens.iter_mut().enumerate() {
             // Mode changes in one controller apply to every screen.
             if screen.mode != self.settings.capture_mode {
@@ -677,6 +686,7 @@ impl MyImageApp {
                 screen.video_target = self.settings.video.target;
                 screen.drag = RegionDrag::default();
                 screen.window_id = None;
+                screen.video_panel = None;
             }
             let placing = screen.placement_frames < SELECTION_PLACEMENT_FRAMES;
             needs_placement_frame |= placing;
@@ -720,7 +730,12 @@ impl MyImageApp {
                     // Initialize the actual HWND while its backing frame is hidden.
                     crate::capture_window::win32::prepare_overlay(&title);
                 }
-                if let Some(action) = self.selection_overlay_ui(child, screen, desktop_pointer) {
+                if let Some(action) = self.selection_overlay_ui(
+                    child,
+                    screen,
+                    desktop_pointer,
+                    &mut session.video_windows,
+                ) {
                     chosen = Some((index, action));
                 }
                 if index == focus_index && first_reveal && !native_reveal {
@@ -739,6 +754,10 @@ impl MyImageApp {
                 SelectionAction::Cancel => {
                     self.restore_window(ctx, session.return_hidden);
                     self.status = "Capture canceled".into();
+                }
+                SelectionAction::WindowComposition => {
+                    let mut screen = screen;
+                    self.start_window_composition(ctx, &mut screen, &session.video_windows);
                 }
                 SelectionAction::Window(request) => {
                     if screen.mode == CaptureMode::Video {
@@ -772,6 +791,7 @@ impl MyImageApp {
         ctx: &egui::Context,
         selection: &mut Selection,
         desktop_pointer: Option<Pos2>,
+        video_windows: &mut video_session::WindowSetup,
     ) -> Option<SelectionAction> {
         let menu_was_open = egui::Popup::is_any_open(ctx);
         let setup_was_open = selection.video_panel.is_some();
@@ -909,6 +929,24 @@ impl MyImageApp {
                                 if mode == CaptureMode::Video {
                                     use video_session::VideoPanel;
                                     destination_changed |= self.settings.video.target.ui(ui, &look);
+                                    let target = self.settings.video.target;
+                                    if target != video_session::VideoTarget::FullScreen {
+                                        let multiple = target == video_session::VideoTarget::MultipleWindows;
+                                        let label = if multiple && video_windows.ready() { "Arrange windows" }
+                                            else if multiple { "Choose windows" }
+                                            else { "Choose window" };
+                                        let open = matches!(selection.video_panel, Some(VideoPanel::Windows | VideoPanel::WindowPicker));
+                                        if capture_icon(ui, label, Icon::Layers, open).clicked() {
+                                            if open {
+                                                selection.video_panel = None;
+                                            } else if multiple && video_windows.ready() {
+                                                selection.video_panel = Some(VideoPanel::Windows);
+                                            } else {
+                                                video_windows.open_picker(target);
+                                                selection.video_panel = Some(VideoPanel::WindowPicker);
+                                            }
+                                        }
+                                    }
                                     #[cfg(target_os = "macos")]
                                     {
                                         let open = selection.video_panel == Some(VideoPanel::Camera);
@@ -951,6 +989,9 @@ impl MyImageApp {
                                     selection.drag = RegionDrag::default();
                                     selection.multi = MultiRegions::default();
                                     selection.window_id = None;
+                                    if mode == CaptureMode::Video {
+                                        video_windows.reset();
+                                    }
                                 }
                                 if capture_icon(ui, "Cancel capture · Esc", appearance::Icon::Close, false).clicked() { cancel = true; }
                                 if mode == CaptureMode::MultiRegion {
@@ -970,11 +1011,17 @@ impl MyImageApp {
                                     if response.clicked() { scroll = true; }
                                 }
                                 let full_video = mode == CaptureMode::Video && self.settings.video.target == video_session::VideoTarget::FullScreen;
-                                let ready = mode == CaptureMode::FullScreen
-                                    || full_video
-                                    || selection.drag.bounds().is_some()
-                                    || (mode == CaptureMode::MultiRegion
-                                        && !selection.multi.rects.is_empty());
+                                let ready = if mode == CaptureMode::Video && self.settings.video.target == video_session::VideoTarget::MultipleWindows {
+                                    video_windows.ready()
+                                } else if mode == CaptureMode::Video && self.settings.video.target == video_session::VideoTarget::Window {
+                                    video_windows.single.is_some()
+                                } else {
+                                    mode == CaptureMode::FullScreen
+                                        || full_video
+                                        || selection.drag.bounds().is_some()
+                                        || (mode == CaptureMode::MultiRegion
+                                            && !selection.multi.rects.is_empty())
+                                };
                                 if ui
                                     .add_enabled_ui(ready, |ui| {
                                         appearance::capture_button_with_icon(
@@ -1022,16 +1069,48 @@ impl MyImageApp {
             if old_target != selection.video_target {
                 selection.drag = RegionDrag::default();
                 selection.window_id = None;
+                if matches!(
+                    selection.video_panel,
+                    Some(
+                        video_session::VideoPanel::Windows
+                            | video_session::VideoPanel::WindowPicker
+                    )
+                ) {
+                    selection.video_panel = None;
+                }
             }
             selection.video_target.mode()
         } else {
             mode
         };
+        let multi_video = mode == CaptureMode::Video
+            && selection.video_target == video_session::VideoTarget::MultipleWindows;
+        let window_video = mode == CaptureMode::Video && target_mode == CaptureMode::Window;
+        if !window_video {
+            video_windows.picker_target = None;
+        }
+        if !placing_overlay
+            && window_video
+            && video_windows.picker_target != Some(selection.video_target)
+            && (old_target != selection.video_target
+                || video_windows
+                    .initial_display
+                    .is_none_or(|id| id == selection.display.id))
+        {
+            video_windows.open_picker(selection.video_target);
+            selection.video_panel = Some(video_session::VideoPanel::WindowPicker);
+        }
         let menu_interaction = menu_was_open || egui::Popup::is_any_open(ctx);
         let menu_interaction = {
             if mode == CaptureMode::Video && !placing_overlay && !cancel {
-                destination_changed |=
-                    video_session::show_video_panel(ctx, selection, &mut self.settings, bar);
+                destination_changed |= video_session::show_video_panel(
+                    ctx,
+                    selection,
+                    &mut self.settings,
+                    bar,
+                    video_windows,
+                    self.demo,
+                );
             } else {
                 selection.video_panel = None;
             }
@@ -1044,6 +1123,9 @@ impl MyImageApp {
             // A click dismissing a panel should not also select the window beneath it.
             menu_interaction || setup_was_open || selection.video_panel.is_some()
         };
+        if window_video && !multi_video {
+            selection.window_id = video_windows.single;
+        }
         let mut confirm = scroll
             || accepted.take().is_some()
             || (!menu_interaction && ctx.input(|i| i.key_pressed(egui::Key::Enter)));
@@ -1097,13 +1179,15 @@ impl MyImageApp {
                         if target_mode == CaptureMode::FullScreen {
                             Some(bounds)
                         } else {
-                            selection.windows.iter().find(|w| Some(w.id) == id).map(window_rect)
+                            selection.windows.iter().find(|w| Some(w.id) == id)
+                                .map(|window| window_rect(window).intersect(bounds))
+                                .filter(|rect| rect.is_positive())
                         }
                     }).flatten()
                 };
                 #[cfg(target_os = "macos")]
                 if !menu_interaction && let Some(rect) = video_frame(selection.window_id) {
-                    selection.webcam.drag(ctx, rect.intersect(bounds), bar, &mut selection_events);
+                    selection.webcam.drag(ctx, rect, bar, &mut selection_events);
                 }
                 if ctx.input(|i| {
                     i.events
@@ -1127,7 +1211,7 @@ impl MyImageApp {
                     .unwrap_or_default();
                 let hovered_window = (!candidates.is_empty())
                     .then(|| candidates[selection.hover_cycle % candidates.len()]);
-                if target_mode == CaptureMode::Window && response.hovered() {
+                if mode == CaptureMode::Window && response.hovered() {
                     ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
                 }
                 if !placing_overlay && !menu_interaction && selection.pointer_ready && mode == CaptureMode::Region
@@ -1148,9 +1232,8 @@ impl MyImageApp {
                         selection.multi.update(&mut selection.drag, &selection_events, bounds, bar, &windows);
                     }
                 } else if target_mode == CaptureMode::Window {
-                    if !placing_overlay && selection.pointer_ready && !menu_interaction
+                    if !window_video && !placing_overlay && selection.pointer_ready && !menu_interaction
                         && response.clicked()
-                        && (mode != CaptureMode::Video || selection_events.iter().any(|event| matches!(event, egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed: false, .. })))
                         && let Some(w) = hovered_window
                     {
                         let rect = window_rect(w).intersect(bounds);
@@ -1204,6 +1287,10 @@ impl MyImageApp {
                     && capture_on_completion(self.settings.capture_on_release, mode, selection.drag.completed);
                 let chosen = if mode == CaptureMode::Video && target_mode == CaptureMode::FullScreen {
                     Some(bounds)
+                } else if window_video && !multi_video {
+                    selection.windows.iter().find(|window| Some(window.id) == selection.window_id)
+                        .map(|window| window_rect(window).intersect(bounds))
+                        .filter(|rect| rect.is_positive())
                 } else {
                     selection.drag.bounds().map(|r| r.intersect(bounds))
                 };
@@ -1226,7 +1313,7 @@ impl MyImageApp {
                     0
                 };
                 let selected = (target_mode == CaptureMode::FullScreen).then_some(bounds).or(chosen).or_else(|| {
-                    ((mode.makes_image() || target_mode == CaptureMode::Window) && !selection.drag.active)
+                    (mode.makes_image() && !selection.drag.active)
                         .then(|| hovered_window.map(|w| window_rect(w).intersect(bounds)))
                         .flatten()
                 });
@@ -1238,7 +1325,14 @@ impl MyImageApp {
                     Color32::WHITE,
                 );
                 let shade = Color32::from_black_alpha(shade_alpha);
-                if mode == CaptureMode::MultiRegion {
+                if multi_video {
+                    for window in selection.windows.iter().filter(|w| video_windows.contains(w.id)) {
+                        let rect = window_rect(window).intersect(bounds);
+                        if rect.is_positive() {
+                            paint_capture_outline(painter, rect, false);
+                        }
+                    }
+                } else if mode == CaptureMode::MultiRegion {
                     if has_selection {
                         painter.rect_filled(bounds, 0, shade);
                     }
@@ -1323,9 +1417,10 @@ impl MyImageApp {
                     );
                 }
                 #[cfg(target_os = "macos")]
-                if video_mode && !placing_overlay {
-                    let camera_frame = video_frame(selection.window_id).unwrap_or(bounds);
-                    selection.webcam.paint(painter, camera_frame.intersect(bounds));
+                if video_mode && !multi_video && !placing_overlay
+                    && let Some(camera_frame) = video_frame(selection.window_id)
+                {
+                    selection.webcam.paint(painter, camera_frame);
                 }
                 let guide_pointer = pointer.filter(|p| !bar.contains(*p));
                 if uses_region_guides(mode) && chosen.is_none() && let Some(p) = guide_pointer
@@ -1363,12 +1458,20 @@ impl MyImageApp {
                     let free = false;
                     if let Some(error) = camera_error {
                         error
+                    } else if multi_video {
+                        if video_windows.ready() {
+                            "Adjust each window or choose Record"
+                        } else {
+                            "Open Choose windows to pick two thumbnails"
+                        }
                     } else if free {
                         "Drag the webcam circle to position it · Record or Enter starts video · Esc cancels"
                     } else if target_mode == CaptureMode::FullScreen {
                         "Record or Enter starts this display · Esc cancels"
+                    } else if selection.window_id.is_some() {
+                        "Record or Enter starts video · Esc cancels"
                     } else {
-                        "Click a window to select it · Record or Enter starts video · Esc cancels"
+                        "Open Choose window to pick a thumbnail"
                     }
                 } else if mode == CaptureMode::Text && self.settings.capture_on_release {
                     "Drag and release to copy text · M magnifier"
@@ -1393,7 +1496,7 @@ impl MyImageApp {
                 let near = (mode != CaptureMode::Video && !has_selection && !selection.drag.active)
                     .then_some(guide_pointer).flatten();
                 paint_capture_hint(painter, bounds, bar, hint, near, loupe);
-                if confirm && !placing_overlay && !selection.drag.active {
+                if confirm && !multi_video && !placing_overlay && !selection.drag.active {
                     if scroll && mode != CaptureMode::Window {
                         accepted = chosen.and_then(|rect| selection::selection_to_pixels(
                             [rect.left() - bounds.left(), rect.top() - bounds.top()],
@@ -1446,6 +1549,8 @@ impl MyImageApp {
         }
         if cancel {
             Some(SelectionAction::Cancel)
+        } else if multi_video && confirm && !placing_overlay && video_windows.ready() {
+            Some(SelectionAction::WindowComposition)
         } else if let Some(request) = window {
             Some(SelectionAction::Window(request))
         } else if !accepted_regions.is_empty() {
@@ -2286,6 +2391,7 @@ mod tests {
         let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
         app.settings.capture_mode = CaptureMode::Video;
         let mut screen = test_screens(&ctx, CaptureMode::Video).screens.remove(0);
+        let mut windows = video_session::WindowSetup::default();
         let mut time = 0.;
         {
             let mut frame = |events| {
@@ -2298,7 +2404,12 @@ mod tests {
                         events,
                         ..Default::default()
                     },
-                    |ctx| assert_eq!(app.selection_overlay_ui(ctx, &mut screen, None), None),
+                    |ctx| {
+                        assert_eq!(
+                            app.selection_overlay_ui(ctx, &mut screen, None, &mut windows),
+                            None
+                        )
+                    },
                 )
             };
             for _ in 0..5 {
@@ -2332,10 +2443,13 @@ mod tests {
                     ]);
                 }
             };
+            click("Back");
             click("Full screen");
             click("Recording options");
             click("1080p");
             click("640p");
+            click("30 fps");
+            click("120 fps");
             click("Microphone");
             click("48 kHz");
             #[cfg(target_os = "macos")]
@@ -2392,6 +2506,7 @@ mod tests {
         let preferences = serde_json::to_value(app.settings.video).unwrap();
         assert_eq!(preferences["target"], "FullScreen");
         assert_eq!(preferences["quality"], "Height640");
+        assert_eq!(preferences["frame_rate"], 120.);
         assert_eq!(preferences["audio_source"], "Microphone");
         #[cfg(target_os = "macos")]
         assert_eq!(preferences["audio_sample_rate"], "Hz8000");
@@ -2404,6 +2519,117 @@ mod tests {
             assert!(screen.video_panel == Some(VideoPanel::Camera));
             assert!(screen.webcam.enabled && screen.webcam.mode == video_session::Webcam::TopLeft);
         }
+    }
+
+    #[test]
+    fn video_picker_selects_one_window_or_a_pair_with_independent_settings() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+        app.settings.capture_mode = CaptureMode::Video;
+        app.settings.video.target = video_session::VideoTarget::Window;
+        app.settings.include_pointer = false;
+        let mut screen = test_screens(&ctx, CaptureMode::Video).screens.remove(0);
+        screen.placement_frames = SELECTION_PLACEMENT_FRAMES;
+        screen.windows = vec![
+            capture::WindowInfo {
+                id: 11,
+                name: "Window one".into(),
+                x: 20,
+                y: 20,
+                width: 300,
+                height: 240,
+            },
+            capture::WindowInfo {
+                id: 12,
+                name: "Window two".into(),
+                x: 340,
+                y: 20,
+                width: 300,
+                height: 240,
+            },
+        ];
+        let mut windows = video_session::WindowSetup::default();
+        let mut time = 0.;
+        let mut frame = |events, expected| {
+            time += 0.03;
+            ctx.enable_accesskit();
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1000., 800.))),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    assert_eq!(
+                        app.selection_overlay_ui(ctx, &mut screen, None, &mut windows),
+                        expected
+                    )
+                },
+            )
+        };
+        let mut click = |label, expected| {
+            frame(vec![], None);
+            frame(vec![], None);
+            let nodes = frame(vec![], None)
+                .platform_output
+                .accesskit_update
+                .unwrap()
+                .nodes;
+            let bounds = nodes
+                .iter()
+                .filter_map(|(_, node)| {
+                    (node.label() == Some(label) || node.value() == Some(label))
+                        .then(|| node.bounds())
+                        .flatten()
+                })
+                .min_by(|a, b| a.y0.total_cmp(&b.y0))
+                .unwrap_or_else(|| {
+                    let visible: Vec<_> = nodes
+                        .iter()
+                        .filter_map(|(_, node)| node.label().or_else(|| node.value()))
+                        .collect();
+                    panic!("Missing setup control {label} among {visible:?}")
+                });
+            let at = Pos2::new(
+                (bounds.x0 + bounds.x1) as f32 * 0.5,
+                (bounds.y0 + bounds.y1) as f32 * 0.5,
+            );
+            frame(
+                vec![egui::Event::PointerMoved(at), pointer_button(at, true)],
+                None,
+            );
+            frame(vec![pointer_button(at, false)], expected);
+        };
+        click("Use window", None);
+        click("Window two", None);
+        click("Use window", None);
+        click(
+            "Record",
+            Some(SelectionAction::Window(WindowCaptureRequest {
+                id: 12,
+                crop: None,
+                scrolling: false,
+            })),
+        );
+        click("Two windows", None);
+        click("Arrange windows", None);
+        click("Window one", None);
+        click("Arrange windows", None);
+        click("Window two", None);
+        click("Arrange windows", None);
+        click("Fill", None);
+        click("Pointer", None);
+        click("Stacked", None);
+        click("Record", Some(SelectionAction::WindowComposition));
+        let tiles = windows.tiles(1920, 1080);
+        assert_eq!(
+            tiles
+                .iter()
+                .map(|tile| (tile.id, tile.y, tile.fill, tile.cursor))
+                .collect::<Vec<_>>(),
+            [(11, 0, true, true), (12, 540, false, false)]
+        );
     }
 
     #[test]
@@ -2420,7 +2646,12 @@ mod tests {
                 events: vec![egui::Event::PointerMoved(Pos2::new(250., 150.))],
                 ..Default::default()
             },
-            |ctx| assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none()),
+            |ctx| {
+                assert!(
+                    app.selection_overlay_ui(ctx, &mut screen, None, &mut Default::default())
+                        .is_none()
+                )
+            },
         );
         assert!(!output.shapes.iter().any(|shape| matches!(
             &shape.shape,
@@ -2638,7 +2869,15 @@ mod tests {
                         ..Default::default()
                     },
                     |ctx| {
-                        assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none());
+                        assert!(
+                            app.selection_overlay_ui(
+                                ctx,
+                                &mut screen,
+                                None,
+                                &mut Default::default()
+                            )
+                            .is_none()
+                        );
                     },
                 );
                 button = output
@@ -2896,7 +3135,15 @@ mod tests {
                         ..Default::default()
                     },
                     |ctx| {
-                        assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none());
+                        assert!(
+                            app.selection_overlay_ui(
+                                ctx,
+                                &mut screen,
+                                None,
+                                &mut Default::default()
+                            )
+                            .is_none()
+                        );
                     },
                 );
                 assert!(
@@ -2930,7 +3177,10 @@ mod tests {
                     ..Default::default()
                 },
                 |ctx| {
-                    assert!(app.selection_overlay_ui(ctx, &mut screen, None).is_none());
+                    assert!(
+                        app.selection_overlay_ui(ctx, &mut screen, None, &mut Default::default())
+                            .is_none()
+                    );
                 },
             );
             if time == 20.3 {
@@ -3007,7 +3257,7 @@ mod tests {
                 ..Default::default()
             },
             |ctx| {
-                action = app.selection_overlay_ui(ctx, screen, None);
+                action = app.selection_overlay_ui(ctx, screen, None, &mut Default::default());
             },
         );
         action
@@ -3249,8 +3499,13 @@ mod tests {
                 },
                 |ctx| {
                     assert!(
-                        app.selection_overlay_ui(ctx, screen, Some(pointer))
-                            .is_none()
+                        app.selection_overlay_ui(
+                            ctx,
+                            screen,
+                            Some(pointer),
+                            &mut Default::default()
+                        )
+                        .is_none()
                     );
                 },
             );
@@ -3670,7 +3925,7 @@ mod tests {
                     ..Default::default()
                 },
                 |ctx| {
-                    app.selection_overlay_ui(ctx, &mut screen, None);
+                    app.selection_overlay_ui(ctx, &mut screen, None, &mut Default::default());
                 },
             )
         };

@@ -1,8 +1,11 @@
 {
   "version": "4.0.0",
-  "build": 183,
-  "store_version": "4.0.9.0",
+  "build": 186,
+  "store_version": "4.0.10.0",
   "changes": [
+    "Set the recording frame rate to 15, 30, 60 or 120 fps, or enter a custom rate from 1 to 240 fps. Bediz defaults to 30 fps and retries at that rate when the encoder rejects the selected setting at startup.",
+    "In video capture, choose one or two windows from a searchable thumbnail picker. Choose Use window for a single window or Arrange windows to set up a pair before recording.",
+    "Choose Two windows in video capture to preview and arrange both windows side by side or stacked, adjust Fit or Fill, source detail and pointer visibility for each, and save them together in one MP4.",
     "An illustrated shortcut on the Capture and Video start pages shows where to find Bediz in the macOS menu bar or Windows system tray. Click it to open the Capture panel.",
     "A circular 4× magnifier marks the exact pixel under the pointer. Teal guides, dashed window previews, and a short instruction show what you are about to capture. Press M to toggle the magnifier.",
     "The Capture page uses the standard scrollbar at the far right of the workspace. It scrolls the full page and only appears when the settings need more room.",
