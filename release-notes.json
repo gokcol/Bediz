@@ -1,8 +1,9 @@
 {
   "version": "4.0.0",
-  "build": 179,
-  "store_version": "4.0.5.0",
+  "build": 180,
+  "store_version": "4.0.6.0",
   "changes": [
+    "The Capture page uses the standard scrollbar at the far right of the workspace. It scrolls the full page and only appears when the settings need more room.",
     "Choose from six annotation typefaces in Aa and Styles, including Lato, Crimson Text, Barlow Condensed, and Atkinson Hyperlegible. The compact font and color popovers keep eight size presets, editable pixel size, quick color swatches, and a custom picker.",
     "Capture your screen has sculpted mode cards, a mode-specific illustration, and clearer groups for settings and output. Click the shortcut keycaps or pencil to edit the capture hotkey.",
     "Open Aa while editing a text box or callout to choose a font, toggle Bold, Italic or Underline, and adjust the size with presets or an editable pixel value. Bold also remains available in Styles and carries through to saved projects and exports.",

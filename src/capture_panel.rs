@@ -254,6 +254,8 @@ pub fn ui(
     let mut result = Response::default();
     egui::ScrollArea::vertical()
         .id_salt("capture-console-scroll")
+        // Keep the scrollbar at the workspace edge while the cards stay centered.
+        .auto_shrink([false, false])
         .show(ui, |ui| {
             const GAP: f32 = 12.;
             let width = (ui.available_width() - 28.).clamp(1., 880.);
@@ -1023,6 +1025,74 @@ fn mode_widget_info(ui: &egui::Ui, mode: CaptureMode, selected: bool, response: 
 mod tests {
     use super::*;
     use eframe::egui::Pos2;
+
+    #[test]
+    fn capture_scrollbar_uses_workspace_edge_only_when_content_overflows() {
+        for (height, overflowing) in [(400., true), (1000., false)] {
+            let ctx = egui::Context::default();
+            appearance::apply(&ctx);
+            ctx.style_mut(|style| style.animation_time = 0.);
+            let mut settings = Settings {
+                capture_mode: CaptureMode::Video,
+                ..Default::default()
+            };
+            let mut workspace = Rect::NOTHING;
+            let mut output = egui::FullOutput::default();
+            for _ in 0..3 {
+                output = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(
+                            Pos2::ZERO,
+                            Vec2::new(1240., height),
+                        )),
+                        events: vec![egui::Event::PointerMoved(egui::pos2(620., 40.))],
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            workspace = ui.available_rect_before_wrap();
+                            super::ui(
+                                ui,
+                                &mut settings,
+                                &mut CaptureShape::Rectangle,
+                                &[],
+                                Availability {
+                                    capture: true,
+                                    background: true,
+                                    permission_needed: false,
+                                    demo: false,
+                                },
+                                None,
+                            );
+                        });
+                    },
+                );
+            }
+            let bar_width = ctx.style().spacing.scroll.bar_width;
+            let bars: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|shape| match &shape.shape {
+                    egui::Shape::Rect(rect)
+                        if rect.rect.width() > 0.
+                            && rect.rect.width() <= bar_width
+                            && rect.rect.height() > 100.
+                            && rect.fill != Color32::TRANSPARENT =>
+                    {
+                        Some(rect.rect)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(!bars.is_empty(), overflowing, "{bars:?} at {height}");
+            assert!(
+                bars.iter()
+                    .all(|bar| (bar.right() - workspace.right()).abs() < 1.),
+                "{bars:?} should sit at the right of {workspace:?}"
+            );
+        }
+    }
+
     #[test]
     fn capture_modes_and_primary_action_are_visible_and_interactive() {
         for (size, capture_theme) in [
