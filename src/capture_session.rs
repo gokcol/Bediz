@@ -2,6 +2,7 @@ use super::*;
 use crate::{capture::CaptureMode, scroll_capture::Stitcher};
 
 const SELECTION_FADE_SECONDS: f64 = 0.16;
+const CAPTURE_ACCENT: Color32 = Color32::from_rgb(85, 232, 212);
 const CAPTURE_GUIDE_STROKES: [Stroke; 2] = [
     Stroke {
         width: 3.,
@@ -12,6 +13,111 @@ const CAPTURE_GUIDE_STROKES: [Stroke; 2] = [
         color: Color32::WHITE,
     },
 ];
+
+fn uses_region_guides(mode: CaptureMode) -> bool {
+    !matches!(
+        mode,
+        CaptureMode::Window | CaptureMode::FullScreen | CaptureMode::Video
+    )
+}
+
+fn paint_capture_outline(painter: &egui::Painter, rect: Rect, preview: bool) {
+    painter.rect_stroke(
+        rect,
+        0,
+        Stroke::new(4., CAPTURE_GUIDE_STROKES[0].color),
+        egui::StrokeKind::Inside,
+    );
+    let stroke = Stroke::new(2., CAPTURE_ACCENT);
+    if preview && rect.width() > 8. && rect.height() > 8. {
+        let rect = rect.shrink(1.);
+        painter.extend(egui::Shape::dashed_line(
+            &[
+                rect.left_top(),
+                rect.right_top(),
+                rect.right_bottom(),
+                rect.left_bottom(),
+                rect.left_top(),
+            ],
+            stroke,
+            8.,
+            4.,
+        ));
+    } else {
+        painter.rect_stroke(rect, 0, stroke, egui::StrokeKind::Inside);
+    }
+}
+
+fn paint_capture_crosshair(painter: &egui::Painter, bounds: Rect, pointer: Pos2) {
+    for stroke in CAPTURE_GUIDE_STROKES {
+        painter.line_segment(
+            [
+                Pos2::new(bounds.left(), pointer.y),
+                Pos2::new(bounds.right(), pointer.y),
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                Pos2::new(pointer.x, bounds.top()),
+                Pos2::new(pointer.x, bounds.bottom()),
+            ],
+            stroke,
+        );
+    }
+    // The teal marks lead to the hotspot and leave its pixel visible.
+    for stroke in [
+        Stroke::new(5., CAPTURE_GUIDE_STROKES[0].color),
+        Stroke::new(2., CAPTURE_ACCENT),
+    ] {
+        for direction in [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y] {
+            painter.line_segment(
+                [pointer + direction * 5., pointer + direction * 19.],
+                stroke,
+            );
+        }
+    }
+}
+
+fn paint_capture_hint(
+    painter: &egui::Painter,
+    bounds: Rect,
+    controls: Rect,
+    hint: &str,
+    near: Option<Pos2>,
+    loupe: Option<Rect>,
+) {
+    let available = bounds.shrink(8.);
+    let galley = painter.layout(
+        hint.to_owned(),
+        egui::FontId::proportional(13.),
+        Color32::WHITE,
+        (available.width() - 20.).clamp(1., 530.),
+    );
+    let size = galley.size() + Vec2::new(20., 10.);
+    let rect = near
+        .and_then(|p| {
+            let horizontal = [18., -size.x - 18.];
+            let vertical = [-size.y - 16., 16.];
+            vertical
+                .into_iter()
+                .flat_map(|y| horizontal.map(|x| Vec2::new(x, y)))
+                .map(|offset| Rect::from_min_size(p + offset, size))
+                .find(|rect| {
+                    available.contains_rect(*rect)
+                        && !controls.intersects(*rect)
+                        && loupe.is_none_or(|other| !other.expand(4.).intersects(*rect))
+                })
+        })
+        .unwrap_or_else(|| {
+            Rect::from_min_size(
+                Pos2::new(available.center().x - size.x * 0.5, available.top() + 8.),
+                size,
+            )
+        });
+    painter.rect_filled(rect, 8, appearance::palette(painter.ctx()).navy);
+    painter.galley(rect.min + Vec2::new(10., 5.), galley, Color32::WHITE);
+}
 
 fn selection_shade_alpha(elapsed: f64) -> u8 {
     let t = (elapsed / SELECTION_FADE_SECONDS).clamp(0., 1.);
@@ -722,6 +828,22 @@ impl MyImageApp {
             selection.drag = RegionDrag::default();
             selection.window_id = None;
         }
+        if !menu_was_open
+            && !setup_was_open
+            && uses_region_guides(mode)
+            && ctx.input(|i| {
+                i.events.iter().any(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key {
+                            key: egui::Key::M, pressed: true, repeat: false, modifiers, ..
+                        } if modifiers.is_none()
+                    )
+                })
+            })
+        {
+            selection.magnifier = !selection.magnifier;
+        }
         selection.drag.completed = false;
         let mut destination_changed = false;
         let mut accepted = None;
@@ -815,8 +937,8 @@ impl MyImageApp {
                                             }
                                         }).response.on_hover_text("Output size after capture or copy. Selection stays at full resolution.");
                                 }
-                                if mode != CaptureMode::Video
-                                    && capture_icon(ui, "Magnifier", appearance::Icon::Search, selection.magnifier).clicked()
+                                if uses_region_guides(mode)
+                                    && capture_icon(ui, "Magnifier · M", appearance::Icon::Search, selection.magnifier).clicked()
                                 {
                                     selection.magnifier = !selection.magnifier;
                                 }
@@ -1120,7 +1242,7 @@ impl MyImageApp {
                             ((rect.min - bounds.min) / bounds.size()).to_pos2(),
                             ((rect.max - bounds.min) / bounds.size()).to_pos2());
                         painter.image(selection.texture.id(), rect, uv, Color32::WHITE);
-                        painter.rect_stroke(rect, 0, Stroke::new(2., appearance::palette(ui.ctx()).accent), egui::StrokeKind::Inside);
+                        paint_capture_outline(painter, rect, false);
                         let badge = Rect::from_min_size(rect.min + Vec2::splat(4.), Vec2::new(25.,22.));
                         painter.rect_filled(badge, 4, appearance::palette(ui.ctx()).navy);
                         painter.text(badge.center(), egui::Align2::CENTER_CENTER, (index+1).to_string(), egui::FontId::proportional(12.), Color32::WHITE);
@@ -1146,12 +1268,7 @@ impl MyImageApp {
                     ] {
                         painter.rect_filled(outside, 0, shade);
                     }
-                    painter.rect_stroke(
-                        rect,
-                        0,
-                        Stroke::new(2., Color32::from_rgb(85, 232, 212)),
-                        egui::StrokeKind::Inside,
-                    );
+                    paint_capture_outline(painter, rect, chosen.is_none() && target_mode != CaptureMode::FullScreen);
                     for p in (target_mode != CaptureMode::Window && target_mode != CaptureMode::FullScreen && chosen.is_some())
                         .then_some([
                             rect.left_top(),
@@ -1169,7 +1286,9 @@ impl MyImageApp {
                         painter.circle_filled(p, 4., Color32::WHITE);
                         painter.circle_stroke(p, 4., Stroke::new(1., appearance::palette(ui.ctx()).accent));
                     }
-                    let label = if target_mode == CaptureMode::Window || chosen.is_none() {
+                    let label = if target_mode == CaptureMode::FullScreen {
+                        format!("Full display · {} × {} px", selection.image.width(), selection.image.height())
+                    } else if target_mode == CaptureMode::Window || chosen.is_none() {
                         selection
                             .windows
                             .iter()
@@ -1203,35 +1322,30 @@ impl MyImageApp {
                     let camera_frame = video_frame(selection.window_id).unwrap_or(bounds);
                     selection.webcam.paint(painter, camera_frame.intersect(bounds));
                 }
-                if mode != CaptureMode::Video
-                    && let Some(p) = pointer.filter(|p| !bar.contains(*p))
-                    && chosen.is_none()
+                let guide_pointer = pointer.filter(|p| !bar.contains(*p));
+                if uses_region_guides(mode) && chosen.is_none() && let Some(p) = guide_pointer
                 {
-                    // Draw both outlines first so the light center stays clear at the crossing.
-                    for stroke in CAPTURE_GUIDE_STROKES {
-                        painter.line_segment(
-                            [Pos2::new(bounds.left(), p.y), Pos2::new(bounds.right(), p.y)],
-                            stroke,
-                        );
-                        painter.line_segment(
-                            [Pos2::new(p.x, bounds.top()), Pos2::new(p.x, bounds.bottom())],
-                            stroke,
-                        );
-                    }
+                    paint_capture_crosshair(painter, bounds, p);
                 }
-                if selection.magnifier
-                    && !matches!(target_mode, CaptureMode::Window | CaptureMode::FullScreen)
+                let loupe = if selection.magnifier
+                    && uses_region_guides(mode)
                     && (chosen.is_none() || selection.drag.active)
-                    && let Some(p) = pointer.filter(|p| !bar.contains(*p))
+                    && let Some(p) = guide_pointer
                 {
                     selection
                         .magnifier_preview
-                        .paint(painter, p, bounds, bar, &selection.image);
-                }
+                        .paint(painter, p, bounds, bar, &selection.image)
+                } else {
+                    None
+                };
                 let hint = if mode == CaptureMode::FullScreen {
-                    "Click this screen to capture it · Move to any other screen to choose it · Esc cancels"
+                    "Click a display to capture it · Esc cancels"
                 } else if mode == CaptureMode::MultiRegion {
-                    "Drag to add regions · Drag a region to adjust · Delete removes · Enter captures"
+                    if has_selection {
+                        "Drag to add or adjust · Delete removes · Enter captures"
+                    } else {
+                        "Drag to add a region · M magnifier · Esc cancels"
+                    }
                 } else if mode == CaptureMode::Video {
                     #[cfg(target_os = "macos")]
                     let camera_error = selection.webcam.preview_error.as_deref();
@@ -1252,34 +1366,28 @@ impl MyImageApp {
                         "Click a window to select it · Record or Enter starts video · Esc cancels"
                     }
                 } else if mode == CaptureMode::Text && self.settings.capture_on_release {
-                    "Drag and release to copy text · Esc cancels"
+                    "Drag and release to copy text · M magnifier"
                 } else if mode == CaptureMode::Text {
-                    "Drag around text · Adjust edges · Enter copies text · Esc cancels"
+                    if has_selection { "Adjust edges · Enter copies text · Esc cancels" }
+                    else { "Drag around text · M magnifier · Esc cancels" }
                 } else if self.settings.capture_on_release && mode == CaptureMode::Window {
                     "Click a window to capture · Tab cycles overlapping windows · Esc cancels"
-                } else if self.settings.capture_on_release && mode == CaptureMode::Region {
-                    if cfg!(target_os = "macos") { "Drag and release to capture · ⌘-drag adds regions · Esc cancels" } else { "Drag and release to capture · Ctrl-drag adds regions · Esc cancels" }
                 } else if mode == CaptureMode::Window {
-                    "Click a window · Tab cycles overlapping windows · Enter captures"
+                    if has_selection { "Enter captures · Use Scroll for a longer capture" }
+                    else { "Click a window · Tab cycles overlapping windows" }
                 } else if mode == CaptureMode::Scrolling {
-                    "Click a window or drag an area · Adjust edges · Start scrolling"
-                } else if cfg!(target_os = "macos") {
-                    "Click a window or drag an area · ⌘-drag adds regions · Enter captures"
+                    if has_selection { "Adjust edges, then Start scrolling" }
+                    else { "Choose a window or drag an area to scroll" }
+                } else if self.settings.capture_on_release {
+                    "Drag and release to capture · M magnifier"
+                } else if has_selection {
+                    "Adjust edges · Enter captures · Use Scroll for a longer capture"
                 } else {
-                    "Click a window or drag an area · Ctrl-drag adds regions · Enter captures"
+                    "Drag a region or click a window · M magnifier"
                 };
-                let hintrect = Rect::from_center_size(
-                    Pos2::new(bounds.center().x, 36.),
-                    Vec2::new(700_f32.min(bounds.width() - 16.), 30.),
-                );
-                painter.rect_filled(hintrect, 8, appearance::palette(ui.ctx()).navy);
-                painter.text(
-                    hintrect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    hint,
-                    egui::FontId::proportional(13.),
-                    Color32::WHITE,
-                );
+                let near = (mode != CaptureMode::Video && !has_selection && !selection.drag.active)
+                    .then_some(guide_pointer).flatten();
+                paint_capture_hint(painter, bounds, bar, hint, near, loupe);
                 if confirm && !placing_overlay && !selection.drag.active {
                     if scroll && mode != CaptureMode::Window {
                         accepted = chosen.and_then(|rect| selection::selection_to_pixels(
@@ -3173,9 +3281,41 @@ mod tests {
                     pointer_in_overlay(Pos2::ZERO, &screen.display, bounds),
                     None
                 );
+                let cue = output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Text(text)
+                            if text.galley.text().starts_with("Drag a region") =>
+                        {
+                            Some(Rect::from_min_size(text.pos, text.galley.size()))
+                        }
+                        _ => None,
+                    })
+                    .unwrap();
+                let hotspot = Pos2::new(100., 75.);
+                assert!(bounds.contains_rect(cue));
+                assert!(!cue.contains(hotspot));
+                assert!(cue.distance_to_pos(hotspot) < 50.);
             }
             assert!(!screen.pointer_ready && !screen.drag.active);
             assert!(screen.drag.bounds().is_none());
+        }
+    }
+
+    #[test]
+    fn magnifier_key_toggles_only_for_region_guides() {
+        for (mode, toggles) in [(CaptureMode::Region, true), (CaptureMode::Window, false)] {
+            let ctx = egui::Context::default();
+            let mut app =
+                MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
+            let mut screen = test_screens(&ctx, mode).screens.remove(0);
+            assert!(!screen.magnifier);
+            assert_eq!(
+                overlay_frame(&mut app, &ctx, &mut screen, vec![key(egui::Key::M)]),
+                None
+            );
+            assert_eq!(screen.magnifier, toggles);
         }
     }
 

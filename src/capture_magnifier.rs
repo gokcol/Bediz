@@ -84,11 +84,9 @@ impl CaptureMagnifier {
         bounds: Rect,
         controls: Rect,
         image: &image::RgbaImage,
-    ) {
+    ) -> Option<Rect> {
         let image_size = [image.width(), image.height()];
-        let Some(sample) = Sample::at(pointer, bounds, image_size) else {
-            return;
-        };
+        let sample = Sample::at(pointer, bounds, image_size)?;
         if self.sample != Some(sample) {
             let pixels = sample.pixels(image);
             if let Some(texture) = &mut self.texture {
@@ -102,9 +100,7 @@ impl CaptureMagnifier {
             }
             self.sample = Some(sample);
         }
-        let Some(texture) = &self.texture else {
-            return;
-        };
+        let texture = self.texture.as_ref()?;
         let display_size = sample.display_size(bounds, image_size);
         let card_size = display_size + Vec2::new(8., 29.);
         let available = Rect::from_min_max(
@@ -124,7 +120,23 @@ impl CaptureMagnifier {
             Color32::WHITE,
         );
         let center = lens.center();
-        // Leave the center pixel visible, with four short contrast marks around it.
+        let pixel = display_size / Vec2::new(sample.size[0] as f32, sample.size[1] as f32);
+        let focus = Rect::from_center_size(center, pixel * 5.).intersect(lens);
+        // Show the closest pixels without covering the whole preview in grid lines.
+        let grid = painter.with_clip_rect(focus);
+        let line = Stroke::new(0.5, Color32::from_white_alpha(100));
+        for step in [-1.5, -0.5, 0.5, 1.5] {
+            let x = center.x + step * pixel.x;
+            let y = center.y + step * pixel.y;
+            grid.line_segment(
+                [Pos2::new(x, focus.top()), Pos2::new(x, focus.bottom())],
+                line,
+            );
+            grid.line_segment(
+                [Pos2::new(focus.left(), y), Pos2::new(focus.right(), y)],
+                line,
+            );
+        }
         for direction in [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y] {
             let segment = [center + direction * 4., center + direction * 12.];
             painter.line_segment(segment, Stroke::new(3., Color32::from_black_alpha(190)));
@@ -137,6 +149,7 @@ impl CaptureMagnifier {
             egui::FontId::proportional(10.),
             Color32::WHITE,
         );
+        Some(card)
     }
 }
 
