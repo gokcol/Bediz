@@ -8,6 +8,7 @@ use eframe::egui::{self, CursorIcon, Id, Key, Pos2, Rect, Sense, Stroke, Vec2};
 use serde::{Deserialize, Serialize};
 
 pub(super) const TOGGLE_WIDTH: f32 = 34.;
+pub(super) const DIVIDER_GRAB_RADIUS: f32 = 5.;
 pub(super) const OVERLAY_ID: &str = "inspector-overlay";
 const MIN_WIDTH: f32 = 260.;
 const MAX_WIDTH: f32 = 560.;
@@ -534,8 +535,8 @@ pub(super) fn dock<R>(
 
     let edge = panel.response.rect.left();
     let grab = Rect::from_min_max(
-        Pos2::new(edge - 5., workspace.top()),
-        Pos2::new(edge + 5., workspace.bottom()),
+        Pos2::new(edge - DIVIDER_GRAB_RADIUS, workspace.top()),
+        Pos2::new(edge + DIVIDER_GRAB_RADIUS, workspace.bottom()),
     );
     let response = ui
         .interact(grab, divider_id, Sense::click_and_drag())

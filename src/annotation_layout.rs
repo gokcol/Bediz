@@ -989,7 +989,14 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        e.canvas(ui, &mut d, &mut h, &texture, &mut Default::default());
+                        e.canvas(
+                            ui,
+                            &mut d,
+                            &mut h,
+                            &texture,
+                            &mut Default::default(),
+                            Rect::NOTHING,
+                        );
                     });
                 },
             )

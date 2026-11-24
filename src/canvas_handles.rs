@@ -26,6 +26,9 @@ impl Edge {
             + rect.size() * egui::vec2(self.0 as f32, self.1 as f32) * 0.5
             + egui::vec2(self.0 as f32, self.1 as f32) * 5.
     }
+    fn visual_rect(self, rect: Rect) -> Rect {
+        Rect::from_center_size(self.position(rect), Vec2::splat(8.))
+    }
     fn cursor(self) -> CursorIcon {
         match (self.0, self.1) {
             (0, _) => CursorIcon::ResizeVertical,
@@ -64,10 +67,12 @@ fn hit(rect: Rect, position: Pos2) -> Option<Edge> {
     }
     EDGES
         .into_iter()
-        .map(|edge| (edge, edge.position(rect).distance(position)))
-        .filter(|(_, distance)| *distance <= 8.)
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(edge, _)| edge)
+        .filter(|edge| edge.visual_rect(rect).expand(1.).contains(position))
+        .min_by(|a, b| {
+            a.position(rect)
+                .distance_sq(position)
+                .total_cmp(&b.position(rect).distance_sq(position))
+        })
 }
 
 fn resized_output(size: Vec2, edge: Edge, delta: Vec2, lock_aspect: bool, centered: bool) -> Rect {
@@ -197,7 +202,7 @@ impl EditorState {
                 && let Some(edge) = hit(rect, position)
             {
                 let response = ui.interact(
-                    Rect::from_center_size(edge.position(rect), Vec2::splat(16.)),
+                    edge.visual_rect(rect).expand(1.),
                     ui.id().with("canvas-resize"),
                     Sense::drag(),
                 );
@@ -393,7 +398,7 @@ impl EditorState {
         {
             ui.ctx().set_cursor_icon(edge.cursor());
             ui.interact(
-                Rect::from_center_size(edge.position(rect), Vec2::splat(16.)),
+                edge.visual_rect(rect).expand(1.),
                 ui.id().with("canvas-resize-hint"),
                 Sense::hover(),
             )
@@ -414,7 +419,7 @@ fn paint_handles(painter: &egui::Painter, rect: Rect, hover: Option<Edge>) {
     for edge in EDGES {
         let active = hover.is_some_and(|h| h.0 == edge.0 && h.1 == edge.1);
         painter.rect(
-            Rect::from_center_size(edge.position(rect), Vec2::splat(6.)),
+            edge.visual_rect(rect),
             0.,
             if active {
                 crate::appearance::palette(painter.ctx()).ginger
@@ -487,7 +492,7 @@ mod tests {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    e.canvas(ui, d, h, &texture, &mut Default::default());
+                    e.canvas(ui, d, h, &texture, &mut Default::default(), Rect::NOTHING);
                 });
             },
         )

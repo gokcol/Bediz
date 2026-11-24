@@ -1357,7 +1357,7 @@ impl EditorState {
         viewport: Rect,
     ) {
         if self.precision_active()
-            || matches!(self.tool, Tool::Step | Tool::Pen | Tool::Eraser)
+            || self.tool == Tool::Eraser
             || self.gesture.is_some()
             || self.area_drag.is_some()
             || self.has_dialog()

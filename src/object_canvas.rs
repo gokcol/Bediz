@@ -176,7 +176,7 @@ mod tests {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    e.canvas(ui, d, h, &texture, &mut Default::default());
+                    e.canvas(ui, d, h, &texture, &mut Default::default(), Rect::NOTHING);
                 });
             },
         )
@@ -301,7 +301,7 @@ mod tests {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    editor.canvas(ui, document, history, texture, preview);
+                    editor.canvas(ui, document, history, texture, preview, Rect::NOTHING);
                 });
             },
         )

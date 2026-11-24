@@ -125,6 +125,14 @@ fn shape_tool(kind: AnnotationKind) -> Tool {
 }
 
 impl Tool {
+    fn draws_annotation(self) -> bool {
+        self.kind().is_some() && self != Self::Fill
+    }
+
+    fn places_on_click(self) -> bool {
+        matches!(self, Self::Text | Self::Step | Self::Stamp)
+    }
+
     fn kind(self) -> Option<AnnotationKind> {
         match self {
             Self::Select
@@ -589,7 +597,6 @@ impl EditorState {
         }
         history.commit(gesture.before, document);
         if let Some(index) = callout {
-            self.tool = Tool::Select;
             self.select(Some(index), document);
             self.focus_text = true;
         }
@@ -633,7 +640,6 @@ impl EditorState {
         if !self.commit_object_placement(before, document, history) {
             return;
         }
-        self.select(Some(document.annotations.len() - 1), document);
         self.image_error = None;
     }
 
@@ -765,8 +771,10 @@ impl EditorState {
         {
             self.inspector.close();
         }
+        let inspector_docked =
+            self.inspector.preferences.expanded && self.inspector.preferences.pinned;
         if self.inspector.preferences.expanded {
-            if self.inspector.preferences.pinned {
+            if inspector_docked {
                 inspector_panel::dock(ui, |ui| self.inspector_contents(ui, document, history));
             } else if let Some((overlay, _)) = overlay {
                 inspector_panel::overlay(ui, overlay, |ui| {
@@ -780,6 +788,10 @@ impl EditorState {
         if self.text_dialog.is_some() {
             ui.set_opacity(1.);
         }
+        let mut selection_workspace = ui.available_rect_before_wrap().intersect(ui.clip_rect());
+        if inspector_docked {
+            selection_workspace.max.x -= inspector_panel::DIVIDER_GRAB_RADIUS;
+        }
         egui::Frame::new()
             .fill(crate::appearance::palette(ui.ctx()).navy)
             .inner_margin(12)
@@ -792,7 +804,7 @@ impl EditorState {
                     ui.disable();
                     ui.set_opacity(opacity);
                 }
-                self.canvas(ui, document, history, texture, preview)
+                self.canvas(ui, document, history, texture, preview, selection_workspace)
             });
         ui.set_opacity(workspace_opacity);
     }
@@ -1496,6 +1508,7 @@ impl EditorState {
         history: &mut EditHistory,
         texture: &egui::TextureHandle,
         preview: &mut crate::privacy_preview::PrivacyPreview,
+        selection_workspace: Rect,
     ) {
         crate::connectors::sync(document);
         let feedback_bounds = ui.available_rect_before_wrap();
@@ -1557,6 +1570,13 @@ impl EditorState {
                 let draw_in_margin = self.draws_objects() || stamp_payload;
                 let select_in_margin =
                     !self.precision_active() && matches!(self.tool, Tool::Select | Tool::Area);
+                // The frame padding is visible workspace, outside the scroll
+                // viewport. Keep its input separate from the scrollbars.
+                let in_selection_padding = |position| {
+                    select_in_margin
+                        && selection_workspace.contains(position)
+                        && !feedback_bounds.contains(position)
+                };
                 let hit_rect = if draw_in_margin || select_in_margin {
                     space
                 } else if self.selected.is_some()
@@ -1605,15 +1625,15 @@ impl EditorState {
                             pos,
                             button: PointerButton::Primary,
                             pressed: true,
-                            ..
-                        } => Some(*pos),
+                            modifiers,
+                        } => Some((*pos, *modifiers)),
                         _ => None,
                     })
                 });
                 if (ui.is_enabled() && !canvas_resizing)
                     && !self.precision_active()
                     && self.selected.is_some()
-                    && let Some(position) = press
+                    && let Some((position, _)) = press
                     && space.intersect(ui.clip_rect()).contains(position)
                     && !hit_rect.contains(position)
                     && ui.ctx().layer_id_at(position) == Some(ui.layer_id())
@@ -1629,8 +1649,9 @@ impl EditorState {
                         self.tool,
                         Tool::Fill | Tool::Wand | Tool::Pen | Tool::Eraser
                     )
-                    && let Some(position) = press
-                    && hit_rect.intersect(ui.clip_rect()).contains(position)
+                    && let Some((position, modifiers)) = press
+                    && (hit_rect.intersect(ui.clip_rect()).contains(position)
+                        || in_selection_padding(position))
                     && ui.ctx().layer_id_at(position) == Some(ui.layer_id())
                 {
                     response.request_focus();
@@ -1657,64 +1678,74 @@ impl EditorState {
                     } else if self.tool == Tool::CutOut {
                         self.begin_area_drag(point, document);
                     } else if matches!(self.tool, Tool::Area | Tool::Select) {
-                        let modifiers = ui.input(|i| i.modifiers);
                         self.press_select(position, point, scale, modifiers, document);
-                    } else {
+                    } else if !self
+                        .press_drawing_object(position, point, scale, modifiers, document)
+                    {
                         self.begin_tool_gesture(point, document);
                     }
                 }
 
-                if ui.is_enabled() && !canvas_resizing {
-                    self.settle_select_press(ui, scale, document);
-                } else {
-                    self.select_press = None;
+                let canvas_input = ui.is_enabled() && !canvas_resizing;
+                let mut selection_press_handled = canvas_input
+                    && self.tool != Tool::Pen
+                    && self.settle_select_press(ui, scale, document);
+                if selection_press_handled && self.area_drag.is_some() {
+                    response.request_focus();
                 }
 
                 // Keep every pointer sample, including a complete quick scribble
                 // in one frame. Reading only interact_pos would discard corners.
-                if (ui.is_enabled() && !canvas_resizing)
-                    && matches!(self.tool, Tool::Pen | Tool::Eraser)
-                {
+                if canvas_input && matches!(self.tool, Tool::Pen | Tool::Eraser) {
                     let events = ui.input(|i| i.events.clone());
+                    let bypass_snap = ui.input(|i| i.modifiers.alt);
                     for event in events {
                         match event {
                             egui::Event::PointerButton {
                                 pos,
                                 button: PointerButton::Primary,
                                 pressed: true,
-                                ..
+                                modifiers,
                             } if hit_rect.intersect(ui.clip_rect()).contains(pos)
                                 && ui.ctx().layer_id_at(pos) == Some(ui.layer_id()) =>
                             {
                                 response.request_focus();
                                 self.finish_annotation_gesture(document, history);
-                                self.begin_tool_gesture(
-                                    object_point(pos, rect, scale, document),
-                                    document,
-                                );
+                                let at = object_point(pos, rect, scale, document);
+                                if !self.press_drawing_object(pos, at, scale, modifiers, document) {
+                                    self.begin_tool_gesture(at, document);
+                                }
                             }
-                            egui::Event::PointerMoved(pos) if self.gesture.is_some() => {
-                                self.update_gesture(
-                                    object_point(pos, rect, scale, document),
-                                    document,
-                                );
-                            }
-                            egui::Event::PointerButton {
+                            egui::Event::PointerMoved(pos)
+                            | egui::Event::PointerButton {
                                 pos,
                                 button: PointerButton::Primary,
                                 pressed: false,
                                 ..
-                            } if self.gesture.is_some() => {
-                                self.update_gesture(
-                                    object_point(pos, rect, scale, document),
-                                    document,
-                                );
-                                self.finish_annotation_gesture(document, history);
-                                self.reconcile_selection(document);
+                            } => {
+                                let released = matches!(event, egui::Event::PointerButton { .. });
+                                selection_press_handled |=
+                                    self.resolve_select_motion(pos, released, scale, document);
+                                if self.gesture.is_some() {
+                                    self.update_snapped_gesture(
+                                        object_point(pos, rect, scale, document),
+                                        document,
+                                        bypass_snap,
+                                    );
+                                    if released {
+                                        self.finish_annotation_gesture(document, history);
+                                        self.reconcile_selection(document);
+                                    }
+                                }
                             }
                             _ => {}
                         }
                     }
+                }
+                if !canvas_input
+                    || !ui.input(|i| i.focused && i.pointer.button_down(PointerButton::Primary))
+                {
+                    self.select_press = None;
                 }
 
                 let mut stamp_dropped = false;
@@ -1741,29 +1772,34 @@ impl EditorState {
                     response.request_focus();
                     if let Some(position) = response.interact_pointer_pos() {
                         let point = object_point(position, rect, scale, document);
-                        if self.tool == Tool::Text {
-                            let before = document.edit_state();
-                            let mut annotation = self.new_annotation(AnnotationKind::Text, point);
-                            if annotation.text.is_empty() {
-                                annotation.text = "Text".into();
-                            }
-                            document.annotations.push(annotation);
-                            self.tool = Tool::Select;
-                            self.open_text_editor(document.annotations.len() - 1, before, document);
-                        } else if self.tool == Tool::Wand {
-                            self.place_wand(ui.ctx(), point, document);
-                        } else if self.tool == Tool::Step {
-                            self.stamp_step(point, document, history);
-                        } else if self.tool == Tool::Fill {
-                            self.place_fill(ui.ctx(), point, document);
-                        } else if self.tool == Tool::Stamp {
-                            self.place_stamp(point, document, history);
-                        } else if self.tool == Tool::Select
+                        if (self.tool == Tool::Select || selection_press_handled)
                             && response.double_clicked()
                             && self.selected_indices(document).len() == 1
                             && let Some(index) = self.selected
                         {
                             self.open_text_editor(index, document.edit_state(), document);
+                        } else if !selection_press_handled && self.gesture.is_none() {
+                            match self.tool {
+                                Tool::Text => {
+                                    let before = document.edit_state();
+                                    let mut annotation =
+                                        self.new_annotation(AnnotationKind::Text, point);
+                                    if annotation.text.is_empty() {
+                                        annotation.text = "Text".into();
+                                    }
+                                    document.annotations.push(annotation);
+                                    self.open_text_editor(
+                                        document.annotations.len() - 1,
+                                        before,
+                                        document,
+                                    );
+                                }
+                                Tool::Wand => self.place_wand(ui.ctx(), point, document),
+                                Tool::Step => self.stamp_step(point, document, history),
+                                Tool::Fill => self.place_fill(ui.ctx(), point, document),
+                                Tool::Stamp => self.place_stamp(point, document, history),
+                                _ => {}
+                            }
                         }
                     }
                 }
@@ -2017,7 +2053,6 @@ impl EditorState {
                 if !(matches!(
                     self.tool,
                     Tool::Crop
-                        | Tool::Pen
                         | Tool::Eraser
                         | Tool::Fill
                         | Tool::StyleBrush
@@ -2137,6 +2172,10 @@ impl EditorState {
                     let mut cursor = response
                         .hover_pos()
                         .map_or(CursorIcon::Default, |position| {
+                            let alternate = ui.input(|i| i.modifiers.alt);
+                            if alternate && self.draws_objects() && self.gesture.is_none() {
+                                return CursorIcon::Crosshair;
+                            }
                             self.canvas_cursor(
                                 object_point(position, rect, scale, document),
                                 scale,
@@ -2149,6 +2188,12 @@ impl EditorState {
                         cursor = CursorIcon::Default;
                     }
                     response.clone().on_hover_cursor(cursor);
+                } else if canvas_input
+                    && let Some(position) = ui.input(|i| i.pointer.hover_pos())
+                    && in_selection_padding(position)
+                    && ui.ctx().layer_id_at(position) == Some(ui.layer_id())
+                {
+                    ui.ctx().set_cursor_icon(CursorIcon::Crosshair);
                 }
                 if self.area_drag.is_some()
                     && let Some(position) = ui.input(|i| i.pointer.interact_pos())
@@ -2232,29 +2277,22 @@ impl EditorState {
                 CursorIcon::None
             };
         }
-        if self.tool != Tool::Select {
+        if self.tool != Tool::Select && !self.draws_objects() {
             return CursorIcon::Crosshair;
         }
-        let selected = self.selected_indices(document);
-        let handles = if self.can_edit_selection(document)
-            && selected.iter().all(|&i| document.annotations[i].visible())
-        {
-            if selected.len() > 1 {
-                selection_handle(document, &selected, at, scale)
-            } else {
-                self.selected
-                    .and_then(|i| document.annotations.get(i))
-                    .and_then(|a| hit_document_handle(a, at, scale, document))
-            }
-        } else {
-            None
-        };
-        if let Some(handle) = handles {
+        if let Some(handle) = self.selected_handle(at, scale, document) {
             return handle_cursor(handle, document);
         }
-        if hit_document_annotation(document, at, scale)
-            .is_some_and(|i| annotation_layers::editable(document, &[i]))
-        {
+        let hit = hit_document_annotation(document, at, scale);
+        if self.draws_objects() {
+            if hit.is_some_and(|i| self.selected_indices(document).contains(&i))
+                && self.can_edit_selection(document)
+            {
+                CursorIcon::Grab
+            } else {
+                CursorIcon::Crosshair
+            }
+        } else if hit.is_some_and(|i| annotation_layers::editable(document, &[i])) {
             CursorIcon::Grab
         } else {
             CursorIcon::Default
@@ -2349,20 +2387,7 @@ impl EditorState {
     }
 
     fn draws_objects(&self) -> bool {
-        !self.precision_active()
-            && !matches!(
-                self.tool,
-                Tool::Select
-                    | Tool::Area
-                    | Tool::Crop
-                    | Tool::CutOut
-                    | Tool::Wand
-                    | Tool::Fill
-                    | Tool::Eraser
-                    | Tool::StyleBrush
-                    | Tool::Measure
-                    | Tool::ColorInspector
-            )
+        !self.precision_active() && self.tool.draws_annotation()
     }
 
     fn begin_tool_gesture(&mut self, point: Point, document: &mut Document) {
@@ -2382,7 +2407,7 @@ impl EditorState {
         {
             self.restore_appearance(kind);
         }
-        if matches!(self.tool, Tool::Text | Tool::Step | Tool::Stamp) {
+        if self.tool.places_on_click() {
             self.clear_selection();
             return;
         }
@@ -4405,7 +4430,14 @@ mod tests {
             },
             |context| {
                 egui::CentralPanel::default().show(context, |ui| {
-                    editor.canvas(ui, document, history, texture, &mut Default::default());
+                    editor.canvas(
+                        ui,
+                        document,
+                        history,
+                        texture,
+                        &mut Default::default(),
+                        Rect::NOTHING,
+                    );
                 });
             },
         );
@@ -4501,6 +4533,57 @@ mod tests {
                     assert!(!history.can_undo());
                 }
             }
+        }
+    }
+
+    #[test]
+    fn region_drag_starts_at_workspace_edge_and_beside_canvas_resize_handle() {
+        for (start, y) in [(Pos2::new(12., 110.), 40.), (Pos2::new(59., 120.), 50.)] {
+            let ctx = egui::Context::default();
+            let texture = ctx.load_texture(
+                "workspace margin",
+                egui::ColorImage::new([1, 1], vec![Color32::WHITE]),
+                Default::default(),
+            );
+            let mut document = Document {
+                image: std::sync::Arc::new(image::RgbaImage::new(100, 100)),
+                annotations: vec![],
+                geometry: Default::default(),
+            };
+            let mut editor = EditorState {
+                tool: Tool::Select,
+                fit: false,
+                ..Default::default()
+            };
+            let before = document.edit_state();
+            let mut history = EditHistory::new(before.clone());
+            let mut preview = Default::default();
+            let end = Pos2::new(130., 150.);
+            for events in [
+                vec![],
+                vec![egui::Event::PointerMoved(start), button_event(start, true)],
+                vec![egui::Event::PointerMoved(end), button_event(end, false)],
+            ] {
+                let _ = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::splat(240.))),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            editor.ui(ui, &mut document, &mut history, &texture, &mut preview);
+                        });
+                    },
+                );
+            }
+            assert_eq!(
+                editor.area,
+                Some(Rect::from_min_max(Pos2::new(0., y), Pos2::new(60., 80.))),
+                "region drag must start at {start:?}"
+            );
+            assert_eq!(document.edit_state(), before);
+            assert!(!history.can_undo());
         }
     }
 
@@ -4704,15 +4787,25 @@ mod tests {
             };
             canvas_frame(&mut e, &mut d, &mut h, &ctx, &texture, vec![]);
             let p = Pos2::new(70., 70.);
+            let button = |pos, pressed| egui::Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: if tool.places_on_click() {
+                    Modifiers::ALT
+                } else {
+                    Modifiers::NONE
+                },
+            };
             canvas_frame(
                 &mut e,
                 &mut d,
                 &mut h,
                 &ctx,
                 &texture,
-                vec![egui::Event::PointerMoved(p), button_event(p, true)],
+                vec![egui::Event::PointerMoved(p), button(p, true)],
             );
-            let end = if matches!(tool, Tool::Text | Tool::Stamp | Tool::Step) {
+            let end = if tool.places_on_click() {
                 p
             } else {
                 p + Vec2::new(40., 30.)
@@ -4723,13 +4816,93 @@ mod tests {
                 &mut h,
                 &ctx,
                 &texture,
-                vec![egui::Event::PointerMoved(end), button_event(end, false)],
+                vec![egui::Event::PointerMoved(end), button(end, false)],
             );
             assert_eq!(d.annotations.len(), 2, "{tool:?} did not add an object");
             assert_eq!(d.annotations[0], before.annotations[0], "{tool:?}");
             assert_eq!(Some(d.annotations[1].kind), tool.kind());
             assert_eq!(e.text_dialog.is_some(), tool == Tool::Text);
             assert!(h.can_undo() || tool == Tool::Text);
+        }
+    }
+
+    #[test]
+    fn drawing_tools_select_artwork_and_continue_without_creating_a_region() {
+        for tool in [Tool::Arrow, Tool::Pen, Tool::Text, Tool::Step, Tool::Stamp] {
+            let ctx = egui::Context::default();
+            let texture = ctx.load_texture(
+                "draw and edit",
+                egui::ColorImage::new([1, 1], vec![Color32::WHITE]),
+                Default::default(),
+            );
+            let mut box_layer =
+                crate::markup_tests::object(AnnotationKind::Rectangle, [25., 25.], [85., 85.]);
+            box_layer.fill = true;
+            let mut d = Document {
+                image: std::sync::Arc::new(image::RgbaImage::new(200, 200)),
+                annotations: vec![box_layer],
+                geometry: Default::default(),
+            };
+            let before = d.edit_state();
+            let mut h = EditHistory::new(before.clone());
+            let mut e = EditorState {
+                tool,
+                fit: false,
+                snapping: false,
+                ..Default::default()
+            };
+            let body = Pos2::new(75., 75.);
+            for events in [
+                vec![],
+                vec![egui::Event::PointerMoved(body), button_event(body, true)],
+                vec![button_event(body, false)],
+            ] {
+                canvas_frame(&mut e, &mut d, &mut h, &ctx, &texture, events);
+            }
+            assert_eq!(e.selected, Some(0), "{tool:?} did not select the object");
+            assert_eq!(d.edit_state(), before);
+            assert!(!h.can_undo());
+
+            let moved = body + Vec2::new(12., 20.);
+            for events in [
+                vec![button_event(body, true)],
+                vec![egui::Event::PointerMoved(moved)],
+                vec![button_event(moved, false)],
+            ] {
+                canvas_frame(&mut e, &mut d, &mut h, &ctx, &texture, events);
+            }
+            assert_eq!(d.annotations.len(), 1);
+            assert_eq!(d.annotations[0].start, Point { x: 37., y: 45. });
+            assert_eq!(e.tool, tool);
+            assert!(e.area.is_none());
+            assert!(e.text_dialog.is_none());
+
+            let start = Pos2::new(155., 175.);
+            let end = if tool.places_on_click() {
+                start
+            } else {
+                start + Vec2::new(25., 22.)
+            };
+            canvas_frame(
+                &mut e,
+                &mut d,
+                &mut h,
+                &ctx,
+                &texture,
+                vec![
+                    egui::Event::PointerMoved(start),
+                    button_event(start, true),
+                    egui::Event::PointerMoved(end),
+                    button_event(end, false),
+                ],
+            );
+            if tool == Tool::Text {
+                e.finish_text_editor(&mut d, &mut h, true);
+            }
+            assert_eq!(d.annotations.len(), 2, "{tool:?} did not draw again");
+            assert_eq!(Some(d.annotations[1].kind), tool.kind());
+            assert_eq!(e.tool, tool);
+            assert!(e.area.is_none());
         }
     }
 
@@ -4922,7 +5095,14 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        e.canvas(ui, &mut d, &mut h, &texture, &mut Default::default());
+                        e.canvas(
+                            ui,
+                            &mut d,
+                            &mut h,
+                            &texture,
+                            &mut Default::default(),
+                            Rect::NOTHING,
+                        );
                     });
                 },
             );
@@ -5036,7 +5216,14 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        e.canvas(ui, &mut d, &mut history, &texture, &mut preview);
+                        e.canvas(
+                            ui,
+                            &mut d,
+                            &mut history,
+                            &texture,
+                            &mut preview,
+                            Rect::NOTHING,
+                        );
                     });
                 },
             );
@@ -5137,7 +5324,14 @@ mod tests {
                 },
                 |ctx| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        e.canvas(ui, &mut d, &mut history, &texture, &mut preview);
+                        e.canvas(
+                            ui,
+                            &mut d,
+                            &mut history,
+                            &texture,
+                            &mut preview,
+                            Rect::NOTHING,
+                        );
                     });
                 },
             );
@@ -5578,7 +5772,14 @@ mod tests {
                 },
                 |context| {
                     egui::CentralPanel::default().show(context, |ui| {
-                        editor.canvas(ui, &mut document, &mut history, &texture, &mut preview);
+                        editor.canvas(
+                            ui,
+                            &mut document,
+                            &mut history,
+                            &texture,
+                            &mut preview,
+                            Rect::NOTHING,
+                        );
                     });
                 },
             );
@@ -5862,6 +6063,7 @@ mod tests {
                         &mut history,
                         &texture,
                         &mut Default::default(),
+                        Rect::NOTHING,
                     )
                 });
             },
@@ -5901,6 +6103,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [1, 2]
         );
+        editor.select(Some(1), &document);
         editor.step_number = 12;
         editor.step_diameter = 64.0;
         editor.text_color = [11, 22, 33, 255];
@@ -6018,7 +6221,7 @@ mod tests {
         assert_eq!(callout.kind, AnnotationKind::Callout);
         assert_eq!(callout.text, "Callout");
         assert!(!interaction_bounds(callout).contains(point(callout.tail.unwrap())));
-        assert!(editor.tool == Tool::Select);
+        assert_eq!(editor.tool, Tool::Callout);
         assert!(editor.focus_text);
         assert!(history.undo(&mut document));
         assert!(document.annotations.is_empty());

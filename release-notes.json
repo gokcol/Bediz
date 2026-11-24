@@ -1,8 +1,10 @@
 {
   "version": "4.0.0",
-  "build": 186,
+  "build": 187,
   "store_version": "4.0.10.0",
   "changes": [
+    "Click existing artwork to edit it while keeping the drawing tool active. Hold Option on Mac or Alt on Windows to draw or place artwork directly over it.",
+    "Start a pixel-region drag with Select from the workspace padding outside the image, including beside canvas resize handles.",
     "Set the recording frame rate to 15, 30, 60 or 120 fps, or enter a custom rate from 1 to 240 fps. Bediz defaults to 30 fps and retries at that rate when the encoder rejects the selected setting at startup.",
     "In video capture, choose one or two windows from a searchable thumbnail picker. Choose Use window for a single window or Arrange windows to set up a pair before recording.",
     "Choose Two windows in video capture to preview and arrange both windows side by side or stacked, adjust Fit or Fill, source detail and pointer visibility for each, and save them together in one MP4.",

@@ -2,7 +2,20 @@ use super::*;
 use crate::appearance::{self, Icon as DialogIcon, TileTone};
 use crate::dialogs::{self, Dialog};
 
-const SELECT_HINT: &str = "Click an object · Shift-click to add · Drag a region";
+const SELECT_HINT: &str =
+    "Click an object · Shift-click to add · Drag a region from the image or its margin";
+
+fn show_tool_hint(ui: &mut egui::Ui, tool: Tool, hint: &str) {
+    ui.label(hint);
+    if tool.draws_annotation() {
+        ui.label("Click existing artwork to select it.");
+        ui.weak(if tool.places_on_click() {
+            "Hold Option/Alt to place over artwork."
+        } else {
+            "Drag selected artwork to move it. Hold Option/Alt to draw over it."
+        });
+    }
+}
 
 fn toolbar_ink(ctx: &egui::Context, tool: Tool) -> Color32 {
     let tone = match tool {
@@ -128,7 +141,9 @@ fn tool_menu_row(ui: &mut egui::Ui, tool: Tool, label: &str, hint: &str, selecte
         egui::FontId::proportional(13.),
         appearance::palette(ui.ctx()).ink,
     );
-    response.on_hover_text(hint).clicked()
+    response
+        .on_hover_ui(|ui| show_tool_hint(ui, tool, hint))
+        .clicked()
 }
 
 impl EditorState {
@@ -402,7 +417,7 @@ impl EditorState {
                 label,
                 tool == self.tool || (tool == Tool::Area && self.tool == Tool::Select),
             )
-            .on_hover_text(hint)
+            .on_hover_ui(|ui| show_tool_hint(ui, tool, hint))
             .clicked()
             {
                 self.choose_tool(tool, document, history);
