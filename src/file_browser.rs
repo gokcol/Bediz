@@ -40,6 +40,9 @@ impl MyImageApp {
         if !missing.is_empty() {
             self.settings.recent_files.retain(|p| !missing.contains(p));
             self.leave_unavailable_video(&missing);
+            if self.albums.forget(&missing) && self.view == View::Album {
+                self.view = View::Create;
+            }
         }
         let preferences = self.library.take_preferences_change();
         let changed = preferences.is_some() || !missing.is_empty();
@@ -124,6 +127,7 @@ impl MyImageApp {
         {
             prepared.remap(path);
         }
+        self.albums.remap(&prepared);
         self.settings = next;
         self.library = LibraryPanel::with_preferences(self.settings.library.clone());
         if let Some(loader) = &self.image_loader {
@@ -257,6 +261,9 @@ impl MyImageApp {
             .cloned()
             .collect();
         self.leave_unavailable_video(&removed);
+        if self.albums.forget(&removed) && self.view == View::Album {
+            self.view = View::Create;
+        }
         self.remaining_recents_after_trash =
             if removed_active && self.view == View::Editor && !self.quit_after_work {
                 self.project_path
@@ -267,15 +274,7 @@ impl MyImageApp {
                 None
             };
         if removed_active {
-            self.clear_recovery();
-            self.document = None;
-            self.project_path = None;
-            self.last_path = None;
-            self.last_image = None;
-            self.last_texture = None;
-            self.history = EditHistory::new(document::EditState::default());
-            self.editor.reset();
-            self.privacy_preview.clear();
+            self.clear_current_image();
         }
         self.settings
             .recent_files
@@ -298,6 +297,7 @@ impl MyImageApp {
             if self.last_path.as_ref() == Some(old) {
                 self.last_path = Some(new.clone());
             }
+            self.albums.rename(old, new);
             self.library.renamed_path(old, new);
         }
         for p in &result.created {

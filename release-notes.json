@@ -1,8 +1,10 @@
 {
   "version": "4.1.1",
-  "build": 188,
+  "build": 189,
   "store_version": "4.1.1.0",
   "changes": [
+    "Create a Capture Album with a Walkthrough or Contact sheet layout. Start collecting to send image captures to the album, and stop collecting to return to regular captures.",
+    "Title, reorder, and annotate album entries. Add placeholders or existing images, and export the album as a paginated PDF.",
     "Finished drawings are selected automatically. Their handles and properties are available immediately, and the drawing tool stays active.",
     "Click existing artwork to edit it while keeping the drawing tool active. Hold Option on Mac or Alt on Windows to draw or place artwork directly over it.",
     "Start a pixel-region drag with Select from the workspace padding outside the image, including beside canvas resize handles.",

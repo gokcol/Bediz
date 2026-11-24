@@ -30,7 +30,10 @@ impl LibraryPanel {
             ui.separator();
         }
         let recording = library::is_recording(path);
-        let (open_label, open_icon) = if recording {
+        let album = crate::album::is_album(path);
+        let (open_label, open_icon) = if album {
+            ("Open album", Icon::Library)
+        } else if recording {
             ("Play video", Icon::Play)
         } else {
             ("Open in Editor", Icon::Edit)
@@ -39,7 +42,7 @@ impl LibraryPanel {
             action = Some(LibraryAction::Open(path.to_owned()));
             ui.close();
         }
-        if item(ui, "Copy", Icon::Copy, single && !recording)
+        if item(ui, "Copy", Icon::Copy, single && !recording && !album)
             .on_hover_text("Copy this saved image, including project annotations, to the clipboard")
             .clicked()
         {

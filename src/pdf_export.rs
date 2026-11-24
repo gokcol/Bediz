@@ -103,23 +103,55 @@ pub fn write_pdf(
     page_size: PdfPageSize,
     writer: &mut impl Write,
 ) -> Result<(), String> {
+    let mut pdf = new_pdf(1);
+    add_page(&mut pdf, 0, image, page_size)?;
+    finish_pdf(pdf, writer)
+}
+
+pub(crate) fn write_pages(
+    pages: impl ExactSizeIterator<Item = Result<RgbaImage, String>>,
+    writer: &mut impl Write,
+) -> Result<(), String> {
+    let count = pages.len();
+    if count == 0 || count > 1000 {
+        return Err("Choose an album with 1 to 1000 pages to export.".into());
+    }
+    let mut pdf = new_pdf(count);
+    for (index, page) in pages.enumerate() {
+        add_page(&mut pdf, index, &page?, PdfPageSize::A4)?;
+        if pdf.len() > 512 * 1024 * 1024 {
+            return Err("The album PDF exceeds the 512 MiB export limit.".into());
+        }
+    }
+    finish_pdf(pdf, writer)
+}
+
+fn new_pdf(count: usize) -> Pdf {
+    let mut pdf = Pdf::new();
+    pdf.catalog(Ref::new(1)).pages(Ref::new(2));
+    pdf.pages(Ref::new(2))
+        .kids((0..count).map(|index| Ref::new(3 + 4 * index as i32)))
+        .count(count as i32);
+    pdf
+}
+
+fn add_page(
+    pdf: &mut Pdf,
+    index: usize,
+    image: &RgbaImage,
+    page_size: PdfPageSize,
+) -> Result<(), String> {
     let layout = PageLayout::new(image.width(), image.height(), page_size)?;
     let has_alpha = image.pixels().any(|pixel| pixel[3] != 255);
-
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let image_id = Ref::new(4);
-    let mask_id = Ref::new(5);
-    let content_id = Ref::new(6);
+    let base = 3 + 4 * index as i32;
+    let page_id = Ref::new(base);
+    let image_id = Ref::new(base + 1);
+    let mask_id = Ref::new(base + 2);
+    let content_id = Ref::new(base + 3);
     let image_name = Name(b"Im1");
-
-    let mut pdf = Pdf::new();
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    pdf.pages(page_tree_id).kids([page_id]).count(1);
     let mut page = pdf.page(page_id);
     page.media_box(Rect::new(0.0, 0.0, layout.width, layout.height));
-    page.parent(page_tree_id);
+    page.parent(Ref::new(2));
     page.contents(content_id);
     page.resources().x_objects().pair(image_name, image_id);
     page.finish();
@@ -163,7 +195,10 @@ pub fn write_pdf(
     content.x_object(image_name);
     content.restore_state();
     pdf.stream(content_id, &content.finish());
+    Ok(())
+}
 
+fn finish_pdf(pdf: Pdf, writer: &mut impl Write) -> Result<(), String> {
     writer
         .write_all(&pdf.finish())
         .map_err(|error| format!("Could not write the PDF: {error}"))

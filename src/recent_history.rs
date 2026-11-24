@@ -73,7 +73,7 @@ impl MyImageApp {
         self.library
             .recent_paths(&self.settings.recent_files)
             .into_iter()
-            .filter(|path| !crate::library::is_recording(path))
+            .filter(|path| !crate::library::is_recording(path) && !crate::album::is_album(path))
             .collect()
     }
 

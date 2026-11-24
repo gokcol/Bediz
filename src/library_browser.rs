@@ -856,6 +856,7 @@ impl LibraryPanel {
                     EntryKind::Project => "Editable project",
                     EntryKind::Image => "Image",
                     EntryKind::Recording => "Video",
+                    EntryKind::Album => "Capture album",
                 },
                 if self.preferences.sort == SortBy::Created {
                     format!("Created {}", date_text(entry.created))
@@ -926,10 +927,10 @@ impl LibraryPanel {
                 if ui.small_button("Move to Trash…").clicked() { action=Some(LibraryAction::Trash(self.selection.list())); }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let (label, icon) = if entry.is_some_and(|entry| entry.kind == EntryKind::Recording) {
-                    ("Play video", appearance::Icon::Play)
-                } else {
-                    ("Open in Editor", appearance::Icon::Edit)
+                let (label, icon) = match entry.map(|entry| entry.kind) {
+                    Some(EntryKind::Recording) => ("Play video", appearance::Icon::Play),
+                    Some(EntryKind::Album) => ("Open album", appearance::Icon::Library),
+                    _ => ("Open in Editor", appearance::Icon::Edit),
                 };
                 if appearance::action_button(
                     ui,
@@ -981,14 +982,15 @@ fn file_hover(ui: &mut egui::Ui, entry: &LibraryEntry, sort: SortBy, preview: Op
         Some(Preview::Failed(_)) => "Unavailable".into(),
         None => "Loading…".into(),
     };
+    let format = if entry.kind == EntryKind::Album {
+        ("Type", "Capture album".to_owned())
+    } else {
+        ("Dimensions", dimensions)
+    };
     egui::Grid::new("file-hover-metadata")
         .spacing(Vec2::new(14., 3.))
         .show(ui, |ui| {
-            for (label, value) in [
-                ("Size", size_text(entry.bytes)),
-                (date_label, date),
-                ("Dimensions", dimensions),
-            ] {
+            for (label, value) in [("Size", size_text(entry.bytes)), (date_label, date), format] {
                 ui.label(RichText::new(label).size(12.).color(palette.muted));
                 ui.label(RichText::new(value).size(12.));
                 ui.end_row();

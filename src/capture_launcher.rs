@@ -172,7 +172,13 @@ impl MyImageApp {
             }
             launcher.focused |= focused;
             let mut content = |ui: &mut egui::Ui| {
-                let result = launcher_content(ui, &mut self.settings, &self.displays, enabled);
+                let result = launcher_content(
+                    ui,
+                    &mut self.settings,
+                    &self.displays,
+                    enabled,
+                    self.albums.active_title(),
+                );
                 changed |= result.0;
                 if result.1.is_some() {
                     action = result.1;
@@ -424,6 +430,7 @@ fn launcher_content(
     settings: &mut Settings,
     displays: &[DisplayInfo],
     enabled: bool,
+    album: Option<&str>,
 ) -> (bool, Option<Action>) {
     let mut changed = false;
     let mut action = None;
@@ -633,7 +640,8 @@ fn launcher_content(
         .on_hover_cursor(egui::CursorIcon::PointingHand);
 
     let send_track = at(FIELD_X, 135., FIELD_W, 26.);
-    if !settings.capture_mode.makes_image() {
+    let album = album.filter(|_| settings.capture_mode.makes_image());
+    if album.is_some() || !settings.capture_mode.makes_image() {
         let video = settings.capture_mode == CaptureMode::Video;
         ui.painter().rect(
             send_track,
@@ -645,14 +653,23 @@ fn launcher_content(
         appearance::icon(
             ui.painter(),
             send_track.left_center() + Vec2::new(16., 0.),
-            if video { Icon::Video } else { Icon::TextSize },
+            if album.is_some() {
+                Icon::Library
+            } else if video {
+                Icon::Video
+            } else {
+                Icon::TextSize
+            },
             p.ginger,
             15.,
         );
-        ui.painter().text(
+        let label = album.map(|name| format!("Adding to {name}"));
+        ui.painter().with_clip_rect(send_track.shrink(1.)).text(
             send_track.left_center() + Vec2::new(32., 0.),
             egui::Align2::LEFT_CENTER,
-            if video {
+            if let Some(label) = &label {
+                label
+            } else if video {
                 "MP4 · Recordings folder"
             } else {
                 "Text → clipboard · no image saved"
@@ -660,6 +677,14 @@ fn launcher_content(
             egui::FontId::proportional(12.),
             p.ink,
         );
+        if let Some(label) = label {
+            ui.interact(
+                send_track,
+                ui.id().with("album-destination"),
+                egui::Sense::hover(),
+            )
+            .on_hover_text(label);
+        }
     } else {
         let items = CaptureDestination::ALL.map(|dest| {
             (
@@ -987,7 +1012,7 @@ mod tests {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
-                            result = launcher_content(ui, &mut settings, &displays, enabled);
+                            result = launcher_content(ui, &mut settings, &displays, enabled, None);
                         });
                 },
             );
@@ -1106,7 +1131,7 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
-                        launcher_content(ui, &mut settings, &[], true);
+                        launcher_content(ui, &mut settings, &[], true, None);
                     });
             },
         );
@@ -1144,7 +1169,7 @@ mod tests {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
-                            launcher_content(ui, &mut settings, &[], true);
+                            launcher_content(ui, &mut settings, &[], true, None);
                         });
                 },
             );
@@ -1212,7 +1237,7 @@ mod tests {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
-                            launcher_content(ui, &mut settings, &[], true);
+                            launcher_content(ui, &mut settings, &[], true, None);
                         });
                 },
             )

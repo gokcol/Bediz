@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::VecDeque,
     fs::File,
-    io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write},
+    io::{BufReader, BufWriter, Seek, SeekFrom, Write},
     path::Path,
     sync::Arc,
 };
@@ -31,7 +31,7 @@ use std::{
 const MAGIC: &[u8; 8] = b"MYIMAGE\0";
 const VERSION: u32 = 27;
 const HEADER_BYTES: u64 = 24;
-const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
+pub(crate) const MAX_PROJECT_BYTES: u64 = 512 * 1024 * 1024;
 pub(crate) const MAX_METADATA_BYTES: usize = 48 * 1024 * 1024;
 pub(crate) const MAX_IMAGE_SIDE: u32 = 32_768;
 const MAX_IMAGE_PIXELS: u64 = 100_000_000;
@@ -655,6 +655,25 @@ fn project_temporary(
     document: &Document,
     parent: &Path,
 ) -> Result<tempfile::NamedTempFile, String> {
+    let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|error| {
+        format!(
+            "Cannot create a project file in {}: {error}",
+            parent.display()
+        )
+    })?;
+    write_project_to(document, &mut BufWriter::new(temporary.as_file_mut()))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|error| format!("Cannot flush project to disk: {error}"))?;
+    Ok(temporary)
+}
+
+/// Write one editable project to a fresh seekable stream.
+pub(crate) fn write_project_to(
+    document: &Document,
+    writer: &mut (impl Write + Seek),
+) -> Result<(), String> {
     validate_document(document)?;
     let metadata = Metadata {
         width: document.image.width(),
@@ -667,22 +686,8 @@ fn project_temporary(
     if json.len() > MAX_METADATA_BYTES {
         return Err("The project annotation data is too large.".into());
     }
-    let mut temporary = tempfile::NamedTempFile::new_in(parent).map_err(|error| {
-        format!(
-            "Cannot create a project file in {}: {error}",
-            parent.display()
-        )
-    })?;
-    {
-        let mut writer = BufWriter::new(temporary.as_file_mut());
-        write_contents(&mut writer, document, &json)
-            .map_err(|error| format!("Cannot write project: {error}"))?;
-    }
-    temporary
-        .as_file()
-        .sync_all()
-        .map_err(|error| format!("Cannot flush project to disk: {error}"))?;
-    Ok(temporary)
+    write_contents(writer, document, &json)
+        .map_err(|error| format!("Cannot write project: {error}"))
 }
 
 fn write_contents(
@@ -752,17 +757,24 @@ pub fn load_project(path: &Path) -> Result<Document, String> {
 
 /// Speculative browsing can impose a smaller decode budget than an explicit open.
 pub(crate) fn load_project_with_budget(path: &Path, budget: u64) -> Result<Document, String> {
-    let budget = budget.min(MAX_PROJECT_BYTES);
     let file = File::open(path)
         .map_err(|error| format!("Cannot open project {}: {error}", path.display()))?;
     let file_bytes = file
         .metadata()
         .map_err(|error| format!("Cannot inspect project: {error}"))?
         .len();
+    read_project_from(BufReader::new(file), file_bytes, budget)
+}
+
+pub(crate) fn read_project_from(
+    mut reader: impl std::io::BufRead + Seek,
+    file_bytes: u64,
+    budget: u64,
+) -> Result<Document, String> {
+    let budget = budget.min(MAX_PROJECT_BYTES);
     if !(HEADER_BYTES..=MAX_PROJECT_BYTES).contains(&file_bytes) {
         return Err("The project is truncated or exceeds the 512 MiB size limit.".into());
     }
-    let mut reader = BufReader::new(file);
     let mut header = [0_u8; HEADER_BYTES as usize];
     reader
         .read_exact(&mut header)

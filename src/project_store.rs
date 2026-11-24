@@ -87,7 +87,7 @@ pub fn migrate(settings: &Settings) -> Result<Migration, String> {
         .map(|e| e.path.clone())
         .collect();
     for path in &settings.recent_files {
-        if !library::is_recording(path) && path.is_file() {
+        if !library::is_recording(path) && !crate::album::is_album(path) && path.is_file() {
             let list = if is_project(path) {
                 &mut projects
             } else {

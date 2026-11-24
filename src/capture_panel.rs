@@ -23,11 +23,12 @@ pub struct Response {
     pub changed: bool,
     pub action: Option<Action>,
 }
-pub struct Availability {
+pub struct Availability<'a> {
     pub capture: bool,
     pub background: bool,
     pub permission_needed: bool,
     pub demo: bool,
+    pub album: Option<&'a str>,
 }
 pub(crate) const CAPTURE_PANEL_SHORTCUT_HEIGHT: f32 = 49.;
 /// Capture Now has its own look, independent of the editor's GUI finish.
@@ -304,6 +305,7 @@ pub fn ui(
                                     width - launch_width - GAP,
                                     settings,
                                     displays,
+                                    available.album,
                                     &mut result,
                                 );
                                 launch_card(
@@ -311,12 +313,27 @@ pub fn ui(
                                     launch_width,
                                     settings,
                                     available.capture,
+                                    available.album,
                                     &mut result,
                                 );
                             });
                         } else {
-                            launch_card(ui, width, settings, available.capture, &mut result);
-                            capture_options(ui, width, settings, displays, &mut result);
+                            launch_card(
+                                ui,
+                                width,
+                                settings,
+                                available.capture,
+                                available.album,
+                                &mut result,
+                            );
+                            capture_options(
+                                ui,
+                                width,
+                                settings,
+                                displays,
+                                available.album,
+                                &mut result,
+                            );
                         }
                         if available.demo {
                             ui.weak("Demo workspace · generated test image");
@@ -522,6 +539,7 @@ fn capture_options(
     width: f32,
     settings: &mut Settings,
     displays: &[DisplayInfo],
+    album: Option<&str>,
     result: &mut Response,
 ) {
     let p = appearance::palette(ui.ctx());
@@ -597,10 +615,16 @@ fn capture_options(
                         destination.hint(),
                     ));
                     ui.horizontal_wrapped(|ui| {
-                        result.changed |= appearance::segmented(ui, "capture-destination", &mut settings.capture_destination, &destinations);
+                        if let Some(album) = album {
+                            ui.strong(format!("Adding to {album}"));
+                        } else {
+                            result.changed |= appearance::segmented(ui, "capture-destination", &mut settings.capture_destination, &destinations);
+                        }
                         result.changed |= output_size_picker(ui, &mut settings.capture_output_size);
                     });
-                    library_destination(ui, settings, result);
+                    if album.is_none() {
+                        library_destination(ui, settings, result);
+                    }
                 }
             }
         });
@@ -673,6 +697,7 @@ fn launch_card(
     width: f32,
     settings: &Settings,
     enabled: bool,
+    album: Option<&str>,
     result: &mut Response,
 ) {
     let look = settings.capture_theme.look();
@@ -729,12 +754,15 @@ fn launch_card(
                 if shortcut_keys(ui, settings, p).clicked() {
                     result.action = Some(Action::EditHotkey);
                 }
+                let album_detail = album.map(|name| format!("Add this capture to {name}."));
                 let detail = match settings.capture_mode {
                     CaptureMode::Text => None,
                     CaptureMode::Video => {
                         Some("Position the webcam inside the chosen window or display.")
                     }
-                    _ => Some(settings.capture_destination.hint()),
+                    _ => album_detail
+                        .as_deref()
+                        .or(Some(settings.capture_destination.hint())),
                 };
                 if let Some(detail) = detail {
                     ui.separator();
@@ -1158,6 +1186,7 @@ mod tests {
                                     background: true,
                                     permission_needed: false,
                                     demo: false,
+                                    album: None,
                                 },
                                 None,
                             );
@@ -1229,6 +1258,7 @@ mod tests {
                                 background: true,
                                 permission_needed: false,
                                 demo: false,
+                                album: None,
                             },
                             None,
                         );

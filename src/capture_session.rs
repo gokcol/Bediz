@@ -960,18 +960,22 @@ impl MyImageApp {
                                     }
                                 }
                                 if mode.makes_image() {
-                                    let previous = self.settings.capture_destination;
-                                    let destination_menu = ui.menu_button("     ▾", |ui| {
-                                        for choice in capture::CaptureDestination::ALL {
-                                            if ui.selectable_value(&mut self.settings.capture_destination, choice, choice.label()).on_hover_text(choice.hint()).clicked() { ui.close(); }
-                                        }
-                                    }).response;
-                                    let destination = self.settings.capture_destination;
-                                    destination_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Destination: {}", destination.label())));
-                                    appearance::icon(ui.painter(), destination_menu.rect.left_center() + Vec2::new(16., 0.),
-                                        if destination == capture::CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }, look.palette.ink, 18.);
-                                    destination_menu.on_hover_text(format!("To {} · {}", destination.label(), destination.hint()));
-                                    destination_changed |= previous != destination;
+                                    if let Some(title) = self.albums.active_title() {
+                                        ui.label("To album").on_hover_text(format!("Adding to {title}"));
+                                    } else {
+                                        let previous = self.settings.capture_destination;
+                                        let destination_menu = ui.menu_button("     ▾", |ui| {
+                                            for choice in capture::CaptureDestination::ALL {
+                                                if ui.selectable_value(&mut self.settings.capture_destination, choice, choice.label()).on_hover_text(choice.hint()).clicked() { ui.close(); }
+                                            }
+                                        }).response;
+                                        let destination = self.settings.capture_destination;
+                                        destination_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Destination: {}", destination.label())));
+                                        appearance::icon(ui.painter(), destination_menu.rect.left_center() + Vec2::new(16., 0.),
+                                            if destination == capture::CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }, look.palette.ink, 18.);
+                                        destination_menu.on_hover_text(format!("To {} · {}", destination.label(), destination.hint()));
+                                        destination_changed |= previous != destination;
+                                    }
                                     egui::ComboBox::from_id_salt("capture-output-size")
                                         .width(62.).selected_text(format!("{}%", self.settings.capture_output_size.percent()))
                                         .show_ui(ui, |ui| {
@@ -1032,6 +1036,8 @@ impl MyImageApp {
                                                 "Copy text"
                                             } else if mode == CaptureMode::Video {
                                                 "Record"
+                                            } else if self.albums.collecting.is_some() {
+                                                "Add to album"
                                             } else {
                                                 self.settings.capture_destination.capture_label()
                                             },
@@ -1954,7 +1960,10 @@ impl MyImageApp {
                                 )
                                 .min_size(Vec2::new(80., 30.)),
                             )
-                            .on_hover_text(self.settings.capture_destination.finish_label())
+                            .on_hover_text(self.albums.active_title().map_or_else(
+                                || self.settings.capture_destination.finish_label().to_owned(),
+                                |title| format!("Add to {title}"),
+                            ))
                             .clicked();
                         ui.label(if session.finish_requested {
                             "Finishing…"

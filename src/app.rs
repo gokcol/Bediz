@@ -2,6 +2,8 @@ use crate::appearance::Icon as DialogIcon;
 use crate::dialogs::{self, Dialog};
 #[path = "about_ui.rs"]
 mod about_ui;
+#[path = "album_workspace.rs"]
+mod album_workspace;
 #[path = "app_menu.rs"]
 mod app_menu;
 #[path = "capture_hotkey_ui.rs"]
@@ -57,6 +59,7 @@ use std::{
 };
 
 enum WorkEvent {
+    Album(album_workspace::Event),
     Recovery(crate::recovery::Event),
     ProjectLibraryReady(Result<crate::project_store::Migration, String>),
     LegacyCapturesRetired(Vec<String>),
@@ -121,6 +124,7 @@ use file_browser::FileDialog;
 
 #[derive(Clone)]
 enum PendingAction {
+    AlbumEntry(PathBuf, u64),
     Recover(PathBuf),
     OpenCapture(CaptureOutput),
     Open,
@@ -174,6 +178,7 @@ enum View {
     VideoStart,
     Video,
     Create,
+    Album,
 }
 
 pub struct MyImageApp {
@@ -249,6 +254,7 @@ pub struct MyImageApp {
     image_loader: Option<crate::image_loading::Loader>,
     remaining_recents_after_trash: Option<std::collections::VecDeque<PathBuf>>,
     create_panel: crate::templates::CreatePanel,
+    albums: album_workspace::State,
     draft_title: String,
     save_as_panel: SaveAsPanel,
     print_ready: Option<crate::printing::Prepared>,
@@ -408,6 +414,7 @@ impl MyImageApp {
             image_loader: None,
             remaining_recents_after_trash: None,
             create_panel: Default::default(),
+            albums: Default::default(),
             draft_title: "Untitled image".into(),
             save_as_panel: SaveAsPanel::default(),
             print_ready: None,
@@ -436,7 +443,10 @@ impl MyImageApp {
         }
         if let Some(path) = rfd::FileDialog::new()
             .set_title("Open editable project")
-            .add_filter("Editable projects", &["myimage", "snagx"])
+            .add_filter(
+                "Editable projects",
+                &["myimage", "snagx", crate::album::EXTENSION],
+            )
             .add_filter(format!("{} project", crate::branding::NAME), &["myimage"])
             .add_filter("Snagit project", &["snagx"])
             .pick_file()
@@ -950,8 +960,19 @@ impl MyImageApp {
             .add_filter(
                 "Images and editable projects",
                 &[
-                    "myimage", "snagx", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif",
-                    "heif", "heic",
+                    "myimage",
+                    "snagx",
+                    "png",
+                    "jpg",
+                    "jpeg",
+                    "webp",
+                    "bmp",
+                    "tif",
+                    "tiff",
+                    "gif",
+                    "heif",
+                    "heic",
+                    crate::album::EXTENSION,
                 ],
             )
             .add_filter(format!("{} projects", crate::branding::NAME), &["myimage"])
@@ -1044,6 +1065,10 @@ impl MyImageApp {
     }
 
     fn begin_open(&mut self, ctx: &egui::Context, path: PathBuf, _edit: bool) {
+        if crate::album::is_album(&path) {
+            self.begin_open_album(ctx, path);
+            return;
+        }
         let path = if !is_project_path(&path) {
             self.settings
                 .project_sources
@@ -1104,7 +1129,21 @@ impl MyImageApp {
         self.install_document_state(document, project_path);
     }
 
+    fn clear_current_image(&mut self) {
+        self.clear_recovery();
+        self.albums.editing = None;
+        self.document = None;
+        self.project_path = None;
+        self.last_path = None;
+        self.last_image = None;
+        self.last_texture = None;
+        self.history = EditHistory::new(document::EditState::default());
+        self.editor.reset();
+        self.privacy_preview.clear();
+    }
+
     fn install_document_state(&mut self, document: Document, project_path: Option<PathBuf>) {
+        self.albums.editing = None;
         self.opening_image = false;
         self.open_transition.clear();
         self.project_session = Default::default();
@@ -1128,6 +1167,10 @@ impl MyImageApp {
             return false;
         }
         self.finish_edit();
+        if !save_as && let Some(target) = self.albums.editing.clone() {
+            self.save_album_entry(ctx, target);
+            return true;
+        }
         if !save_as && self.project_path.is_none() {
             let document = self.document.as_ref().unwrap().clone();
             let directory = storage::projects_folder(&self.settings);
@@ -1245,6 +1288,7 @@ impl MyImageApp {
     fn perform_action(&mut self, ctx: &egui::Context, action: PendingAction, discard: bool) {
         self.allow_discard = discard;
         match action {
+            PendingAction::AlbumEntry(path, id) => self.open_album_entry(ctx, path, id),
             PendingAction::Recover(id) => self.recover_entry(ctx, id),
             PendingAction::OpenCapture(output) => self.open_captured_image(ctx, output),
             PendingAction::Open => self.open_image(ctx),
@@ -1569,6 +1613,7 @@ impl MyImageApp {
                     }
                 }
                 WorkEvent::CaptureFinished(output) => self.finish_capture_output(ctx, output),
+                WorkEvent::Album(event) => self.album_event(ctx, event),
                 WorkEvent::MissingOpen(path) => {
                     self.busy = false;
                     self.opening_image = false;
@@ -1672,6 +1717,7 @@ impl MyImageApp {
                     self.busy = false;
                     match result {
                         Ok(()) => {
+                            self.albums.editing = None;
                             self.library.file_saved(&path);
                             self.history.mark_saved(&saved_state);
                             self.project_saved(&path);
@@ -1813,6 +1859,7 @@ impl MyImageApp {
                     && !self.demo
                     && !capture::screen_capture_permission(),
                 demo: self.demo,
+                album: self.albums.active_title(),
             },
             Some(self.app_icon.id()),
         );
@@ -2027,6 +2074,9 @@ impl MyImageApp {
     /// File name of the open project or image, if any.
     fn document_name(&self) -> Option<String> {
         self.document.as_ref()?;
+        if self.albums.editing.is_some() {
+            return Some(self.draft_title.clone());
+        }
         Some(
             self.project_path
                 .as_ref()
@@ -2046,6 +2096,10 @@ impl MyImageApp {
             View::Create => (
                 "Create".to_owned(),
                 "A head start for your next visual guide.",
+            ),
+            View::Album => (
+                self.albums.title().unwrap_or("Capture Album").to_owned(),
+                "Capture album",
             ),
             View::Library => (
                 "Your image library".to_owned(),
@@ -2210,9 +2264,20 @@ impl MyImageApp {
 
     /// Open a dropped file; show where it will land.
     fn dropped_files(&mut self, ctx: &egui::Context) {
-        const TYPES: [&str; 12] = [
-            "myimage", "snagx", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "gif", "heif",
+        const TYPES: [&str; 13] = [
+            "myimage",
+            "snagx",
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+            "bmp",
+            "tif",
+            "tiff",
+            "gif",
+            "heif",
             "heic",
+            crate::album::EXTENSION,
         ];
         let ready = !self.busy
             && !self.editing_video_frame()
@@ -2335,11 +2400,8 @@ impl MyImageApp {
                         self.video_bounds = Some(ui.available_rect_before_wrap());
                     }
                 }
-                View::Create => {
-                    if let Some(spec) = self.create_panel.ui(ui) {
-                        self.create_image(ctx, spec);
-                    }
-                }
+                View::Create => self.create_workspace_ui(ui, ctx),
+                View::Album => self.album_workspace_ui(ui, ctx),
             },
         );
         if animate_canvas
@@ -2357,6 +2419,11 @@ impl MyImageApp {
     }
 
     fn editor_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        if let Some(target) = &self.albums.editing
+            && appearance::action_button(ui, "Return to album", Icon::Back, true, false).clicked()
+        {
+            self.open_path(ctx, target.path.clone(), true);
+        }
         if self.document.is_none() && ui.is_enabled() && !self.busy {
             let paste = ui.input_mut(|i| {
                 let paste = i.events.iter().any(|e| matches!(e, egui::Event::Paste(_)));
@@ -2675,7 +2742,8 @@ impl MyImageApp {
                                     icon,
                                     self.view == view
                                         || (self.view == View::Viewer && view == View::Editor)
-                                        || (self.view == View::Video && view == View::VideoStart),
+                                        || (self.view == View::Video && view == View::VideoStart)
+                                        || (self.view == View::Album && view == View::Create),
                                 )
                                 .clicked()
                                 {

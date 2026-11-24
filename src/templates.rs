@@ -234,7 +234,7 @@ impl CreatePanel {
         create
     }
 }
-fn annotation(kind: AnnotationKind, rect: [f32; 4]) -> Annotation {
+pub(crate) fn annotation(kind: AnnotationKind, rect: [f32; 4]) -> Annotation {
     Annotation {
         kind,
         start: Point {

@@ -6,6 +6,7 @@
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 compile_error!("Bediz currently supports macOS and Windows.");
 
+mod album;
 mod app;
 mod appearance;
 mod area_pixels;

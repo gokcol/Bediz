@@ -123,7 +123,9 @@ impl Worker {
                         Request::Scan(version, root) => Reply::Scan(
                             version,
                             library::scan(&root).map(|mut index| {
-                                index.entries.retain(|e| e.kind == EntryKind::Project);
+                                index.entries.retain(|e| {
+                                    matches!(e.kind, EntryKind::Project | EntryKind::Album)
+                                });
                                 index
                             }),
                         ),
@@ -266,24 +268,12 @@ impl LibraryPanel {
         let mut entries = Vec::new();
         let mut seen = HashSet::new();
         for path in paths.iter().take(24) {
-            if (crate::project_store::is_project(path) || library::is_recording(path))
+            if let Some(kind @ (EntryKind::Project | EntryKind::Recording | EntryKind::Album)) =
+                library::entry_kind(path)
                 && !self.preferences.hidden_recents.contains(path)
                 && !self.missing_paths.contains(path)
                 && seen.insert(path.clone())
             {
-                let kind = if path
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("myimage"))
-                {
-                    EntryKind::Project
-                } else {
-                    EntryKind::Image
-                };
-                let kind = if library::is_recording(path) {
-                    EntryKind::Recording
-                } else {
-                    kind
-                };
                 entries.push(LibraryEntry {
                     path: path.clone(),
                     name: path

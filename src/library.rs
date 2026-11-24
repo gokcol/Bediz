@@ -23,6 +23,7 @@ pub enum EntryKind {
     Image,
     Project,
     Recording,
+    Album,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -324,11 +325,12 @@ fn is_hidden_directory(path: &Path, _metadata: &fs::Metadata) -> bool {
     }
 }
 
-fn entry_kind(path: &Path) -> Option<EntryKind> {
+pub(crate) fn entry_kind(path: &Path) -> Option<EntryKind> {
     match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
         "png" | "jpg" | "jpeg" | "webp" | "bmp" | "tif" | "tiff" | "gif" => Some(EntryKind::Image),
         "myimage" => Some(EntryKind::Project),
         "mp4" | "mov" => Some(EntryKind::Recording),
+        crate::album::EXTENSION => Some(EntryKind::Album),
         _ => None,
     }
 }
@@ -376,6 +378,33 @@ pub fn thumbnail(entry: &LibraryEntry) -> Result<Thumbnail, String> {
                 image: render::thumbnail(&document, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)?,
                 original_size: document.output_size(),
             })
+        }
+        EntryKind::Album => {
+            let mut reader = crate::album::Reader::open(&entry.path)?;
+            if let Some((id, size)) = reader
+                .album
+                .entries
+                .iter()
+                .find_map(|entry| entry.size.map(|size| (entry.id, size)))
+            {
+                Ok(Thumbnail {
+                    image: reader.preview(id)?,
+                    original_size: size,
+                })
+            } else {
+                let image = image::RgbaImage::from_fn(384, 256, |x, y| {
+                    image::Rgba(match (x, y) {
+                        (46..=121, 44..=61) => [58, 201, 180, 255],
+                        (46..=337, 84..=205) => [58, 82, 108, 255],
+                        (46..=212, 224..=231) => [114, 146, 173, 255],
+                        _ => [29, 45, 69, 255],
+                    })
+                });
+                Ok(Thumbnail {
+                    image,
+                    original_size: crate::album::PREVIEW_SIZE,
+                })
+            }
         }
     }
 }
