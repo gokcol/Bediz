@@ -1,8 +1,7 @@
 use super::*;
-use crate::{capture::CaptureMode, scroll_capture::Stitcher};
+use crate::{capture::CaptureMode, capture_magnifier::CAPTURE_ACCENT, scroll_capture::Stitcher};
 
 const SELECTION_FADE_SECONDS: f64 = 0.16;
-const CAPTURE_ACCENT: Color32 = Color32::from_rgb(85, 232, 212);
 const CAPTURE_GUIDE_STROKES: [Stroke; 2] = [
     Stroke {
         width: 3.,
@@ -67,16 +66,22 @@ fn paint_capture_crosshair(painter: &egui::Painter, bounds: Rect, pointer: Pos2)
     }
     // The teal marks lead to the hotspot and leave its pixel visible.
     for stroke in [
-        Stroke::new(5., CAPTURE_GUIDE_STROKES[0].color),
-        Stroke::new(2., CAPTURE_ACCENT),
+        Stroke::new(4., CAPTURE_GUIDE_STROKES[0].color),
+        Stroke::new(1.75, CAPTURE_ACCENT),
     ] {
         for direction in [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y] {
             painter.line_segment(
-                [pointer + direction * 5., pointer + direction * 19.],
+                [pointer + direction * 8., pointer + direction * 22.],
                 stroke,
             );
         }
     }
+    painter.circle_stroke(
+        pointer,
+        4.5,
+        Stroke::new(3., CAPTURE_GUIDE_STROKES[0].color),
+    );
+    painter.circle_stroke(pointer, 4.5, Stroke::new(1.5, CAPTURE_ACCENT));
 }
 
 fn paint_capture_hint(

@@ -1,6 +1,7 @@
 //! Pixel-accurate capture loupe, independent of the background preview's GPU size.
 use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 
+pub(crate) const CAPTURE_ACCENT: Color32 = Color32::from_rgb(85, 232, 212);
 const ZOOM: f32 = 4.;
 const APPROXIMATE_SIDE: f32 = 112.;
 
@@ -102,7 +103,17 @@ impl CaptureMagnifier {
         }
         let texture = self.texture.as_ref()?;
         let display_size = sample.display_size(bounds, image_size);
-        let card_size = display_size + Vec2::new(8., 29.);
+        let diameter = display_size.min_elem();
+        let caption = painter.layout_no_wrap(
+            format!("{ZOOM:.0}×  ·  {}, {}", sample.pixel[0], sample.pixel[1]),
+            egui::FontId::proportional(10.),
+            Color32::WHITE,
+        );
+        let caption_size = caption.size() + Vec2::new(16., 6.);
+        let card_size = Vec2::new(
+            (diameter + 6.).max(caption_size.x),
+            diameter + 9. + caption_size.y,
+        );
         let available = Rect::from_min_max(
             bounds.min + Vec2::splat(8.),
             Pos2::new(
@@ -111,17 +122,16 @@ impl CaptureMagnifier {
             ),
         );
         let card = place_card(pointer, card_size, available);
-        let lens = Rect::from_min_size(card.min + Vec2::splat(4.), display_size);
-        painter.rect_filled(card, 7, crate::appearance::palette(painter.ctx()).navy);
-        painter.image(
-            texture.id(),
-            lens,
-            Rect::from_min_max(Pos2::ZERO, Pos2::new(1., 1.)),
-            Color32::WHITE,
-        );
-        let center = lens.center();
+        let radius = diameter * 0.5;
+        let center = Pos2::new(card.center().x, card.top() + radius + 3.);
+        let image_rect = Rect::from_center_size(center, display_size);
+        painter.circle_filled(center, radius + 2., Color32::from_gray(24));
+        painter.add(egui::Shape::mesh(circular_lens(texture.id(), image_rect)));
+        painter.circle_stroke(center, radius, Stroke::new(1.5, CAPTURE_ACCENT));
+
         let pixel = display_size / Vec2::new(sample.size[0] as f32, sample.size[1] as f32);
-        let focus = Rect::from_center_size(center, pixel * 5.).intersect(lens);
+        let focus = Rect::from_center_size(center, pixel * 5.)
+            .intersect(Rect::from_center_size(center, Vec2::splat(diameter * 0.6)));
         // Show the closest pixels without covering the whole preview in grid lines.
         let grid = painter.with_clip_rect(focus);
         let line = Stroke::new(0.5, Color32::from_white_alpha(100));
@@ -138,19 +148,63 @@ impl CaptureMagnifier {
             );
         }
         for direction in [Vec2::X, -Vec2::X, Vec2::Y, -Vec2::Y] {
-            let segment = [center + direction * 4., center + direction * 12.];
+            let segment = [
+                center + direction * 5.,
+                center + direction * (radius * 0.32),
+            ];
             painter.line_segment(segment, Stroke::new(3., Color32::from_black_alpha(190)));
-            painter.line_segment(segment, Stroke::new(1., Color32::WHITE));
+            painter.line_segment(segment, Stroke::new(1., CAPTURE_ACCENT));
         }
-        painter.text(
-            Pos2::new(card.center().x, lens.bottom() + 12.),
-            egui::Align2::CENTER_CENTER,
-            format!("4×  ·  {}, {}", sample.pixel[0], sample.pixel[1]),
-            egui::FontId::proportional(10.),
+        let target_pixel = Rect::from_center_size(center, pixel);
+        painter.rect_stroke(
+            target_pixel,
+            0,
+            Stroke::new(1.5, Color32::from_gray(24)),
+            egui::StrokeKind::Outside,
+        );
+        painter.rect_stroke(
+            target_pixel,
+            0,
+            Stroke::new(0.75, CAPTURE_ACCENT),
+            egui::StrokeKind::Outside,
+        );
+        let caption_rect = Rect::from_center_size(
+            Pos2::new(center.x, card.bottom() - caption_size.y * 0.5),
+            caption_size,
+        );
+        painter.rect_filled(
+            caption_rect,
+            7,
+            crate::appearance::palette(painter.ctx()).navy,
+        );
+        painter.galley(
+            caption_rect.min + Vec2::new(8., 3.),
+            caption,
             Color32::WHITE,
         );
         Some(card)
     }
+}
+
+fn circular_lens(texture: egui::TextureId, image_rect: Rect) -> egui::Mesh {
+    const SEGMENTS: u32 = 64;
+    let mut mesh = egui::Mesh::with_texture(texture);
+    let center = image_rect.center();
+    let radius = image_rect.size().min_elem() * 0.5;
+    for point in std::iter::once(center).chain((0..SEGMENTS).map(|index| {
+        let angle = index as f32 * std::f32::consts::TAU / SEGMENTS as f32;
+        center + Vec2::angled(angle) * radius
+    })) {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: point,
+            uv: ((point - image_rect.min) / image_rect.size()).to_pos2(),
+            color: Color32::WHITE,
+        });
+    }
+    for index in 0..SEGMENTS {
+        mesh.add_triangle(0, index + 1, (index + 1) % SEGMENTS + 1);
+    }
+    mesh
 }
 
 fn place_card(pointer: Pos2, size: Vec2, available: Rect) -> Rect {
@@ -307,6 +361,21 @@ mod tests {
             let card = place_card(pointer, Vec2::new(120., 144.), available);
             assert!(available.contains_rect(card));
             assert!(!card.contains(pointer));
+        }
+    }
+
+    #[test]
+    fn circular_lens_crops_the_tile_without_stretching_its_pixels() {
+        let center = Pos2::new(135., 80.);
+        let image = Rect::from_center_size(center, Vec2::new(116., 108.));
+        let mesh = circular_lens(egui::TextureId::Managed(7), image);
+        assert_eq!(mesh.vertices[0].pos, center);
+        assert_eq!(mesh.vertices[0].uv, Pos2::new(0.5, 0.5));
+        assert!(mesh.is_valid());
+        for vertex in &mesh.vertices[1..] {
+            assert!((vertex.pos.distance(center) - 54.).abs() < 0.001);
+            let texture_position = image.min + vertex.uv.to_vec2() * image.size();
+            assert!(vertex.pos.distance(texture_position) < 0.001);
         }
     }
 }
