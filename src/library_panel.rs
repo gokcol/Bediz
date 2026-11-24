@@ -20,6 +20,9 @@ const MAX_TEXTURE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_REPLIES_PER_FRAME: usize = 2;
 #[path = "library_actions.rs"]
 mod actions;
+#[path = "album_browser.rs"]
+mod albums;
+pub(crate) use albums::AlbumAction;
 #[path = "library_availability.rs"]
 mod availability;
 #[path = "library_browser.rs"]
@@ -80,6 +83,7 @@ enum Reply {
 struct PreparedThumbnail {
     image: egui::ColorImage,
     original_size: [u32; 2],
+    album: Option<library::AlbumSummary>,
 }
 
 impl From<library::Thumbnail> for PreparedThumbnail {
@@ -87,6 +91,7 @@ impl From<library::Thumbnail> for PreparedThumbnail {
         Self {
             image: crate::image_loading::color_image(&thumbnail.image),
             original_size: thumbnail.original_size,
+            album: thumbnail.album,
         }
     }
 }
@@ -156,6 +161,7 @@ enum Preview {
     Ready {
         texture: egui::TextureHandle,
         original_size: [u32; 2],
+        album: Option<library::AlbumSummary>,
     },
     Failed(String),
 }
@@ -414,13 +420,7 @@ impl LibraryPanel {
         active: Option<&Path>,
         dirty: bool,
     ) -> Option<LibraryAction> {
-        if self.root.as_deref() != Some(root) {
-            self.refresh();
-            self.root = Some(root.to_owned());
-        }
-        self.frame = self.frame.wrapping_add(1);
-        self.receive(ui.ctx());
-        self.request_scan(ui.ctx(), root);
+        self.update_index(ui.ctx(), root);
         let entries = self.recent_entries(paths);
         let order: Vec<_> = entries.iter().map(|e| e.path.clone()).collect();
         self.check_paths(ui.ctx(), &order);
@@ -500,7 +500,7 @@ impl LibraryPanel {
                                 egui::WidgetType::SelectableLabel,
                                 ui.is_enabled(),
                                 selected,
-                                &entry.name,
+                                self.display_name(entry),
                             )
                         });
                         ui.painter().rect_filled(
@@ -587,7 +587,7 @@ impl LibraryPanel {
                         let label = if is_active && dirty {
                             "Unsaved changes".into()
                         } else {
-                            entry.name.clone()
+                            self.display_name(entry).to_owned()
                         };
                         let mut job = egui::text::LayoutJob::simple_singleline(
                             label,
@@ -624,6 +624,29 @@ impl LibraryPanel {
         }
         chosen
     }
+    fn update_index(&mut self, ctx: &egui::Context, root: &Path) {
+        if self.root.as_deref() != Some(root) {
+            self.refresh();
+            self.root = Some(root.to_owned());
+            self.reset_location();
+        }
+        self.frame = self.frame.wrapping_add(1);
+        self.receive(ctx);
+        self.request_scan(ctx, root);
+    }
+
+    fn album_summary(&self, path: &Path) -> Option<&library::AlbumSummary> {
+        match &self.previews.get(path)?.preview {
+            Preview::Ready { album, .. } => album.as_ref(),
+            Preview::Failed(_) => None,
+        }
+    }
+
+    fn display_name<'a>(&'a self, entry: &'a LibraryEntry) -> &'a str {
+        self.album_summary(&entry.path)
+            .map_or(entry.name.as_str(), |album| album.title.as_str())
+    }
+
     pub fn refresh(&mut self) {
         self.cancel_marquee();
         self.generation.fetch_add(1, Ordering::Relaxed);
@@ -759,6 +782,7 @@ impl LibraryPanel {
                                 Preview::Ready {
                                     texture,
                                     original_size: thumbnail.original_size,
+                                    album: thumbnail.album,
                                 },
                                 bytes,
                             )
@@ -1166,6 +1190,7 @@ mod tests {
                 preview: Preview::Ready {
                     texture,
                     original_size: [64, 64],
+                    album: None,
                 },
                 bytes: 64,
                 used: 0,
@@ -1255,6 +1280,7 @@ mod tests {
                     Ok(PreparedThumbnail {
                         image: egui::ColorImage::filled([4, 4], Color32::RED),
                         original_size: [64, 64],
+                        album: None,
                     }),
                 ))
                 .unwrap();
@@ -1315,6 +1341,7 @@ mod tests {
                 Ok(PreparedThumbnail {
                     image: egui::ColorImage::filled([8, 8], Color32::RED),
                     original_size: [80, 80],
+                    album: None,
                 }),
             ))
             .unwrap();
@@ -1346,6 +1373,7 @@ mod tests {
                 Ok(PreparedThumbnail {
                     image: egui::ColorImage::filled([8, 8], Color32::GREEN),
                     original_size: [80, 80],
+                    album: None,
                 }),
             ))
             .unwrap();
@@ -1405,6 +1433,7 @@ mod tests {
                     Ok(PreparedThumbnail {
                         image: egui::ColorImage::filled([16, 16], Color32::RED),
                         original_size: [64, 64],
+                        album: None,
                     }),
                 ))
                 .unwrap();

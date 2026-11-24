@@ -52,6 +52,16 @@ impl CapturePreferences {
             .map(|(path, album)| (path.as_path(), album.title.as_str()))
     }
 
+    pub(crate) fn known_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        self.albums.keys()
+    }
+
+    pub(crate) fn update_title(&mut self, path: &Path, title: &str) {
+        if let Some(album) = self.albums.get_mut(path) {
+            album.title = title.to_owned();
+        }
+    }
+
     pub(crate) fn selected(&self) -> Option<(&Path, &str)> {
         let path = self.selected.as_deref()?;
         let album = self.albums.get(path)?;
@@ -241,6 +251,7 @@ pub(crate) struct Album {
 
 pub(crate) enum Change {
     Placeholder,
+    Title(String),
     Details {
         id: u64,
         title: String,
@@ -582,6 +593,7 @@ pub(crate) fn change(path: &Path, change: Change) -> Result<Album, String> {
         Change::Placeholder => {
             album.add_empty("")?;
         }
+        Change::Title(name) => album.title = title(&name, &album.title),
         Change::Details {
             id,
             title: name,

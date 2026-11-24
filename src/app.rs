@@ -178,6 +178,8 @@ enum View {
     VideoStart,
     Video,
     Create,
+    Albums,
+    NewAlbum,
     Album,
 }
 
@@ -2093,9 +2095,11 @@ impl MyImageApp {
             View::Home => ("Home".to_owned(), "Capture. Annotate. Make it clear."),
             View::Capture => ("Capture".to_owned(), "Set up here. Capture from anywhere."),
             View::Create => (
-                "Create".to_owned(),
-                "A head start for your next visual guide.",
+                "Create an image".to_owned(),
+                "Start with an image template.",
             ),
+            View::Albums => ("Albums".to_owned(), "Organize captures by project."),
+            View::NewAlbum => ("New album".to_owned(), "Choose a layout for your captures."),
             View::Album => (
                 self.albums.title().unwrap_or("Capture Album").to_owned(),
                 "Capture album",
@@ -2399,7 +2403,13 @@ impl MyImageApp {
                         self.video_bounds = Some(ui.available_rect_before_wrap());
                     }
                 }
-                View::Create => self.create_workspace_ui(ui, ctx),
+                View::Create => {
+                    if let Some(spec) = self.create_panel.ui(ui) {
+                        self.create_image(ctx, spec);
+                    }
+                }
+                View::Albums => self.album_manager_ui(ui, ctx),
+                View::NewAlbum => self.new_album_ui(ui, ctx),
                 View::Album => self.album_workspace_ui(ui, ctx),
             },
         );
@@ -2731,9 +2741,8 @@ impl MyImageApp {
                             for (view, label, icon) in [
                                 (View::Home, "Home", Icon::Home),
                                 (View::Editor, "Editor", Icon::Edit),
-                                (View::VideoStart, "Video", Icon::Video),
                                 (View::Library, "Library", Icon::Library),
-                                (View::Create, "Create", Icon::Create),
+                                (View::Albums, "Albums", Icon::Album),
                             ] {
                                 if appearance::nav_button(
                                     ui,
@@ -2741,8 +2750,8 @@ impl MyImageApp {
                                     icon,
                                     self.view == view
                                         || (self.view == View::Viewer && view == View::Editor)
-                                        || (self.view == View::Video && view == View::VideoStart)
-                                        || (self.view == View::Album && view == View::Create),
+                                        || (matches!(self.view, View::Album | View::NewAlbum)
+                                            && view == View::Albums),
                                 )
                                 .clicked()
                                 {

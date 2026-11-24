@@ -148,6 +148,13 @@ pub struct LibraryIndex {
 pub struct Thumbnail {
     pub image: RgbaImage,
     pub original_size: [u32; 2],
+    pub album: Option<AlbumSummary>,
+}
+
+pub struct AlbumSummary {
+    pub title: String,
+    pub captures: usize,
+    pub entries: usize,
 }
 
 /// Capture dates come from `root/YYYY/MM/DD`, including files in its subfolders.
@@ -370,6 +377,7 @@ pub fn thumbnail(entry: &LibraryEntry) -> Result<Thumbnail, String> {
             Ok(Thumbnail {
                 image: fit_image(&image, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT),
                 original_size,
+                album: None,
             })
         }
         EntryKind::Project => {
@@ -377,10 +385,16 @@ pub fn thumbnail(entry: &LibraryEntry) -> Result<Thumbnail, String> {
             Ok(Thumbnail {
                 image: render::thumbnail(&document, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)?,
                 original_size: document.output_size(),
+                album: None,
             })
         }
         EntryKind::Album => {
             let mut reader = crate::album::Reader::open(&entry.path)?;
+            let album = Some(AlbumSummary {
+                title: reader.album.title.clone(),
+                captures: reader.album.captures(),
+                entries: reader.album.entries.len(),
+            });
             if let Some((id, size)) = reader
                 .album
                 .entries
@@ -390,6 +404,7 @@ pub fn thumbnail(entry: &LibraryEntry) -> Result<Thumbnail, String> {
                 Ok(Thumbnail {
                     image: reader.preview(id)?,
                     original_size: size,
+                    album,
                 })
             } else {
                 let image = image::RgbaImage::from_fn(384, 256, |x, y| {
@@ -403,6 +418,7 @@ pub fn thumbnail(entry: &LibraryEntry) -> Result<Thumbnail, String> {
                 Ok(Thumbnail {
                     image,
                     original_size: crate::album::PREVIEW_SIZE,
+                    album,
                 })
             }
         }

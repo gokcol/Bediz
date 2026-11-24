@@ -3,6 +3,7 @@ use super::*;
 use crate::{
     album::{self, Album, Change, Layout},
     appearance::TileTone,
+    library_panel::AlbumAction,
 };
 use std::{collections::HashMap, path::Path};
 
@@ -31,7 +32,6 @@ struct Opened {
 pub(super) struct State {
     open: Option<Opened>,
     pub editing: Option<EditTarget>,
-    setup: bool,
     name: String,
     layout: Layout,
     details: Option<(u64, String, String)>,
@@ -176,7 +176,7 @@ impl MyImageApp {
         });
     }
 
-    fn change_album(&mut self, ctx: &egui::Context, path: PathBuf, change: Change) {
+    pub(super) fn change_album(&mut self, ctx: &egui::Context, path: PathBuf, change: Change) {
         if let Change::Remove(id) = &change
             && self
                 .albums
@@ -290,6 +290,7 @@ impl MyImageApp {
     }
 
     fn album_changed(&mut self, path: &Path, album: Album, changed_image: Option<u64>) {
+        self.settings.album_capture.update_title(path, &album.title);
         self.albums.apply(path, album, changed_image);
         self.library.file_saved(path);
         self.remember_recent(path.to_owned());
@@ -325,7 +326,6 @@ impl MyImageApp {
                     previews: HashMap::new(),
                 });
                 self.albums.revision += 1;
-                self.albums.setup = false;
                 self.albums.details = None;
                 self.albums.remove = None;
                 self.view = View::Album;
@@ -422,9 +422,59 @@ impl MyImageApp {
         }
     }
 
+    fn set_album_collection(&mut self, path: &Path, title: &str, ready: bool, select: bool) {
+        if !self.settings.album_capture.set_ready(path, title, ready) {
+            self.error =
+                Some("Pause another album before enabling this one. Up to 10 can be ready.".into());
+            return;
+        }
+        if select {
+            self.settings.album_capture.choose(Some(path));
+        }
+        self.status = if select {
+            format!("Capture destination set to {title}")
+        } else if ready {
+            format!("{title} is ready in the capture destination menu")
+        } else {
+            format!("Collection paused for {title}")
+        };
+        self.persist_settings();
+    }
+
+    pub(super) fn album_manager_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let action = self.library.albums_ui(
+            ui,
+            &self.settings.output_dir,
+            &self.settings.recent_files,
+            &self.settings.album_capture,
+        );
+        self.sync_library_references();
+        match action {
+            Some(AlbumAction::New) => {
+                self.albums.name.clear();
+                self.view = View::NewAlbum;
+            }
+            Some(AlbumAction::Open(path)) => self.open_path(ctx, path, true),
+            Some(AlbumAction::SetReady(path, title, ready)) => {
+                self.set_album_collection(&path, &title, ready, false);
+            }
+            Some(AlbumAction::ChooseDestination(path, title)) => {
+                self.set_album_collection(&path, &title, true, true);
+            }
+            Some(AlbumAction::Rename(path, name)) => {
+                self.file_dialog = Some(file_browser::FileDialog::RenameAlbum { path, name });
+            }
+            Some(AlbumAction::Export(path, name)) => self.export_album_pdf(ctx, path, &name),
+            Some(AlbumAction::Reveal(path)) => {
+                self.library_action(ctx, LibraryAction::Reveal(path))
+            }
+            None => {}
+        }
+    }
+
     pub(super) fn album_workspace_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let Some(open) = &mut self.albums.open else {
-            self.view = View::Create;
+            self.view = View::Albums;
             return;
         };
         let path = open.path.clone();
@@ -444,9 +494,8 @@ impl MyImageApp {
         let mut import = false;
         let mut previews = Vec::new();
         ui.horizontal_wrapped(|ui| {
-            if appearance::action_button(ui, "Create", Icon::Back, true, false).clicked() {
-                self.albums.setup = true;
-                self.view = View::Create;
+            if appearance::action_button(ui, "Back to Albums", Icon::Back, true, false).clicked() {
+                self.view = View::Albums;
             }
             ui.separator();
             if appearance::action_button(
@@ -681,18 +730,8 @@ impl MyImageApp {
                 ctx.request_repaint();
             });
         }
-        if toggle_collection
-            && self
-                .settings
-                .album_capture
-                .set_ready(&path, &title, ready != Some(true))
-        {
-            self.status = if ready == Some(true) {
-                format!("Collection paused for {title}")
-            } else {
-                format!("{title} is ready in the capture destination menu")
-            };
-            self.persist_settings();
+        if toggle_collection {
+            self.set_album_collection(&path, &title, ready != Some(true), false);
         }
         if let Some(id) = open_entry {
             self.open_album_entry(ctx, path, id);
@@ -924,7 +963,21 @@ mod tests {
             crate::library::scan(storage.path()).unwrap().entries.len(),
             2
         );
-        app.settings.album_capture.choose(Some(&other));
+        app.view = View::Albums;
+        app.change_album(&ctx, path.clone(), Change::Title("Renamed demo".into()));
+        finish(&mut app, &ctx);
+        assert_eq!(
+            app.settings.album_capture.selected(),
+            Some((path.as_path(), "Renamed demo"))
+        );
+        assert_eq!(
+            album::Reader::open(&path).unwrap().album.title,
+            "Renamed demo"
+        );
+        assert!(app.view == View::Albums);
+        app.set_album_collection(&path, "Renamed demo", false, false);
+        assert!(app.settings.album_capture.selected().is_none());
+        app.set_album_collection(&other, "Other", true, true);
         app.save_captured_image(&ctx, image::RgbaImage::new(64, 48), Local::now());
         finish(&mut app, &ctx);
         assert_eq!(album::Reader::open(&path).unwrap().album.captures(), 1);

@@ -1483,7 +1483,7 @@ pub fn nav_button(ui: &mut egui::Ui, label: &str, kind: Icon, selected: bool) ->
     });
     if ui.is_rect_visible(rect) {
         let tone = match kind {
-            Icon::Edit => TileTone::Teal,
+            Icon::Edit | Icon::Album => TileTone::Teal,
             Icon::Library => TileTone::Clay,
             Icon::Create => TileTone::Violet,
             _ => TileTone::Blue,

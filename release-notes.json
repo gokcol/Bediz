@@ -1,8 +1,10 @@
 {
   "version": "4.2.0",
-  "build": 190,
+  "build": 191,
   "store_version": "4.2.0.0",
   "changes": [
+    "Open the Albums tab to browse, create, and manage capture albums. Use Home to create images, open videos, or record your screen.",
+    "Hover an album row to manage capture acceptance, choose where captures go, rename the album, export a PDF, or reveal its file. A Captures off badge marks albums that are not accepting captures.",
     "Create a Capture Album from five illustrated templates with PDF page previews. Each album appears as one item in Library and Recents.",
     "Enable up to ten albums for still and scrolling captures. Pause or resume each album independently, and choose where each capture goes from the icon menu alongside Editor and Clipboard.",
     "Bediz remembers your ready albums and the selected capture destination when you reopen the app.",

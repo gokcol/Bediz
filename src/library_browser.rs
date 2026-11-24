@@ -95,21 +95,18 @@ impl LibraryPanel {
         self.filter_dirty = true;
     }
 
+    pub(super) fn reset_location(&mut self) {
+        self.filter = DateFilter::All;
+        self.collection = Collection::All;
+        self.back.clear();
+        self.forward.clear();
+        self.search.clear();
+        self.selection.clear();
+        self.recent_selection.clear();
+    }
+
     pub fn ui(&mut self, ui: &mut egui::Ui, root: &Path) -> Option<LibraryAction> {
-        if self.root.as_deref() != Some(root) {
-            self.refresh();
-            self.root = Some(root.to_owned());
-            self.filter = DateFilter::All;
-            self.collection = Collection::All;
-            self.back.clear();
-            self.forward.clear();
-            self.search.clear();
-            self.selection.clear();
-            self.recent_selection.clear();
-        }
-        self.frame = self.frame.wrapping_add(1);
-        self.receive(ui.ctx());
-        self.request_scan(ui.ctx(), root);
+        self.update_index(ui.ctx(), root);
         self.update_filter();
         let cached: Vec<_> = self.previews.keys().cloned().collect();
         self.check_paths(ui.ctx(), &cached);
@@ -710,7 +707,7 @@ impl LibraryPanel {
                 egui::WidgetType::SelectableLabel,
                 ui.is_enabled(),
                 selected,
-                &entry.name,
+                self.display_name(entry),
             )
         });
         let border = if selected {
@@ -785,7 +782,7 @@ impl LibraryPanel {
                 egui::WidgetType::Checkbox,
                 ui.is_enabled(),
                 checked,
-                format!("Select {}", entry.name),
+                format!("Select {}", self.display_name(entry)),
             )
         });
         let checkbox_clicked = checkbox.changed();
@@ -845,7 +842,7 @@ impl LibraryPanel {
             ui,
             text_pos,
             if list { width - 134. } else { width - 24. },
-            &entry.name,
+            self.display_name(entry),
             13.,
             appearance::palette(ui.ctx()).ink,
         );
@@ -1244,6 +1241,7 @@ mod tests {
                     preview: Preview::Ready {
                         texture,
                         original_size: [1200, 600],
+                        album: None,
                     },
                     bytes: 16,
                     used: 0,

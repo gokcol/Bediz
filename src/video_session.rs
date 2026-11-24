@@ -1160,6 +1160,7 @@ pub(crate) fn thumbnail(
     Ok(crate::library::Thumbnail {
         image,
         original_size,
+        album: None,
     })
 }
 

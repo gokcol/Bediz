@@ -1,43 +1,13 @@
 //! Capture Album template selection and page previews.
 use super::*;
-use egui::{Align2, Color32, FontId, Sense, StrokeKind, pos2, vec2};
+use egui::{Align2, Color32, FontId, Sense, StrokeKind, vec2};
 
 impl MyImageApp {
-    pub(in crate::app) fn create_workspace_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.add_space(6.);
-        ui.horizontal_wrapped(|ui| {
-            let was_album = self.albums.setup;
-            if create_tab(
-                ui,
-                "Image templates",
-                Icon::View,
-                TileTone::Blue,
-                !was_album,
-            )
-            .clicked()
-            {
-                self.albums.setup = false;
-            }
-            if create_tab(ui, "Create Album", Icon::Album, TileTone::Teal, was_album).clicked() {
-                self.albums.setup = true;
-            }
-            if let Some(open) = &self.albums.open
-                && appearance::action_button(ui, "Return to album", Icon::Back, true, false)
-                    .clicked()
-            {
-                self.open_path(ctx, open.path.clone(), true);
-            }
-        });
-        ui.add_space(5.);
-        ui.separator();
-
-        if !self.albums.setup {
-            if let Some(spec) = self.create_panel.ui(ui) {
-                self.create_image(ctx, spec);
-            }
-            return;
+    pub(in crate::app) fn new_album_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        if appearance::action_button(ui, "Back to Albums", Icon::Back, true, false).clicked() {
+            self.view = View::Albums;
         }
-
+        ui.separator();
         let folder = self.settings.output_dir.join("Albums");
         let mut create = false;
         egui::ScrollArea::vertical()
@@ -100,55 +70,6 @@ impl MyImageApp {
             });
         }
     }
-}
-
-fn create_tab(
-    ui: &mut egui::Ui,
-    label: &str,
-    icon: Icon,
-    tone: TileTone,
-    selected: bool,
-) -> egui::Response {
-    let palette = appearance::palette(ui.ctx());
-    let heading = ui
-        .painter()
-        .layout_no_wrap(label.into(), FontId::proportional(14.), palette.ink);
-    let response = choice(ui, label, vec2(heading.size().x + 52., 40.), selected);
-    let rect = response.rect;
-    let accent = appearance::satin_ink(ui.ctx(), tone);
-    let tint = if selected {
-        0.19
-    } else if response.hovered() {
-        0.1
-    } else {
-        0.
-    };
-    let painter = ui.painter();
-    painter.rect(
-        rect,
-        10,
-        palette.surface.lerp_to_gamma(accent, tint),
-        Stroke::new(
-            1.,
-            if selected || response.has_focus() {
-                accent
-            } else {
-                palette.border
-            },
-        ),
-        StrokeKind::Inside,
-    );
-    appearance::sculpted_icon(
-        painter,
-        rect.left_center() + vec2(21., 0.),
-        icon,
-        tone,
-        25.,
-        None,
-    );
-    let text_top = rect.center().y - heading.size().y / 2.;
-    painter.galley(pos2(rect.left() + 40., text_top), heading, palette.ink);
-    response
 }
 
 fn choice(ui: &mut egui::Ui, label: &str, size: Vec2, selected: bool) -> egui::Response {

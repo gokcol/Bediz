@@ -19,6 +19,10 @@ pub(super) enum FileDialog {
         name: String,
         error: Option<String>,
     },
+    RenameAlbum {
+        path: PathBuf,
+        name: String,
+    },
     Info(PathBuf),
 }
 impl MyImageApp {
@@ -42,7 +46,7 @@ impl MyImageApp {
             self.settings.album_capture.forget(&missing);
             self.leave_unavailable_video(&missing);
             if self.albums.forget(&missing) && self.view == View::Album {
-                self.view = View::Create;
+                self.view = View::Albums;
             }
         }
         let preferences = self.library.take_preferences_change();
@@ -264,7 +268,7 @@ impl MyImageApp {
         self.leave_unavailable_video(&removed);
         self.settings.album_capture.forget(&removed);
         if self.albums.forget(&removed) && self.view == View::Album {
-            self.view = View::Create;
+            self.view = View::Albums;
         }
         self.remaining_recents_after_trash =
             if removed_active && self.view == View::Editor && !self.quit_after_work {
@@ -346,6 +350,7 @@ impl MyImageApp {
         let mut confirm_trash = None;
         let mut choose_storage = false;
         let mut storage_change = None;
+        let mut album_rename = None;
         let (title, icon) = match &dialog {
             FileDialog::ImportNotes(_) => ("Snagit import notes".to_owned(), Icon::Info),
             FileDialog::Storage => ("Storage folder".to_owned(), Icon::OpenProject),
@@ -357,6 +362,7 @@ impl MyImageApp {
                 Icon::Trash,
             ),
             FileDialog::Rename { .. } => ("Rename file".to_owned(), Icon::Edit),
+            FileDialog::RenameAlbum { .. } => ("Rename album".to_owned(), Icon::Pencil),
             FileDialog::Info(_) => ("File info".to_owned(), Icon::Info),
         };
         let subtitle = if matches!(&dialog, FileDialog::ImportNotes(_)) {
@@ -451,6 +457,19 @@ impl MyImageApp {
                         }
                     });
                 }
+                FileDialog::RenameAlbum { path, name } => {
+                    ui.label("Album name");
+                    ui.add(egui::TextEdit::singleline(name).char_limit(crate::album::TITLE_LIMIT));
+                    ui.horizontal_wrapped(|ui| {
+                        if dialogs::secondary(ui, "Cancel", DialogIcon::Close).clicked() { close = true; }
+                        if ui.add_enabled_ui(!name.trim().is_empty(), |ui| {
+                            dialogs::primary(ui, "Rename", DialogIcon::Check).clicked()
+                        }).inner {
+                            album_rename = Some((path.clone(), name.clone()));
+                            close = true;
+                        }
+                    });
+                }
                 FileDialog::Info(path) => {
 
                     ui.strong(path.file_name().unwrap_or_default().to_string_lossy());
@@ -489,6 +508,9 @@ impl MyImageApp {
         }
         if let Some(op) = operation {
             self.start_file_operation(ctx, op);
+        }
+        if let Some((path, title)) = album_rename {
+            self.change_album(ctx, path, crate::album::Change::Title(title));
         }
     }
 }

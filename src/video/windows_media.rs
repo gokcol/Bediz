@@ -376,6 +376,7 @@ pub(super) fn thumbnail(path: &Path, width: u32, height: u32) -> Result<crate::l
                 return Ok(crate::library::Thumbnail {
                     image,
                     original_size,
+                    album: None,
                 });
             }
             if flags & MF_SOURCE_READERF_ENDOFSTREAM.0 as u32 != 0 {
