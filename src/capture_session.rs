@@ -2301,6 +2301,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn capture_shortcut_starts_discovery_with_an_empty_display_cache() {
+        let ctx = egui::Context::default();
+        let mut app = MyImageApp::with_context(&ctx, true, Arc::new(AtomicBool::new(false)), true);
+        app.settings.delay_seconds = 1;
+        assert!(app.displays.is_empty());
+
+        app.begin_capture(&ctx);
+        assert!(app.pending_capture.is_some());
+        assert!(app.error.is_none());
+        app.cancel_capture(&ctx);
+        assert!(app.pending_capture.is_none());
+    }
+
+    #[test]
     fn scrolling_hud_keeps_editor_hidden_and_passes_document_input_through() {
         use std::{cell::RefCell, rc::Rc};
         let ctx = egui::Context::default();

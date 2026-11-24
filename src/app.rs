@@ -541,7 +541,7 @@ impl MyImageApp {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(WorkEvent::Displays(capture::displays()));
-            ctx.request_repaint();
+            crate::runtime::wake_root(&ctx);
         });
     }
 
@@ -663,19 +663,12 @@ impl MyImageApp {
         // Capture itself does not replace the open project. Ask about unsaved
         // edits only if the completed capture is actually sent to Editor.
         self.finish_edit();
-        if self.displays.is_empty() {
-            self.error = Some(
-                "No display is available. Connect a display and choose Refresh displays.".into(),
-            );
-            self.show(ctx);
-            return;
-        }
         let fixed_display = if self.settings.capture_all_displays {
             None
         } else {
             self.settings.display_id
         };
-        let demo_displays = self.displays.clone();
+        let demo_displays = (self.demo && !self.displays.is_empty()).then(|| self.displays.clone());
         // A preflight permission hint can be stale after a local rebuild.
         // ScreenCaptureKit enforces access on this explicit capture action and
         // returns a real permission error; there is no partial-image fallback.
@@ -713,12 +706,12 @@ impl MyImageApp {
             }
             let at = Local::now();
             let result = (|| {
-                // Refresh after the delay to include newly connected screens and
-                // current bounds. A fixed target only follows verified mirrors.
-                let displays = if demo {
-                    demo_displays
-                } else {
-                    capture::displays()?
+                // Discover displays even if the startup list was empty, and
+                // use geometry from after the delay. Fixed targets only follow
+                // verified mirrors.
+                let displays = match demo_displays {
+                    Some(displays) => displays,
+                    None => capture::displays()?,
                 };
                 let targets = capture::capture_targets(&displays, fixed_display);
                 let _ = tx.send(WorkEvent::Displays(Ok(displays)));
@@ -1855,7 +1848,7 @@ impl MyImageApp {
             &mut self.shape,
             &self.displays,
             Availability {
-                capture: !self.displays.is_empty() && !self.busy && !self.screen_text.open,
+                capture: !self.busy && !self.screen_text.open,
                 background: self.desktop.is_some(),
                 permission_needed: cfg!(target_os = "macos")
                     && !self.demo
@@ -2604,8 +2597,7 @@ impl MyImageApp {
         if let Some(desktop) = &mut self.desktop {
             desktop.update_capture_menu(
                 crate::capture_panel::menu_summary(&self.settings, self.shape, &self.displays),
-                !self.displays.is_empty()
-                    && !self.busy
+                !self.busy
                     && !self.screen_text.open
                     && !recording_active
                     && self.pending_capture.is_none()

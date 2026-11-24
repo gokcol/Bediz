@@ -131,8 +131,7 @@ impl MyImageApp {
         };
         let mut action = None;
         let mut changed = false;
-        let enabled = !self.displays.is_empty()
-            && !self.busy
+        let enabled = !self.busy
             && self.selection.is_none()
             && self.pending_capture.is_none()
             && self.scroll_session.is_none()
