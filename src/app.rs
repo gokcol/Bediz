@@ -3037,7 +3037,7 @@ mod video_workspace_tests {
                     egui::CentralPanel::default().show(ctx, |ui| app.workspace_ui(ui, ctx));
                 },
             );
-            for label in ["Record video", "Open video"] {
+            for label in ["Record video", "Open video", "Open Capture panel"] {
                 assert_eq!(
                     output.shapes.iter().any(|shape| matches!(
                         &shape.shape, egui::Shape::Text(text) if text.galley.job.text == label

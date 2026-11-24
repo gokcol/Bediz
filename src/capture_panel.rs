@@ -29,6 +29,7 @@ pub struct Availability {
     pub permission_needed: bool,
     pub demo: bool,
 }
+pub(crate) const CAPTURE_PANEL_SHORTCUT_HEIGHT: f32 = 49.;
 /// Capture Now has its own look, independent of the editor's GUI finish.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -335,7 +336,7 @@ fn capture_header(
     result: &mut Response,
 ) {
     let p = appearance::palette(ui.ctx());
-    let wide = ui.available_width() >= 610.;
+    let wide = ui.available_width() >= 745.;
     let title = |ui: &mut egui::Ui| {
         let (rect, _) = ui.allocate_exact_size(Vec2::splat(42.), egui::Sense::hover());
         appearance::gradient(
@@ -368,20 +369,7 @@ fn capture_header(
         );
     };
     let mut actions = |ui: &mut egui::Ui| {
-        if appearance::toolbar_action_button(
-            ui,
-            "Capture panel",
-            appearance::Icon::Tray,
-            true,
-            false,
-        )
-        .on_hover_text(if cfg!(target_os = "macos") {
-            "Also available from the menu bar"
-        } else {
-            "Also available from the system tray"
-        })
-        .clicked()
-        {
+        if capture_panel_shortcut(ui, available.background).clicked() {
             result.action = Some(Action::Panel);
         }
         if appearance::toolbar_action_button(
@@ -420,6 +408,112 @@ fn capture_header(
                     }
                 });
             });
+    }
+}
+
+pub(crate) fn capture_panel_shortcut(ui: &mut egui::Ui, in_background: bool) -> egui::Response {
+    let mac = cfg!(target_os = "macos");
+    let p = appearance::palette(ui.ctx());
+    let title = if !in_background {
+        "Quick access"
+    } else if mac {
+        "Capture in the menu bar"
+    } else {
+        "Capture in the system tray"
+    };
+    let heading = ui
+        .painter()
+        .layout_no_wrap(title.into(), egui::FontId::proportional(14.), p.ink);
+    let action = ui.painter().layout_no_wrap(
+        "Open Capture panel".into(),
+        egui::FontId::proportional(11.5),
+        p.muted,
+    );
+    let width = heading.size().x.max(action.size().x) + 81.;
+    let (rect, response) = ui.allocate_exact_size(
+        Vec2::new(width, CAPTURE_PANEL_SHORTCUT_HEIGHT),
+        egui::Sense::click(),
+    );
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::Button,
+            ui.is_enabled(),
+            format!("{title}. Open Capture panel"),
+        )
+    });
+    let painter = ui.painter();
+    let highlighted = response.hovered() || response.has_focus();
+    painter.rect_filled(rect, 9, if highlighted { p.cream } else { p.surface });
+    painter.rect_stroke(
+        rect,
+        9,
+        Stroke::new(1., if highlighted { p.accent } else { p.border }),
+        egui::StrokeKind::Inside,
+    );
+
+    let preview =
+        Rect::from_center_size(rect.left_center() + Vec2::new(28., 0.), Vec2::new(40., 25.));
+    painter.rect_filled(preview, 5, p.paper);
+    painter.rect_stroke(
+        preview,
+        5,
+        Stroke::new(1., p.border),
+        egui::StrokeKind::Inside,
+    );
+    if in_background {
+        let band_y = if mac {
+            preview.top() + 8.
+        } else {
+            preview.bottom() - 8.
+        };
+        let status = Rect::from_center_size(
+            egui::pos2(preview.center().x, band_y),
+            Vec2::new(preview.width() - 5., 12.),
+        );
+        painter.rect_filled(status, 3, p.base);
+        for offset in [6., 11., 16.] {
+            painter.circle_filled(status.left_center() + Vec2::new(offset, 0.), 1., p.muted);
+        }
+        let camera = status.right_center() - Vec2::new(8., 0.);
+        painter.rect_filled(
+            Rect::from_center_size(camera, Vec2::splat(15.)),
+            4,
+            p.accent,
+        );
+        appearance::icon(
+            painter,
+            camera,
+            appearance::Icon::Capture,
+            Color32::WHITE,
+            11.,
+        );
+    } else {
+        appearance::icon(
+            painter,
+            preview.center(),
+            appearance::Icon::Capture,
+            p.accent,
+            16.,
+        );
+    }
+
+    let text = rect.left_top() + Vec2::new(56., 8.);
+    painter.galley(text, heading, p.ink);
+    painter.galley(text + Vec2::new(0., 19.), action, p.muted);
+    let arrow = rect.right_center() - Vec2::new(12., 0.);
+    painter.add(egui::Shape::line(
+        vec![
+            arrow + Vec2::new(-3., -3.),
+            arrow,
+            arrow + Vec2::new(-3., 3.),
+        ],
+        Stroke::new(1.3, p.muted),
+    ));
+    let response = response.on_hover_cursor(egui::CursorIcon::PointingHand);
+    if in_background && !mac {
+        response.on_hover_text("Look for the Bediz camera by the clock or under Show hidden icons.")
+    } else {
+        response
     }
 }
 
@@ -1151,7 +1245,12 @@ mod tests {
             "Editor",
             "Clipboard",
             "Capture Now",
-            "Capture panel",
+            "Open Capture panel",
+            if cfg!(target_os = "macos") {
+                "Capture in the menu bar"
+            } else {
+                "Capture in the system tray"
+            },
             &hotkey,
         ] {
             let t = output
@@ -1182,7 +1281,7 @@ mod tests {
                 .unwrap()
         };
         for (label, action) in [
-            ("Capture panel", Some(Action::Panel)),
+            ("Open Capture panel", Some(Action::Panel)),
             ("Window", None),
             ("Multi-region", None),
             ("Full screen", None),

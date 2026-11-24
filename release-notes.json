@@ -1,8 +1,9 @@
 {
   "version": "4.0.0",
-  "build": 182,
-  "store_version": "4.0.8.0",
+  "build": 183,
+  "store_version": "4.0.9.0",
   "changes": [
+    "An illustrated shortcut on the Capture and Video start pages shows where to find Bediz in the macOS menu bar or Windows system tray. Click it to open the Capture panel.",
     "A circular 4× magnifier marks the exact pixel under the pointer. Teal guides, dashed window previews, and a short instruction show what you are about to capture. Press M to toggle the magnifier.",
     "The Capture page uses the standard scrollbar at the far right of the workspace. It scrolls the full page and only appears when the settings need more room.",
     "Choose from six annotation typefaces in Aa and Styles, including Lato, Crimson Text, Barlow Condensed, and Atkinson Hyperlegible. The compact font and color popovers keep eight size presets, editable pixel size, quick color swatches, and a custom picker.",

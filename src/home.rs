@@ -30,7 +30,7 @@ impl HomeAction {
 impl MyImageApp {
     pub(super) fn video_start_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let available_height = ui.available_height();
-        let action = egui::ScrollArea::vertical()
+        let (action, open_panel) = egui::ScrollArea::vertical()
             .id_salt("video_start")
             .show(ui, |ui| {
                 const GAP: f32 = 13.;
@@ -51,11 +51,13 @@ impl MyImageApp {
                         vec2(width, 148.),
                     )
                 };
-                let group_height = if wide {
+                let cards_height = if wide {
                     open_size.y
                 } else {
                     open_size.y + GAP + record_size.y
                 };
+                let group_height =
+                    cards_height + GAP + crate::capture_panel::CAPTURE_PANEL_SHORTCUT_HEIGHT;
                 ui.add_space(((available_height - group_height) * 0.43).clamp(16., 96.));
                 let action = ui
                     .vertical_centered(|ui| {
@@ -84,14 +86,24 @@ impl MyImageApp {
                         .inner
                     })
                     .inner;
+                ui.add_space(GAP);
+                let open_panel = ui
+                    .vertical_centered(|ui| {
+                        crate::capture_panel::capture_panel_shortcut(ui, self.desktop.is_some())
+                            .clicked()
+                    })
+                    .inner;
                 ui.add_space(16.);
-                action
+                (action, open_panel)
             })
             .inner;
         match action {
             Some(HomeAction::OpenVideo) => self.open_video(ctx),
             Some(HomeAction::Record) => self.show_video_capture(),
             _ => {}
+        }
+        if open_panel {
+            self.toggle_capture_launcher(ctx);
         }
     }
 
