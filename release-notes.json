@@ -1,8 +1,9 @@
 {
-  "version": "4.1.0",
-  "build": 187,
-  "store_version": "4.1.0.0",
+  "version": "4.1.1",
+  "build": 188,
+  "store_version": "4.1.1.0",
   "changes": [
+    "Finished drawings are selected automatically. Their handles and properties are available immediately, and the drawing tool stays active.",
     "Click existing artwork to edit it while keeping the drawing tool active. Hold Option on Mac or Alt on Windows to draw or place artwork directly over it.",
     "Start a pixel-region drag with Select from the workspace padding outside the image, including beside canvas resize handles.",
     "Set the recording frame rate to 15, 30, 60 or 120 fps, or enter a custom rate from 1 to 240 fps. Bediz defaults to 30 fps and retries at that rate when the encoder rejects the selected setting at startup.",

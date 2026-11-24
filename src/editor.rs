@@ -568,25 +568,21 @@ impl EditorState {
         let Some(gesture) = self.gesture.take() else {
             return;
         };
-        if let GestureKind::Draw(index) = gesture.kind
-            && document
+        let drawn = match gesture.kind {
+            GestureKind::Draw(index) => Some(index),
+            _ => None,
+        };
+        if drawn.is_some_and(|index| {
+            document
                 .annotations
                 .get(index)
-                .is_some_and(|a| !has_extent(a))
-        {
+                .is_none_or(|a| !has_extent(a))
+        }) {
             document.annotations = gesture.before.annotations;
             document.geometry = gesture.before.geometry;
             self.clear_selection();
             return;
         }
-        let callout = match gesture.kind {
-            GestureKind::Draw(index)
-                if document.annotations[index].kind == AnnotationKind::Callout =>
-            {
-                Some(index)
-            }
-            _ => None,
-        };
         crate::connectors::sync(document);
         let indices = gesture.changed_objects(document);
         if let Err(error) = self.extend_for_annotations(document, &indices) {
@@ -596,9 +592,9 @@ impl EditorState {
             return;
         }
         history.commit(gesture.before, document);
-        if let Some(index) = callout {
+        if let Some(index) = drawn {
             self.select(Some(index), document);
-            self.focus_text = true;
+            self.focus_text = document.annotations[index].kind == AnnotationKind::Callout;
         }
     }
 
@@ -4702,7 +4698,7 @@ mod tests {
     }
 
     #[test]
-    fn drag_drawings_remain_unselected_until_explicitly_clicked() {
+    fn finished_drawings_select_the_new_object_and_keep_the_tool() {
         for tool in [
             Tool::Arrow,
             Tool::Rectangle,
@@ -4731,21 +4727,17 @@ mod tests {
             );
             e.finish_annotation_gesture(&mut d, &mut h);
             assert_eq!(d.annotations.len(), 1);
-            assert!(
-                e.selected_indices(&d).is_empty(),
-                "{tool:?} auto-selected the drawing"
-            );
-            assert!(h.can_undo());
+            assert_eq!(e.selected_indices(&d), [0], "{tool:?}");
+            assert_eq!(e.tool, tool);
             let saved = d.edit_state();
-            let hit = if matches!(tool, Tool::Ellipse | Tool::Shape(_)) {
-                Point { x: 120., y: 60. }
-            } else {
-                d.annotations[0].start
-            };
-            e.choose_tool(Tool::Select, &mut d, &mut h);
-            e.begin_gesture(hit, 1., &mut d);
-            assert_eq!(e.selected, Some(0), "{tool:?}");
+            e.begin_gesture(Point { x: 240., y: 70. }, 1., &mut d);
+            e.update_gesture(Point { x: 340., y: 180. }, &mut d);
+            assert!(e.selected_indices(&d).is_empty());
             e.finish_annotation_gesture(&mut d, &mut h);
+            assert_eq!(e.selected_indices(&d), [1], "{tool:?}");
+            assert_eq!(e.tool, tool);
+            assert_eq!(d.annotations[0], saved.annotations[0]);
+            assert!(h.undo(&mut d));
             assert_eq!(d.edit_state(), saved);
         }
     }
@@ -6442,7 +6434,7 @@ mod tests {
         assert_eq!(samples[1].x, samples[2].x);
         assert_eq!(samples[2].y, samples[3].y);
         assert!(editor.tool == Tool::Pen);
-        assert!(editor.selected.is_none());
+        assert_eq!(editor.selected, Some(0));
         assert_eq!(document.annotations[0].stroke_width, 8.0);
         let after = document.edit_state();
         assert!(history.undo(&mut document));
