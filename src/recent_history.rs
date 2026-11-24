@@ -3,8 +3,10 @@ use super::*;
 
 impl MyImageApp {
     pub(super) fn recents_panel(&mut self, ctx: &egui::Context) {
-        if matches!(self.view, View::Home | View::Editor | View::Viewer)
-            || self.video_workspace_active()
+        if matches!(
+            self.view,
+            View::Home | View::Editor | View::Viewer | View::Album
+        ) || self.video_workspace_active()
         {
             egui::TopBottomPanel::bottom("recents")
                 .frame(
@@ -42,12 +44,13 @@ impl MyImageApp {
                         self.persist_settings();
                     }
                     if self.settings.recents_open {
-                        let active = if self.video_workspace_active() {
-                            self.video_path.as_deref()
-                        } else {
-                            self.project_path.as_deref().or(self.last_path.as_deref())
+                        let active = match self.view {
+                            View::Video => self.video_path.as_deref(),
+                            View::Album => self.albums.path(),
+                            _ => self.project_path.as_deref().or(self.last_path.as_deref()),
                         };
-                        let dirty = !self.video_workspace_active() && self.has_unsaved_edits();
+                        let dirty = !matches!(self.view, View::Video | View::Album)
+                            && self.has_unsaved_edits();
                         chosen = appearance::input_scope(ui, enabled, keep_appearance, |ui| {
                             self.library.recents_ui(
                                 ui,

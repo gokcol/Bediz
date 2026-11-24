@@ -39,6 +39,7 @@ impl MyImageApp {
         let missing = self.library.take_missing_paths();
         if !missing.is_empty() {
             self.settings.recent_files.retain(|p| !missing.contains(p));
+            self.settings.album_capture.forget(&missing);
             self.leave_unavailable_video(&missing);
             if self.albums.forget(&missing) && self.view == View::Album {
                 self.view = View::Create;
@@ -261,6 +262,7 @@ impl MyImageApp {
             .cloned()
             .collect();
         self.leave_unavailable_video(&removed);
+        self.settings.album_capture.forget(&removed);
         if self.albums.forget(&removed) && self.view == View::Album {
             self.view = View::Create;
         }
@@ -298,6 +300,11 @@ impl MyImageApp {
                 self.last_path = Some(new.clone());
             }
             self.albums.rename(old, new);
+            self.settings.album_capture.remap(|path| {
+                if path == old {
+                    *path = new.clone();
+                }
+            });
             self.library.renamed_path(old, new);
         }
         for p in &result.created {

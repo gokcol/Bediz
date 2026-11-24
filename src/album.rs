@@ -6,7 +6,7 @@ use crate::{
 use image::{ImageEncoder, RgbaImage};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs::{self, File},
     io::{self, BufReader, BufWriter, Read, Seek, Write},
     path::{Path, PathBuf},
@@ -24,28 +24,200 @@ pub(crate) const PREVIEW_SIZE: [u32; 2] = [384, 256];
 const STORED: SimpleFileOptions =
     SimpleFileOptions::DEFAULT.compression_method(CompressionMethod::Stored);
 
+pub(crate) const MAX_READY_ALBUMS: usize = 10;
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub(crate) struct CapturePreferences {
+    albums: BTreeMap<PathBuf, Collection>,
+    selected: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Collection {
+    title: String,
+    ready: bool,
+}
+
+impl CapturePreferences {
+    /// None indicates an album that has never been enabled.
+    pub(crate) fn ready(&self, path: &Path) -> Option<bool> {
+        self.albums.get(path).map(|album| album.ready)
+    }
+
+    pub(crate) fn destinations(&self) -> impl Iterator<Item = (&Path, &str)> {
+        self.albums
+            .iter()
+            .filter(|(_, album)| album.ready)
+            .map(|(path, album)| (path.as_path(), album.title.as_str()))
+    }
+
+    pub(crate) fn selected(&self) -> Option<(&Path, &str)> {
+        let path = self.selected.as_deref()?;
+        let album = self.albums.get(path)?;
+        album.ready.then_some((path, &album.title))
+    }
+
+    pub(crate) fn choose(&mut self, path: Option<&Path>) -> bool {
+        if self.selected.as_deref() == path
+            || path.is_some_and(|path| self.ready(path) != Some(true))
+        {
+            return false;
+        }
+        self.selected = path.map(Path::to_owned);
+        true
+    }
+
+    pub(crate) fn set_ready(&mut self, path: &Path, title: &str, ready: bool) -> bool {
+        if ready
+            && self.ready(path) != Some(true)
+            && self.destinations().count() >= MAX_READY_ALBUMS
+        {
+            return false;
+        }
+        self.albums.insert(
+            path.to_owned(),
+            Collection {
+                title: title.to_owned(),
+                ready,
+            },
+        );
+        if !ready && self.selected.as_deref() == Some(path) {
+            self.choose(None);
+        }
+        true
+    }
+
+    pub(crate) fn forget(&mut self, paths: &[PathBuf]) {
+        self.albums.retain(|path, _| !paths.contains(path));
+        if self
+            .selected
+            .as_ref()
+            .is_some_and(|path| paths.contains(path))
+        {
+            self.choose(None);
+        }
+    }
+
+    pub(crate) fn remap(&mut self, mut rename: impl FnMut(&mut PathBuf)) {
+        if let Some(selected) = &mut self.selected {
+            rename(selected);
+        }
+        self.albums = std::mem::take(&mut self.albums)
+            .into_iter()
+            .map(|(mut path, collection)| {
+                rename(&mut path);
+                (path, collection)
+            })
+            .collect();
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Layout {
     #[default]
     Walkthrough,
     ContactSheet,
+    FieldNotes,
+    Comparison,
+    Storyboard,
 }
 
 impl Layout {
-    pub(crate) const ALL: [Self; 2] = [Self::Walkthrough, Self::ContactSheet];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::Walkthrough,
+        Self::ContactSheet,
+        Self::FieldNotes,
+        Self::Comparison,
+        Self::Storyboard,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Walkthrough => "Walkthrough",
             Self::ContactSheet => "Contact sheet",
+            Self::FieldNotes => "Field notes",
+            Self::Comparison => "Comparison",
+            Self::Storyboard => "Storyboard",
         }
     }
 
-    pub(crate) fn columns(self) -> usize {
+    pub(crate) fn page(self) -> PageLayout {
         match self {
-            Self::Walkthrough => 1,
-            Self::ContactSheet => 2,
+            Self::Walkthrough => PageLayout::new([1240, 1754], [1, 1], 1040, false),
+            Self::ContactSheet => PageLayout::new([1240, 1754], [2, 2], 478, false),
+            Self::FieldNotes => PageLayout::new([1240, 1754], [1, 2], 500, true),
+            Self::Comparison => PageLayout::new([1754, 1240], [2, 1], 650, false),
+            Self::Storyboard => PageLayout::new([1754, 1240], [3, 2], 296, false),
+        }
+    }
+}
+
+/// Shared page geometry for the template picker and the actual PDF.
+#[derive(Clone, Copy)]
+pub(crate) struct PageLayout {
+    pub size: [u32; 2],
+    pub columns: usize,
+    rows: usize,
+    image_height: u32,
+    notes_beside: bool,
+}
+
+pub(crate) struct PageSlot {
+    pub title: [u32; 4],
+    pub image: [u32; 4],
+    pub note: [u32; 4],
+}
+
+impl PageLayout {
+    pub(crate) const MARGIN: u32 = 42;
+
+    fn new(size: [u32; 2], grid: [usize; 2], image_height: u32, notes_beside: bool) -> Self {
+        Self {
+            size,
+            columns: grid[0],
+            rows: grid[1],
+            image_height,
+            notes_beside,
+        }
+    }
+
+    pub(crate) fn entries(self) -> usize {
+        self.columns * self.rows
+    }
+
+    pub(crate) fn slot(self, index: usize) -> PageSlot {
+        let margin = Self::MARGIN;
+        let width = (self.size[0] - (self.columns as u32 + 1) * margin) / self.columns as u32;
+        let row_height = (self.size[1] - 254) / self.rows as u32;
+        let x = margin + (index % self.columns) as u32 * (width + margin);
+        let y = 148 + (index / self.columns) as u32 * row_height;
+        let image_y = y + 70;
+        let image_width = if self.notes_beside {
+            width * 3 / 5
+        } else {
+            width
+        };
+        let note = if self.notes_beside {
+            [
+                x + image_width + margin,
+                image_y,
+                width - image_width - margin,
+                self.image_height,
+            ]
+        } else {
+            [
+                x,
+                image_y + self.image_height + 12,
+                width,
+                row_height - self.image_height - 94,
+            ]
+        };
+        PageSlot {
+            title: [x, y, width, 66],
+            image: [x, image_y, image_width, self.image_height],
+            note,
         }
     }
 }
@@ -456,6 +628,49 @@ mod tests {
     }
 
     #[test]
+    fn capture_destinations_keep_selection_and_independent_pause_state_across_restart() {
+        let mut preferences = CapturePreferences::default();
+        let paths = (0..=MAX_READY_ALBUMS)
+            .map(|index| PathBuf::from(format!("Album {index}.bedizalbum")))
+            .collect::<Vec<_>>();
+        let first = &paths[0];
+        let second = &paths[1];
+        let extra = &paths[MAX_READY_ALBUMS];
+        for path in &paths[..MAX_READY_ALBUMS] {
+            assert!(preferences.set_ready(path, "Ready album", true));
+        }
+        assert!(!preferences.set_ready(extra, "Extra", true));
+        assert!(!preferences.choose(Some(extra)));
+        assert!(preferences.choose(Some(first)));
+        assert!(preferences.set_ready(second, "Paused album", false));
+        assert_eq!(preferences.selected().unwrap().0, first);
+        assert!(preferences.set_ready(extra, "Extra", true));
+
+        let bytes = serde_json::to_vec(&preferences).unwrap();
+        let mut restored: CapturePreferences = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(restored.ready(second), Some(false));
+        assert_eq!(restored.selected(), Some((first.as_path(), "Ready album")));
+        assert!(!restored.set_ready(second, "Paused album", true));
+        assert!(restored.set_ready(first, "Ready album", false));
+        assert!(restored.selected().is_none());
+        assert!(restored.set_ready(second, "Resumed album", true));
+        assert!(restored.choose(Some(second)));
+        let moved = PathBuf::from("Moved album.bedizalbum");
+        restored.remap(|path| {
+            if path == second {
+                *path = moved.clone();
+            }
+        });
+        assert_eq!(
+            restored.selected(),
+            Some((moved.as_path(), "Resumed album"))
+        );
+        restored.forget(std::slice::from_ref(&moved));
+        assert!(restored.selected().is_none());
+        assert_eq!(restored.ready(extra), Some(true));
+    }
+
+    #[test]
     fn collection_fills_placeholders_and_keeps_entries_editable_in_one_file() {
         let temp = tempfile::tempdir().unwrap();
         let (path, _) = create(temp.path(), "Başlangıç", Layout::Walkthrough).unwrap();
@@ -537,5 +752,50 @@ mod tests {
                 .any(|chunk| chunk == b"/Count 2")
         );
         assert_eq!(Reader::open(&path).unwrap().album.captures(), 5);
+    }
+
+    #[test]
+    fn new_layouts_paginate_and_keep_existing_album_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let (path, _) = create(temp.path(), "Release notes", Layout::Walkthrough).unwrap();
+        let image = capture([86, 150, 174, 255]);
+        let id = append(&path, &image, "Original capture").unwrap().entries[0].id;
+        for _ in 1..7 {
+            change(&path, Change::Placeholder).unwrap();
+        }
+        for (layout, pages, landscape) in [
+            (Layout::FieldNotes, 4, false),
+            (Layout::Comparison, 4, true),
+            (Layout::Storyboard, 2, true),
+        ] {
+            change(&path, Change::Layout(layout)).unwrap();
+            let mut reader = Reader::open(&path).unwrap();
+            assert_eq!(reader.album.layout, layout);
+            assert_eq!(reader.album.entries.len(), 7);
+            assert_eq!(reader.album.entries[0].title, "Original capture");
+            assert_eq!(reader.document(id).unwrap().image, image.image);
+
+            let pdf = temp.path().join("Album.pdf");
+            export_pdf(&path, &pdf).unwrap();
+            let bytes = fs::read(pdf).unwrap();
+            let page_count = format!("/Count {pages}");
+            assert!(
+                bytes
+                    .windows(page_count.len())
+                    .any(|chunk| chunk == page_count.as_bytes())
+            );
+            let media_box = String::from_utf8_lossy(&bytes)
+                .lines()
+                .find(|line| line.contains("/MediaBox"))
+                .unwrap()
+                .split_once('[')
+                .unwrap()
+                .1
+                .trim_end_matches(']')
+                .split_whitespace()
+                .map(|coordinate| coordinate.parse::<f32>().unwrap())
+                .collect::<Vec<_>>();
+            assert_eq!(media_box[2] > media_box[3], landscape);
+        }
     }
 }

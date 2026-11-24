@@ -537,6 +537,7 @@ pub enum Icon {
     Timer,
     Scan,
     Library,
+    Album,
     View,
     Edit,
     Pencil,
@@ -709,7 +710,7 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
     }
     let family = match kind {
         Icon::Open | Icon::OpenProject | Icon::Favorite => Family::Amber,
-        Icon::View | Icon::Eye | Icon::Search => Family::Teal,
+        Icon::View | Icon::Eye | Icon::Search | Icon::Album => Family::Teal,
         Icon::Create | Icon::Edit | Icon::TextSize => Family::Violet,
         Icon::Home | Icon::Save | Icon::SaveAs => Family::Cobalt,
         _ => Family::Neutral,
@@ -821,6 +822,28 @@ pub fn icon(p: &egui::Painter, center: Pos2, kind: Icon, color: Color32, size: f
                 s,
             ));
             p.line_segment([point(0.57, 0.19), point(0.80, 0.41)], s);
+        }
+        Icon::Album => {
+            p.line(
+                vec![point(0.06, 0.72), point(0.06, 0.13), point(0.77, 0.13)],
+                s,
+            );
+            p.rect_stroke(
+                Rect::from_min_max(point(0.24, 0.31), point(0.94, 0.88)),
+                2,
+                s,
+                egui::StrokeKind::Inside,
+            );
+            p.line(
+                vec![
+                    point(0.35, 0.73),
+                    point(0.51, 0.56),
+                    point(0.65, 0.69),
+                    point(0.77, 0.60),
+                    point(0.86, 0.72),
+                ],
+                s,
+            );
         }
         Icon::Layers => {
             p.add(egui::Shape::closed_line(

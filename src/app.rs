@@ -1859,7 +1859,6 @@ impl MyImageApp {
                     && !self.demo
                     && !capture::screen_capture_permission(),
                 demo: self.demo,
-                album: self.albums.active_title(),
             },
             Some(self.app_icon.id()),
         );

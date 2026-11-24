@@ -25,6 +25,7 @@ impl PreparedMove {
         for path in &mut next.recent_files {
             self.remap(path);
         }
+        next.album_capture.remap(|path| self.remap(path));
         next.library.favorites = next
             .library
             .favorites

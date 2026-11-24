@@ -914,13 +914,23 @@ impl MyImageApp {
                             ui.set_max_width((ctx.content_rect().width() - 48.).max(240.));
                             ui.horizontal_wrapped(|ui| {
                                 if mode != CaptureMode::Video {
-                                    let mode_menu = ui.menu_button("     ▾", |ui| {
+                                    let mode_menu = ui.button("     ▾");
+                                    egui::Popup::menu(&mode_menu)
+                                        .frame(egui::Frame::popup(ui.style()).fill(look.palette.surface)
+                                            .stroke(Stroke::new(1., look.palette.border)))
+                                        .width(156.).show(|ui| {
+                                        ui.set_width(156.);
                                         for choice in CaptureMode::ALL.into_iter().filter(|&choice| choice != CaptureMode::Video) {
-                                            if ui.selectable_value(&mut mode, choice, choice.label()).clicked() {
+                                            if crate::capture_panel::capture_menu_item(
+                                                ui, choice.label(), choice == mode, look.palette,
+                                                |painter, at, ink| crate::capture_panel::mode_icon(painter, choice,
+                                                    Rect::from_center_size(at, Vec2::splat(15.)), ink),
+                                            ).on_hover_text(choice.hint()).clicked() {
+                                                mode = choice;
                                                 ui.close();
                                             }
                                         }
-                                    }).response;
+                                    });
                                     mode_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Capture mode: {}", mode.label())));
                                     crate::capture_panel::mode_icon(ui.painter(), mode,
                                         Rect::from_center_size(mode_menu.rect.left_center() + Vec2::new(16., 0.), Vec2::splat(18.)), look.palette.ink);
@@ -960,22 +970,9 @@ impl MyImageApp {
                                     }
                                 }
                                 if mode.makes_image() {
-                                    if let Some(title) = self.albums.active_title() {
-                                        ui.label("To album").on_hover_text(format!("Adding to {title}"));
-                                    } else {
-                                        let previous = self.settings.capture_destination;
-                                        let destination_menu = ui.menu_button("     ▾", |ui| {
-                                            for choice in capture::CaptureDestination::ALL {
-                                                if ui.selectable_value(&mut self.settings.capture_destination, choice, choice.label()).on_hover_text(choice.hint()).clicked() { ui.close(); }
-                                            }
-                                        }).response;
-                                        let destination = self.settings.capture_destination;
-                                        destination_menu.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, format!("Destination: {}", destination.label())));
-                                        appearance::icon(ui.painter(), destination_menu.rect.left_center() + Vec2::new(16., 0.),
-                                            if destination == capture::CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }, look.palette.ink, 18.);
-                                        destination_menu.on_hover_text(format!("To {} · {}", destination.label(), destination.hint()));
-                                        destination_changed |= previous != destination;
-                                    }
+                                    destination_changed |= crate::capture_panel::destination_picker(
+                                        ui, &mut self.settings, look.palette, 50., true,
+                                    );
                                     egui::ComboBox::from_id_salt("capture-output-size")
                                         .width(62.).selected_text(format!("{}%", self.settings.capture_output_size.percent()))
                                         .show_ui(ui, |ui| {
@@ -1036,7 +1033,7 @@ impl MyImageApp {
                                                 "Copy text"
                                             } else if mode == CaptureMode::Video {
                                                 "Record"
-                                            } else if self.albums.collecting.is_some() {
+                                            } else if self.settings.album_capture.selected().is_some() {
                                                 "Add to album"
                                             } else {
                                                 self.settings.capture_destination.capture_label()
@@ -1960,9 +1957,9 @@ impl MyImageApp {
                                 )
                                 .min_size(Vec2::new(80., 30.)),
                             )
-                            .on_hover_text(self.albums.active_title().map_or_else(
+                            .on_hover_text(self.settings.album_capture.selected().map_or_else(
                                 || self.settings.capture_destination.finish_label().to_owned(),
-                                |title| format!("Add to {title}"),
+                                |(_, title)| format!("Add to {title}"),
                             ))
                             .clicked();
                         ui.label(if session.finish_requested {

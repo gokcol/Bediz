@@ -54,7 +54,11 @@ impl MyImageApp {
         at: DateTime<Local>,
         prepare: impl FnOnce() -> Result<image::RgbaImage, String> + Send + 'static,
     ) {
-        if let Some(target) = self.albums.collecting.clone() {
+        if let Some((path, title)) = self.settings.album_capture.selected() {
+            let target = super::album_workspace::Target {
+                path: path.to_owned(),
+                title: title.to_owned(),
+            };
             self.queue_album_capture(ctx, target, at, prepare);
             return;
         }

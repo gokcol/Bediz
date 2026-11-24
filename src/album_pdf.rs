@@ -1,5 +1,5 @@
 //! Render each album page with Bediz's image and text renderer.
-use super::{Entry, Layout, Reader};
+use super::{Entry, PageLayout, Reader};
 use crate::{
     document::{AnnotationKind, Document},
     pdf_export, render, templates,
@@ -11,9 +11,6 @@ use std::{
     sync::Arc,
 };
 
-const PAGE_WIDTH: u32 = 1240;
-const PAGE_HEIGHT: u32 = 1754;
-const GUTTER: u32 = 42;
 const INK: [u8; 4] = [26, 43, 63, 255];
 const MUTED: [u8; 4] = [68, 87, 107, 255];
 const ACCENT: [u8; 4] = [0, 117, 122, 255];
@@ -26,11 +23,7 @@ pub(crate) fn export_pdf(path: &Path, destination: &Path) -> Result<(), String> 
     }
     let mut reader = Reader::open(path)?;
     let entries = reader.album.entries.clone();
-    let per_page = if reader.album.layout == Layout::Walkthrough {
-        1
-    } else {
-        4
-    };
+    let per_page = reader.album.layout.page().entries();
     let pages = entries
         .chunks(per_page)
         .enumerate()
@@ -53,13 +46,16 @@ pub(crate) fn export_pdf(path: &Path, destination: &Path) -> Result<(), String> 
 }
 
 fn render_page(reader: &mut Reader, entries: &[Entry], page: usize) -> Result<RgbaImage, String> {
-    let layout = reader.album.layout;
-    let columns = layout.columns() as u32;
-    let width = (PAGE_WIDTH - (columns + 1) * GUTTER) / columns;
-    let sheet = layout == Layout::ContactSheet;
-    let row_height = if sheet { 750 } else { 1500 };
-    let image_height = if sheet { 478 } else { 1040 };
-    let mut pixels = RgbaImage::from_pixel(PAGE_WIDTH, PAGE_HEIGHT, Rgba([255; 4]));
+    let layout = reader.album.layout.page();
+    let [page_width, page_height] = layout.size;
+    let margin = PageLayout::MARGIN;
+    let single_entry = layout.entries() == 1;
+    let note_size = match layout.columns {
+        _ if single_entry => 24.,
+        3 => 15.,
+        _ => 18.,
+    };
+    let mut pixels = RgbaImage::from_pixel(page_width, page_height, Rgba([255; 4]));
     let mut captions = Vec::new();
     let mut text = |at: [u32; 4], label: &str, font: f32, color, bold| {
         let mut annotation = templates::annotation(AnnotationKind::Text, at.map(|x| x as f32));
@@ -70,40 +66,39 @@ fn render_page(reader: &mut Reader, entries: &[Entry], page: usize) -> Result<Rg
         captions.push(annotation);
     };
     text(
-        [GUTTER, 40, PAGE_WIDTH - 2 * GUTTER, 105],
+        [margin, 40, page_width - 2 * margin, 105],
         &reader.album.title,
         36.,
         ACCENT,
         true,
     );
     for (index, entry) in entries.iter().enumerate() {
-        let x = GUTTER + (index as u32 % columns) * (width + GUTTER);
-        let y = 148 + (index as u32 / columns) * row_height;
-        let image_top = y + 70;
+        let slot = layout.slot(index);
+        let [x, y, width, height] = slot.image;
         text(
-            [x, y, width, 66],
+            slot.title,
             &entry.title,
-            if sheet { 22. } else { 29. },
+            if single_entry { 29. } else { 22. },
             INK,
             true,
         );
         imageops::replace(
             &mut pixels,
-            &RgbaImage::from_pixel(width, image_height, Rgba([240, 244, 248, 255])),
+            &RgbaImage::from_pixel(width, height, Rgba([240, 244, 248, 255])),
             x.into(),
-            image_top.into(),
+            y.into(),
         );
         if entry.size.is_some() {
-            let image = render::thumbnail(&reader.document(entry.id)?, width, image_height)?;
+            let image = render::thumbnail(&reader.document(entry.id)?, width, height)?;
             imageops::overlay(
                 &mut pixels,
                 &image,
                 (x + (width - image.width()) / 2).into(),
-                (image_top + (image_height - image.height()) / 2).into(),
+                (y + (height - image.height()) / 2).into(),
             );
         } else {
             text(
-                [x + 16, image_top + 16, width - 32, 42],
+                [x + 16, y + 16, width - 32, 42],
                 "Waiting for capture",
                 22.,
                 MUTED,
@@ -111,22 +106,11 @@ fn render_page(reader: &mut Reader, entries: &[Entry], page: usize) -> Result<Rg
             );
         }
         if !entry.note.is_empty() {
-            text(
-                [
-                    x,
-                    image_top + image_height + 12,
-                    width,
-                    row_height - image_height - 94,
-                ],
-                &entry.note,
-                if sheet { 18. } else { 24. },
-                MUTED,
-                false,
-            );
+            text(slot.note, &entry.note, note_size, MUTED, false);
         }
     }
     text(
-        [GUTTER, 1690, PAGE_WIDTH - 2 * GUTTER, 32],
+        [margin, page_height - 64, page_width - 2 * margin, 32],
         &format!("Page {page}"),
         18.,
         MUTED,

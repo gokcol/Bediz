@@ -23,12 +23,11 @@ pub struct Response {
     pub changed: bool,
     pub action: Option<Action>,
 }
-pub struct Availability<'a> {
+pub struct Availability {
     pub capture: bool,
     pub background: bool,
     pub permission_needed: bool,
     pub demo: bool,
-    pub album: Option<&'a str>,
 }
 pub(crate) const CAPTURE_PANEL_SHORTCUT_HEIGHT: f32 = 49.;
 /// Capture Now has its own look, independent of the editor's GUI finish.
@@ -224,12 +223,216 @@ pub fn output_size_picker(ui: &mut egui::Ui, size: &mut crate::capture_size::Out
 
 pub fn menu_summary(settings: &Settings, _shape: CaptureShape, displays: &[DisplayInfo]) -> String {
     let display = selected_display_label(settings, displays);
+    let destination = match settings.capture_mode {
+        CaptureMode::Text => "Clipboard",
+        CaptureMode::Video => "Recordings",
+        _ => settings
+            .album_capture
+            .selected()
+            .map_or(settings.capture_destination.label(), |(_, title)| title),
+    };
     format!(
         "{} · {display} · {} · {}",
         settings.capture_mode.label(),
         delay_label(settings.delay_seconds),
-        settings.capture_destination.label(),
+        destination,
     )
+}
+
+pub(crate) fn destination_icon(destination: CaptureDestination) -> appearance::Icon {
+    match destination {
+        CaptureDestination::Editor => appearance::Icon::Edit,
+        CaptureDestination::Clipboard => appearance::Icon::Paste,
+    }
+}
+
+pub(crate) fn destination_picker(
+    ui: &mut egui::Ui,
+    settings: &mut Settings,
+    palette: appearance::Palette,
+    width: f32,
+    compact: bool,
+) -> bool {
+    enum Pick {
+        Standard(CaptureDestination),
+        Album(std::path::PathBuf),
+    }
+    let album = settings.album_capture.selected();
+    let destination = settings.capture_destination;
+    let (label, icon) = album.map_or(
+        (destination.label(), destination_icon(destination)),
+        |(_, title)| (title, appearance::Icon::Album),
+    );
+    let response =
+        ui.add(egui::Button::new("").min_size(Vec2::new(width, ui.spacing().interact_size.y)));
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(
+            egui::WidgetType::ComboBox,
+            ui.is_enabled(),
+            format!("Destination: {label}"),
+        )
+    });
+    let rect = response.rect;
+    let ink = ui.style().interact(&response).text_color();
+    appearance::icon(
+        ui.painter(),
+        rect.left_center() + Vec2::new(16., 0.),
+        icon,
+        ink,
+        17.,
+    );
+    if !compact {
+        picker_text(ui, rect, label, ink, 31.);
+    }
+    let arrow = rect.right_center() - Vec2::new(11., 0.);
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            arrow + Vec2::new(-3.5, -1.5),
+            arrow + Vec2::new(3.5, -1.5),
+            arrow + Vec2::new(0., 2.5),
+        ],
+        ink,
+        Stroke::NONE,
+    ));
+    let visuals = ui.visuals().clone();
+    let popup_width = width.max(218.);
+    let mut picked = None;
+    egui::Popup::menu(&response)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+        .frame(
+            egui::Frame::popup(ui.style())
+                .fill(palette.surface)
+                .stroke(Stroke::new(1., palette.border)),
+        )
+        .style(egui::style::StyleModifier::new(move |style| {
+            style.visuals = visuals.clone()
+        }))
+        .width(popup_width)
+        .show(|ui| {
+            ui.set_width(popup_width);
+            for choice in CaptureDestination::ALL {
+                if capture_menu_item(
+                    ui,
+                    choice.label(),
+                    album.is_none() && destination == choice,
+                    palette,
+                    |painter, center, ink| {
+                        appearance::icon(painter, center, destination_icon(choice), ink, 17.);
+                    },
+                )
+                .on_hover_text(choice.hint())
+                .clicked()
+                {
+                    picked = Some(Pick::Standard(choice));
+                    ui.close();
+                }
+            }
+            if settings.album_capture.destinations().next().is_some() {
+                ui.separator();
+                ui.weak("Ready albums");
+                let height = (ui.ctx().content_rect().height() * 0.44).clamp(82., 218.);
+                egui::ScrollArea::vertical()
+                    .max_height(height)
+                    .show(ui, |ui| {
+                        for (path, title) in settings.album_capture.destinations() {
+                            if capture_menu_item(
+                                ui,
+                                title,
+                                album.is_some_and(|(selected, _)| selected == path),
+                                palette,
+                                |painter, center, ink| {
+                                    appearance::icon(
+                                        painter,
+                                        center,
+                                        appearance::Icon::Album,
+                                        ink,
+                                        17.,
+                                    );
+                                },
+                            )
+                            .on_hover_text(format!("{title}\n{}", folder_label(path)))
+                            .clicked()
+                            {
+                                picked = Some(Pick::Album(path.to_owned()));
+                                ui.close();
+                            }
+                        }
+                    });
+            }
+        });
+    response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
+        .on_hover_text(if album.is_some() {
+            format!("Add to {label}")
+        } else {
+            format!("To {label} · {}", destination.hint())
+        });
+    match picked {
+        Some(Pick::Standard(choice)) => {
+            let changed = settings.album_capture.choose(None) || destination != choice;
+            settings.capture_destination = choice;
+            changed
+        }
+        Some(Pick::Album(path)) => settings.album_capture.choose(Some(&path)),
+        None => false,
+    }
+}
+
+pub(crate) fn capture_menu_item(
+    ui: &mut egui::Ui,
+    label: &str,
+    selected: bool,
+    palette: appearance::Palette,
+    paint_icon: impl FnOnce(&egui::Painter, egui::Pos2, Color32),
+) -> egui::Response {
+    let (rect, response) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), 27.), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::SelectableLabel,
+            ui.is_enabled(),
+            selected,
+            label,
+        )
+    });
+    let fill = if selected {
+        palette.surface.lerp_to_gamma(palette.accent, 0.27)
+    } else if response.hovered() || response.has_focus() {
+        palette.cream
+    } else {
+        Color32::TRANSPARENT
+    };
+    ui.painter().rect_filled(rect, 6, fill);
+    paint_icon(
+        ui.painter(),
+        rect.left_center() + Vec2::new(15., 0.),
+        palette.ink,
+    );
+    picker_text(ui, rect, label, palette.ink, 29.);
+    if selected {
+        appearance::icon(
+            ui.painter(),
+            rect.right_center() - Vec2::new(12., 0.),
+            appearance::Icon::Check,
+            palette.ink,
+            11.,
+        );
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn picker_text(ui: &egui::Ui, rect: Rect, label: &str, ink: Color32, inset: f32) {
+    let text = egui::WidgetText::from(egui::RichText::new(label).size(13.).color(ink)).into_galley(
+        ui,
+        Some(egui::TextWrapMode::Truncate),
+        (rect.width() - inset - 23.).max(1.),
+        egui::TextStyle::Body,
+    );
+    ui.painter().galley(
+        egui::pos2(rect.left() + inset, rect.center().y - text.size().y * 0.5),
+        text,
+        ink,
+    );
 }
 fn card(palette: appearance::Palette) -> egui::Frame {
     egui::Frame::new()
@@ -305,7 +508,6 @@ pub fn ui(
                                     width - launch_width - GAP,
                                     settings,
                                     displays,
-                                    available.album,
                                     &mut result,
                                 );
                                 launch_card(
@@ -313,27 +515,12 @@ pub fn ui(
                                     launch_width,
                                     settings,
                                     available.capture,
-                                    available.album,
                                     &mut result,
                                 );
                             });
                         } else {
-                            launch_card(
-                                ui,
-                                width,
-                                settings,
-                                available.capture,
-                                available.album,
-                                &mut result,
-                            );
-                            capture_options(
-                                ui,
-                                width,
-                                settings,
-                                displays,
-                                available.album,
-                                &mut result,
-                            );
+                            launch_card(ui, width, settings, available.capture, &mut result);
+                            capture_options(ui, width, settings, displays, &mut result);
                         }
                         if available.demo {
                             ui.weak("Demo workspace · generated test image");
@@ -539,7 +726,6 @@ fn capture_options(
     width: f32,
     settings: &mut Settings,
     displays: &[DisplayInfo],
-    album: Option<&str>,
     result: &mut Response,
 ) {
     let p = appearance::palette(ui.ctx());
@@ -609,22 +795,20 @@ fn capture_options(
                 _ => {
                     ui.separator();
                     option_heading(ui, "After capture", appearance::Icon::Edit);
-                    let destinations = CaptureDestination::ALL.map(|destination| (
-                        destination, destination.label(),
-                        Some(if destination == CaptureDestination::Editor { appearance::Icon::Edit } else { appearance::Icon::Copy }),
-                        destination.hint(),
-                    ));
                     ui.horizontal_wrapped(|ui| {
-                        if let Some(album) = album {
-                            ui.strong(format!("Adding to {album}"));
+                        if settings.album_capture.destinations().next().is_some() {
+                            result.changed |= destination_picker(ui, settings, p, 180., false);
                         } else {
-                            result.changed |= appearance::segmented(ui, "capture-destination", &mut settings.capture_destination, &destinations);
+                            let destinations = CaptureDestination::ALL.map(|destination| (
+                                destination, destination.label(), Some(destination_icon(destination)), destination.hint()
+                            ));
+                            result.changed |= appearance::segmented(
+                                ui, "capture-destination", &mut settings.capture_destination, &destinations,
+                            );
                         }
                         result.changed |= output_size_picker(ui, &mut settings.capture_output_size);
                     });
-                    if album.is_none() {
-                        library_destination(ui, settings, result);
-                    }
+                    library_destination(ui, settings, result);
                 }
             }
         });
@@ -697,7 +881,6 @@ fn launch_card(
     width: f32,
     settings: &Settings,
     enabled: bool,
-    album: Option<&str>,
     result: &mut Response,
 ) {
     let look = settings.capture_theme.look();
@@ -754,7 +937,10 @@ fn launch_card(
                 if shortcut_keys(ui, settings, p).clicked() {
                     result.action = Some(Action::EditHotkey);
                 }
-                let album_detail = album.map(|name| format!("Add this capture to {name}."));
+                let album_detail = settings
+                    .album_capture
+                    .selected()
+                    .map(|(_, name)| format!("Add this capture to {name}."));
                 let detail = match settings.capture_mode {
                     CaptureMode::Text => None,
                     CaptureMode::Video => {
@@ -1152,6 +1338,73 @@ mod tests {
     use eframe::egui::Pos2;
 
     #[test]
+    fn compact_destination_menu_selects_only_ready_albums_and_can_return_to_editor() {
+        use std::path::Path;
+        let ctx = egui::Context::default();
+        let mut settings = Settings::default();
+        let first = Path::new("Steps.bedizalbum");
+        let second = Path::new("Notes.bedizalbum");
+        let paused = Path::new("Paused.bedizalbum");
+        settings.album_capture.set_ready(first, "Steps", true);
+        settings.album_capture.set_ready(second, "Notes", true);
+        settings.album_capture.set_ready(paused, "Paused", false);
+        let palette = CaptureTheme::Midnight.look().palette;
+        let frame = |settings: &mut Settings, events| {
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(470., 275.))),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        ui.add_space(130.);
+                        destination_picker(ui, settings, palette, 50., true);
+                    });
+                },
+            )
+        };
+        let click = |settings: &mut Settings, pos| {
+            let button = |pressed| egui::Event::PointerButton {
+                pos,
+                pressed,
+                button: egui::PointerButton::Primary,
+                modifiers: egui::Modifiers::NONE,
+            };
+            frame(settings, vec![egui::Event::PointerMoved(pos), button(true)]);
+            frame(settings, vec![button(false)]);
+            frame(settings, vec![])
+        };
+        let text_center = |output: &egui::FullOutput, label| {
+            output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.job.text == label => {
+                    let center = text.pos + text.galley.size() * 0.5;
+                    shape.clip_rect.contains(center).then_some(center)
+                }
+                _ => None,
+            })
+        };
+        let trigger = egui::pos2(33., 149.);
+        frame(&mut settings, vec![]);
+        for (title, path) in [
+            ("Steps", Some(first)),
+            ("Notes", Some(second)),
+            ("Editor", None),
+        ] {
+            let output = click(&mut settings, trigger);
+            assert!(text_center(&output, "Paused").is_none());
+            let row =
+                text_center(&output, title).unwrap_or_else(|| panic!("Missing menu row {title}"));
+            click(&mut settings, row);
+            assert_eq!(
+                settings.album_capture.selected().map(|(path, _)| path),
+                path
+            );
+        }
+        assert_eq!(settings.capture_destination, CaptureDestination::Editor);
+    }
+
+    #[test]
     fn capture_scrollbar_uses_workspace_edge_only_when_content_overflows() {
         for (height, overflowing) in [(400., true), (1000., false)] {
             let ctx = egui::Context::default();
@@ -1186,7 +1439,6 @@ mod tests {
                                     background: true,
                                     permission_needed: false,
                                     demo: false,
-                                    album: None,
                                 },
                                 None,
                             );
@@ -1258,7 +1510,6 @@ mod tests {
                                 background: true,
                                 permission_needed: false,
                                 demo: false,
-                                album: None,
                             },
                             None,
                         );

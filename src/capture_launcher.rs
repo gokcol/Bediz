@@ -172,13 +172,7 @@ impl MyImageApp {
             }
             launcher.focused |= focused;
             let mut content = |ui: &mut egui::Ui| {
-                let result = launcher_content(
-                    ui,
-                    &mut self.settings,
-                    &self.displays,
-                    enabled,
-                    self.albums.active_title(),
-                );
+                let result = launcher_content(ui, &mut self.settings, &self.displays, enabled);
                 changed |= result.0;
                 if result.1.is_some() {
                     action = result.1;
@@ -430,7 +424,6 @@ fn launcher_content(
     settings: &mut Settings,
     displays: &[DisplayInfo],
     enabled: bool,
-    album: Option<&str>,
 ) -> (bool, Option<Action>) {
     let mut changed = false;
     let mut action = None;
@@ -640,8 +633,7 @@ fn launcher_content(
         .on_hover_cursor(egui::CursorIcon::PointingHand);
 
     let send_track = at(FIELD_X, 135., FIELD_W, 26.);
-    let album = album.filter(|_| settings.capture_mode.makes_image());
-    if album.is_some() || !settings.capture_mode.makes_image() {
+    if !settings.capture_mode.makes_image() {
         let video = settings.capture_mode == CaptureMode::Video;
         ui.painter().rect(
             send_track,
@@ -653,23 +645,14 @@ fn launcher_content(
         appearance::icon(
             ui.painter(),
             send_track.left_center() + Vec2::new(16., 0.),
-            if album.is_some() {
-                Icon::Library
-            } else if video {
-                Icon::Video
-            } else {
-                Icon::TextSize
-            },
+            if video { Icon::Video } else { Icon::TextSize },
             p.ginger,
             15.,
         );
-        let label = album.map(|name| format!("Adding to {name}"));
         ui.painter().with_clip_rect(send_track.shrink(1.)).text(
             send_track.left_center() + Vec2::new(32., 0.),
             egui::Align2::LEFT_CENTER,
-            if let Some(label) = &label {
-                label
-            } else if video {
+            if video {
                 "MP4 · Recordings folder"
             } else {
                 "Text → clipboard · no image saved"
@@ -677,23 +660,25 @@ fn launcher_content(
             egui::FontId::proportional(12.),
             p.ink,
         );
-        if let Some(label) = label {
-            ui.interact(
-                send_track,
-                ui.id().with("album-destination"),
-                egui::Sense::hover(),
-            )
-            .on_hover_text(label);
-        }
+    } else if settings.album_capture.destinations().next().is_some() {
+        let mut destination_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .id_salt("pearl-destination")
+                .max_rect(send_track)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        changed |= crate::capture_panel::destination_picker(
+            &mut destination_ui,
+            settings,
+            p,
+            FIELD_W,
+            false,
+        );
     } else {
         let items = CaptureDestination::ALL.map(|dest| {
             (
                 dest.label(),
-                Some(if dest == CaptureDestination::Editor {
-                    Icon::Edit
-                } else {
-                    Icon::Copy
-                }),
+                Some(crate::capture_panel::destination_icon(dest)),
                 if dest == CaptureDestination::Editor {
                     "Save to Library and open in Editor"
                 } else {
@@ -1012,7 +997,7 @@ mod tests {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
-                            result = launcher_content(ui, &mut settings, &displays, enabled, None);
+                            result = launcher_content(ui, &mut settings, &displays, enabled);
                         });
                 },
             );
@@ -1131,7 +1116,7 @@ mod tests {
                 egui::CentralPanel::default()
                     .frame(egui::Frame::NONE)
                     .show(ctx, |ui| {
-                        launcher_content(ui, &mut settings, &[], true, None);
+                        launcher_content(ui, &mut settings, &[], true);
                     });
             },
         );
@@ -1169,7 +1154,7 @@ mod tests {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
-                            launcher_content(ui, &mut settings, &[], true, None);
+                            launcher_content(ui, &mut settings, &[], true);
                         });
                 },
             );
@@ -1237,7 +1222,7 @@ mod tests {
                     egui::CentralPanel::default()
                         .frame(egui::Frame::NONE)
                         .show(ctx, |ui| {
-                            launcher_content(ui, &mut settings, &[], true, None);
+                            launcher_content(ui, &mut settings, &[], true);
                         });
                 },
             )

@@ -6,6 +6,9 @@ use crate::{
 };
 use std::{collections::HashMap, path::Path};
 
+#[path = "album_setup.rs"]
+mod setup;
+
 #[derive(Clone)]
 pub(super) struct Target {
     pub path: PathBuf,
@@ -27,7 +30,6 @@ struct Opened {
 #[derive(Default)]
 pub(super) struct State {
     open: Option<Opened>,
-    pub collecting: Option<Target>,
     pub editing: Option<EditTarget>,
     setup: bool,
     name: String,
@@ -62,9 +64,6 @@ impl State {
         if let Some(open) = &mut self.open {
             prepared.remap(&mut open.path);
         }
-        if let Some(target) = &mut self.collecting {
-            prepared.remap(&mut target.path);
-        }
         if let Some(target) = &mut self.editing {
             prepared.remap(&mut target.path);
         }
@@ -74,8 +73,8 @@ impl State {
         self.open.as_ref().map(|opened| opened.album.title.as_str())
     }
 
-    pub(super) fn active_title(&self) -> Option<&str> {
-        self.collecting.as_ref().map(|target| target.title.as_str())
+    pub(super) fn path(&self) -> Option<&Path> {
+        self.open.as_ref().map(|opened| opened.path.as_path())
     }
 
     pub(super) fn rename(&mut self, old: &Path, new: &Path) {
@@ -83,11 +82,6 @@ impl State {
             && open.path == old
         {
             open.path = new.to_owned();
-        }
-        if let Some(target) = &mut self.collecting
-            && target.path == old
-        {
-            target.path = new.to_owned();
         }
         if let Some(target) = &mut self.editing
             && target.path == old
@@ -97,13 +91,6 @@ impl State {
     }
 
     pub(super) fn forget(&mut self, paths: &[PathBuf]) -> bool {
-        if self
-            .collecting
-            .as_ref()
-            .is_some_and(|target| paths.contains(&target.path))
-        {
-            self.collecting = None;
-        }
         // A missing entry being edited keeps its association so Save fails
         // visibly and Save Project As can recover it to a separate file.
         let close = self
@@ -394,20 +381,16 @@ impl MyImageApp {
                 }
             }
             Event::Captured(target, CaptureResult::Standalone(mut output, error)) => {
-                if self
-                    .albums
-                    .collecting
-                    .as_ref()
-                    .is_some_and(|current| current.path == target.path)
-                {
-                    self.albums.collecting = None;
-                }
+                self.settings
+                    .album_capture
+                    .set_ready(&target.path, &target.title, false);
+                self.persist_settings();
                 let error = format!("Could not add to {}: {error}", target.title);
                 match &mut output.path {
                     Ok(path) => {
                         self.library.file_saved(path);
                         self.remember_recent(path.clone());
-                        self.status = "Collection stopped · capture saved separately".into();
+                        self.status = format!("{} paused · capture saved separately", target.title);
                         self.error = Some(error);
                         if self.hidden.load(Ordering::Relaxed)
                             && let Some(desktop) = &self.desktop
@@ -439,93 +422,6 @@ impl MyImageApp {
         }
     }
 
-    pub(super) fn create_workspace_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        ui.horizontal_wrapped(|ui| {
-            if ui
-                .selectable_label(!self.albums.setup, "Image templates")
-                .clicked()
-            {
-                self.albums.setup = false;
-            }
-            if ui
-                .selectable_label(self.albums.setup, "Capture Album")
-                .clicked()
-            {
-                self.albums.setup = true;
-            }
-            if let Some(open) = &self.albums.open
-                && appearance::action_button(ui, "Return to album", Icon::Library, true, false)
-                    .clicked()
-            {
-                self.open_path(ctx, open.path.clone(), true);
-            }
-        });
-        ui.separator();
-        if !self.albums.setup {
-            if let Some(spec) = self.create_panel.ui(ui) {
-                self.create_image(ctx, spec);
-            }
-            return;
-        }
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.add_space(14.);
-            ui.horizontal(|ui| {
-                let (rect, _) = ui.allocate_exact_size(Vec2::splat(42.), egui::Sense::hover());
-                appearance::sculpted_icon(
-                    ui.painter(),
-                    rect.center(),
-                    Icon::Library,
-                    TileTone::Teal,
-                    38.,
-                    Some(Icon::Capture),
-                );
-                ui.heading("Create a capture album");
-            });
-            ui.add_space(12.);
-            ui.label("Album name");
-            ui.add(
-                egui::TextEdit::singleline(&mut self.albums.name)
-                    .hint_text("Untitled album")
-                    .char_limit(album::TITLE_LIMIT)
-                    .desired_width(320.),
-            );
-            ui.add_space(12.);
-            ui.horizontal_wrapped(|ui| {
-                for layout in Layout::ALL {
-                    let selected = self.albums.layout == layout;
-                    let response = appearance::action_button(
-                        ui,
-                        layout.label(),
-                        if layout == Layout::Walkthrough {
-                            Icon::List
-                        } else {
-                            Icon::Library
-                        },
-                        true,
-                        selected,
-                    );
-                    let info = if layout == Layout::Walkthrough {
-                        "Large captures with room for step notes"
-                    } else {
-                        "A two-column grid of titled captures"
-                    };
-                    if response.on_hover_text(info).clicked() {
-                        self.albums.layout = layout;
-                    }
-                }
-            });
-            ui.add_space(12.);
-            if appearance::action_button(ui, "Create album", Icon::Create, true, true).clicked() {
-                let name = self.albums.name.clone();
-                let layout = self.albums.layout;
-                let folder = self.settings.output_dir.join("Albums");
-                self.album_work(ctx, "Creating album…", move || {
-                    Event::Opened(album::create(&folder, &name, layout))
-                });
-            }
-        });
-    }
-
     pub(super) fn album_workspace_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let Some(open) = &mut self.albums.open else {
             self.view = View::Create;
@@ -533,11 +429,15 @@ impl MyImageApp {
         };
         let path = open.path.clone();
         let title = open.album.title.clone();
-        let collecting = self
-            .albums
-            .collecting
-            .as_ref()
-            .is_some_and(|target| target.path == path);
+        let ready = self.settings.album_capture.ready(&path);
+        let ready_count = self.settings.album_capture.destinations().count();
+        let can_enable = ready == Some(true) || ready_count < album::MAX_READY_ALBUMS;
+        let (collection_action, collection_icon) = match ready {
+            Some(true) => ("Pause collecting", Icon::Pause),
+            Some(false) => ("Resume collecting", Icon::Play),
+            None => ("Enable collecting", Icon::Capture),
+        };
+        let mut toggle_collection = false;
         let mut requested = None;
         let mut open_entry = None;
         let mut export = false;
@@ -545,36 +445,25 @@ impl MyImageApp {
         let mut previews = Vec::new();
         ui.horizontal_wrapped(|ui| {
             if appearance::action_button(ui, "Create", Icon::Back, true, false).clicked() {
+                self.albums.setup = true;
                 self.view = View::Create;
             }
             ui.separator();
             if appearance::action_button(
                 ui,
-                if collecting {
-                    "Stop collecting"
-                } else {
-                    "Start collecting"
-                },
-                if collecting {
-                    Icon::Stop
-                } else {
-                    Icon::Capture
-                },
-                true,
-                !collecting,
+                collection_action,
+                collection_icon,
+                can_enable,
+                ready != Some(true),
             )
+            .on_hover_text(if can_enable {
+                "Manage whether this album appears in the capture destination menu"
+            } else {
+                "Pause another album before enabling this one. Up to 10 can be ready."
+            })
             .clicked()
             {
-                if collecting {
-                    self.albums.collecting = None;
-                    self.status = "Collection stopped".into();
-                } else {
-                    self.albums.collecting = Some(Target {
-                        path: path.clone(),
-                        title: title.clone(),
-                    });
-                    self.status = format!("Adding image captures to {title}");
-                }
+                toggle_collection = true;
             }
             if appearance::action_button(ui, "Add placeholder", Icon::Create, true, false).clicked()
             {
@@ -604,10 +493,25 @@ impl MyImageApp {
                 });
         });
         ui.add_space(6.);
-        if let Some(target) = &self.albums.collecting {
+        let collecting = self
+            .settings
+            .album_capture
+            .selected()
+            .is_some_and(|(selected, _)| selected == path);
+        if let Some(ready) = ready {
             ui.label(
-                egui::RichText::new(format!("Adding image captures to {}", target.title))
-                    .color(appearance::satin_ink(ctx, TileTone::Teal)),
+                egui::RichText::new(if collecting {
+                    "Current capture destination"
+                } else if ready {
+                    "Ready in the capture destination menu"
+                } else {
+                    "Collection paused"
+                })
+                .color(if ready {
+                    appearance::satin_ink(ctx, TileTone::Teal)
+                } else {
+                    appearance::palette(ctx).muted
+                }),
             );
         }
         let captures = open.album.captures();
@@ -681,18 +585,24 @@ impl MyImageApp {
                 ui.heading("Ready for your first capture");
                 ui.label(if collecting {
                     "Use your capture shortcut to add a screenshot."
+                } else if ready == Some(true) {
+                    "Choose this album in the capture destination menu, or add an existing image."
                 } else {
-                    "Start collecting, add a placeholder, or bring in an existing image."
+                    "Enable collecting, add a placeholder, or bring in an existing image."
                 });
             });
         } else {
-            let columns = if ui.available_width() < 580. {
-                1
-            } else {
-                open.album.layout.columns()
-            };
+            let layout = open.album.layout;
+            let minimum_width = 250.;
+            let gap = ui.spacing().item_spacing.x;
+            let fits = ((ui.available_width() + gap) / (minimum_width + gap)) as usize;
+            let columns = layout.page().columns.min(fits.max(1));
             let rows = open.album.entries.len().div_ceil(columns);
-            let row_height = 230.;
+            let row_height = if layout == Layout::Comparison {
+                270.
+            } else {
+                230.
+            };
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .id_salt(("album-rows", &path))
@@ -771,6 +681,19 @@ impl MyImageApp {
                 ctx.request_repaint();
             });
         }
+        if toggle_collection
+            && self
+                .settings
+                .album_capture
+                .set_ready(&path, &title, ready != Some(true))
+        {
+            self.status = if ready == Some(true) {
+                format!("Collection paused for {title}")
+            } else {
+                format!("{title} is ready in the capture destination menu")
+            };
+            self.persist_settings();
+        }
         if let Some(id) = open_entry {
             self.open_album_entry(ctx, path, id);
         } else if let Some(change) = requested {
@@ -839,8 +762,10 @@ fn album_card(
                 ui.add(egui::Label::new(egui::RichText::new(&entry.title).strong()).truncate())
                     .on_hover_text(&entry.title);
             });
-            let (rect, response) =
-                ui.allocate_exact_size(Vec2::new(content_width, 122.), egui::Sense::click());
+            let (rect, response) = ui.allocate_exact_size(
+                Vec2::new(content_width, height - 108.),
+                egui::Sense::click(),
+            );
             ui.painter().rect_filled(rect, 6, palette.paper);
             if let Some(texture) = preview {
                 let size = texture.size_vec2();
@@ -946,10 +871,11 @@ mod tests {
         app.settings.capture_destination = capture::CaptureDestination::Clipboard;
         app.settings.capture_output_size = crate::capture_size::OutputSize::Half;
         let (path, _) = album::create(storage.path(), "Demo", Layout::Walkthrough).unwrap();
-        app.albums.collecting = Some(Target {
-            path: path.clone(),
-            title: "Demo".into(),
-        });
+        let (other, _) = album::create(storage.path(), "Other", Layout::Walkthrough).unwrap();
+        app.settings.album_capture.set_ready(&path, "Demo", true);
+        app.settings.album_capture.set_ready(&other, "Other", true);
+        assert!(app.settings.album_capture.selected().is_none());
+        app.settings.album_capture.choose(Some(&path));
         app.view = View::Home;
         app.save_captured_image(&ctx, image::RgbaImage::new(64, 48), Local::now());
         finish(&mut app, &ctx);
@@ -958,7 +884,14 @@ mod tests {
         assert_eq!(app.settings.recent_files, std::slice::from_ref(&path));
         assert_eq!(
             crate::library::scan(storage.path()).unwrap().entries.len(),
-            1
+            2
+        );
+        assert!(
+            album::Reader::open(&other)
+                .unwrap()
+                .album
+                .entries
+                .is_empty()
         );
 
         let reader = album::Reader::open(&path).unwrap();
@@ -989,8 +922,13 @@ mod tests {
         assert_eq!(saved.annotations[0].text, "Local edit");
         assert_eq!(
             crate::library::scan(storage.path()).unwrap().entries.len(),
-            1
+            2
         );
+        app.settings.album_capture.choose(Some(&other));
+        app.save_captured_image(&ctx, image::RgbaImage::new(64, 48), Local::now());
+        finish(&mut app, &ctx);
+        assert_eq!(album::Reader::open(&path).unwrap().album.captures(), 1);
+        assert_eq!(album::Reader::open(&other).unwrap().album.captures(), 1);
     }
 
     #[test]
@@ -999,13 +937,18 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
         app.settings.output_dir = storage.path().to_owned();
-        app.albums.collecting = Some(Target {
-            path: storage.path().join("Missing.bedizalbum"),
-            title: "Missing album".into(),
-        });
+        let missing = storage.path().join("Missing.bedizalbum");
+        let other = storage.path().join("Other.bedizalbum");
+        app.settings
+            .album_capture
+            .set_ready(&missing, "Missing album", true);
+        app.settings.album_capture.set_ready(&other, "Other", true);
+        app.settings.album_capture.choose(Some(&missing));
         app.save_captured_image(&ctx, image::RgbaImage::new(48, 32), Local::now());
         finish(&mut app, &ctx);
-        assert!(app.albums.collecting.is_none());
+        assert!(app.settings.album_capture.selected().is_none());
+        assert_eq!(app.settings.album_capture.ready(&missing), Some(false));
+        assert_eq!(app.settings.album_capture.ready(&other), Some(true));
         let paths = &app.settings.recent_files;
         assert_eq!(paths.len(), 1);
         assert_eq!(
