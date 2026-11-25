@@ -6,6 +6,7 @@ mod system_fonts;
 
 const BOLD_SANS: &str = "annotation-bold-sans";
 const BOLD_MONO: &str = "annotation-bold-mono";
+pub(crate) const FONT_LIST_HEIGHT: f32 = 126.;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FontFace {
@@ -169,77 +170,105 @@ impl TextStyle {
     pub(crate) fn font_face_picker(&mut self, ui: &mut egui::Ui) -> bool {
         let size = egui::TextStyle::Button.resolve(ui.style()).size;
         let selected = self.face().clone();
-        let picker = egui::CollapsingHeader::new(selected.label())
-            .id_salt("annotation-font-face")
-            .show(ui, |ui| {
-                let search_id = ui.id().with("font-search");
-                let mut search = ui
-                    .data_mut(|data| data.get_temp::<String>(search_id))
-                    .unwrap_or_default();
-                let search_changed = ui
-                    .add(
-                        egui::TextEdit::singleline(&mut search)
-                            .hint_text("Search fonts")
-                            .desired_width(ui.available_width()),
-                    )
-                    .changed();
-                let query = search.trim().to_lowercase();
-                ui.data_mut(|data| data.insert_temp(search_id, search));
-                let bundled = FontFace::ALL
-                    .into_iter()
-                    .filter(|face| face.label().to_lowercase().contains(&query))
-                    .collect::<Vec<_>>();
-                let installed = system_fonts::families()
-                    .iter()
-                    .filter(|(name, key)| {
-                        key.contains(&query)
-                            && !FontFace::ALL
-                                .iter()
-                                .any(|face| name.eq_ignore_ascii_case(face.label()))
-                    })
-                    .map(|(name, _)| name)
-                    .collect::<Vec<_>>();
-                let count = bundled.len() + installed.len();
-                if count == 0 {
-                    ui.weak("No matching fonts");
-                    return false;
-                }
-                ui.spacing_mut().item_spacing.y = 2.;
-                // Keep the entire picker width scrollable as different names
-                // enter the visible rows. A filter starts at its first result.
-                let mut list = egui::ScrollArea::vertical()
-                    .id_salt("annotation-font-list")
-                    .max_height(126.)
-                    .auto_shrink([false, true]);
-                if search_changed {
-                    list = list.vertical_scroll_offset(0.);
-                }
-                let row_height = (size + 4.).max(ui.spacing().interact_size.y);
-                list.show_rows(ui, row_height, count, |ui, rows| {
-                    let mut accepted = false;
-                    let row_size = egui::vec2(ui.available_width(), row_height);
-                    for row in rows {
-                        let face = bundled.get(row).cloned().unwrap_or_else(|| {
-                            FontFace::System(installed[row - bundled.len()].clone())
-                        });
-                        let response = ui.add(
-                            egui::Button::selectable(selected == face, face.preview(size))
-                                .min_size(row_size)
-                                .truncate(),
-                        );
-                        if response.clicked() {
-                            self.set_face(face);
-                            accepted = response.double_clicked();
-                        }
-                    }
-                    if accepted {
-                        ui.close_kind(egui::UiKind::Collapsible);
-                    }
-                    accepted
-                })
-                .inner
+        let picker_id = ui.make_persistent_id("annotation-font-face");
+        let mut expanded = ui.data(|data| data.get_temp::<bool>(picker_id).unwrap_or(false));
+        ui.horizontal(|ui| {
+            let (_, arrow) = ui.allocate_exact_size(egui::vec2(14., 24.), egui::Sense::click());
+            arrow.widget_info(|| {
+                egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button,
+                    ui.is_enabled(),
+                    if expanded { "Hide fonts" } else { "Show fonts" },
+                )
             });
-        let accepted = picker.body_returned == Some(true);
+            let label = ui.add(egui::Button::new(selected.label()).frame(false).truncate());
+            if arrow.clicked() || label.clicked() {
+                expanded = !expanded;
+            }
+            let icon = egui::Rect::from_center_size(arrow.rect.center(), egui::Vec2::splat(12.));
+            egui::collapsing_header::paint_default_icon(
+                ui,
+                if expanded { 1. } else { 0. },
+                &arrow.with_new_rect(icon),
+            );
+        });
+        // Expanding upward changes the popup's origin. Show the full list in
+        // one step so its rows do not slide away while the user scrolls or clicks.
+        let accepted = expanded
+            && ui
+                .indent(picker_id, |ui| {
+                    let search_id = ui.id().with("font-search");
+                    let mut search = ui
+                        .data_mut(|data| data.get_temp::<String>(search_id))
+                        .unwrap_or_default();
+                    let search_changed = ui
+                        .add(
+                            egui::TextEdit::singleline(&mut search)
+                                .hint_text("Search fonts")
+                                .desired_width(ui.available_width()),
+                        )
+                        .changed();
+                    let query = search.trim().to_lowercase();
+                    ui.data_mut(|data| data.insert_temp(search_id, search));
+                    let bundled = FontFace::ALL
+                        .into_iter()
+                        .filter(|face| face.label().to_lowercase().contains(&query))
+                        .collect::<Vec<_>>();
+                    let installed = system_fonts::families()
+                        .iter()
+                        .filter(|(name, key)| {
+                            key.contains(&query)
+                                && !FontFace::ALL
+                                    .iter()
+                                    .any(|face| name.eq_ignore_ascii_case(face.label()))
+                        })
+                        .map(|(name, _)| name)
+                        .collect::<Vec<_>>();
+                    let count = bundled.len() + installed.len();
+                    if count == 0 {
+                        ui.weak("No matching fonts");
+                        return false;
+                    }
+                    ui.spacing_mut().item_spacing.y = 2.;
+                    // Keep the entire picker width scrollable as different names
+                    // enter the visible rows. A filter starts at its first result.
+                    let mut list = egui::ScrollArea::vertical()
+                        .id_salt("annotation-font-list")
+                        .max_height(FONT_LIST_HEIGHT)
+                        .min_scrolled_height(FONT_LIST_HEIGHT)
+                        // A click on a row must not start dragging the list.
+                        .scroll_source(
+                            egui::scroll_area::ScrollSource::SCROLL_BAR
+                                | egui::scroll_area::ScrollSource::MOUSE_WHEEL,
+                        )
+                        .auto_shrink([false, true]);
+                    if search_changed {
+                        list = list.vertical_scroll_offset(0.);
+                    }
+                    let row_height = (size + 4.).max(ui.spacing().interact_size.y);
+                    list.show_rows(ui, row_height, count, |ui, rows| {
+                        let mut accepted = false;
+                        let row_size = egui::vec2(ui.available_width(), row_height);
+                        for row in rows {
+                            let face = bundled.get(row).cloned().unwrap_or_else(|| {
+                                FontFace::System(installed[row - bundled.len()].clone())
+                            });
+                            let response = ui.add(
+                                egui::Button::selectable(selected == face, face.preview(size))
+                                    .min_size(row_size)
+                                    .truncate(),
+                            );
+                            if response.clicked() {
+                                self.set_face(face);
+                                accepted = response.double_clicked();
+                            }
+                        }
+                        accepted
+                    })
+                    .inner
+                })
+                .inner;
+        ui.data_mut(|data| data.insert_temp(picker_id, expanded && !accepted));
         if accepted
             && ui
                 .stack()

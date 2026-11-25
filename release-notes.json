@@ -3,7 +3,7 @@
   "build": 194,
   "store_version": "4.2.0.0",
   "changes": [
-    "Scroll anywhere across the font list and double-click a font to apply it and close the picker.",
+    "Scroll anywhere across the font list and double-click a font to apply it and close the picker. The picker opens upward near the bottom to keep the list in view.",
     "Double-click an existing text annotation to edit with the caret at the end.",
     "Search bundled and supported installed fonts in the annotation font picker. Projects remember the selected font family.",
     "Capture checks for connected displays even if the display list is still empty after starting Bediz.",

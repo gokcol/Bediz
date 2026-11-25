@@ -308,11 +308,17 @@ impl EditorState {
                                     ink,
                                 );
                             });
-                            inline_popup(ui, &font, FONT_POPUP_WIDTH, |ui| {
-                                if font_controls(ui, annotation) {
-                                    text.inner.request_focus();
-                                }
-                            });
+                            inline_popup(
+                                ui,
+                                &font,
+                                FONT_POPUP_WIDTH,
+                                font_popup_alignment(&font, viewport),
+                                |ui| {
+                                    if font_controls(ui, annotation) {
+                                        text.inner.request_focus();
+                                    }
+                                },
+                            );
                             inline_color_button(ui, annotation);
                             if callout {
                                 let shape = inline_control(ui, "Callout shape", |p, r, ink| {
@@ -488,13 +494,29 @@ fn inline_toolbar_rect(text: Rect, viewport: Rect, controls: usize) -> Rect {
 const FONT_POPUP_WIDTH: f32 = 210.;
 const COLOR_POPUP_WIDTH: f32 = 232.;
 
+fn font_popup_alignment(anchor: &egui::Response, canvas: Rect) -> egui::RectAlign {
+    // Reserve room for the expanded picker before it opens. Its collapsed
+    // height can fit below the button even when its scrollable list cannot.
+    let expanded_height = crate::text_style::FONT_LIST_HEIGHT + 120.;
+    let enough_canvas_above = anchor.rect.top() - canvas.top() >= expanded_height;
+    if anchor.ctx.content_rect().bottom() - anchor.rect.bottom() < expanded_height
+        || (canvas.bottom() - anchor.rect.bottom() < expanded_height && enough_canvas_above)
+    {
+        egui::RectAlign::TOP_START
+    } else {
+        egui::RectAlign::BOTTOM_START
+    }
+}
+
 fn inline_popup(
     ui: &egui::Ui,
     anchor: &egui::Response,
     width: f32,
+    alignment: egui::RectAlign,
     content: impl FnOnce(&mut egui::Ui),
 ) {
     egui::Popup::menu(anchor)
+        .align(alignment)
         .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .frame(object_properties::quick_frame(ui).inner_margin(8))
         .style(|_: &mut egui::Style| {})
@@ -535,29 +557,35 @@ fn inline_color_button(ui: &mut egui::Ui, annotation: &mut Annotation) {
             StrokeKind::Inside,
         );
     });
-    inline_popup(ui, &button, COLOR_POPUP_WIDTH, |ui| {
-        if callout
-            && appearance::segmented(
+    inline_popup(
+        ui,
+        &button,
+        COLOR_POPUP_WIDTH,
+        egui::RectAlign::BOTTOM_START,
+        |ui| {
+            if callout
+                && appearance::segmented(
+                    ui,
+                    "callout-color-target",
+                    &mut text,
+                    &[
+                        (false, "Bubble", None, "Change the callout fill"),
+                        (true, "Text", None, "Change the callout text color"),
+                    ],
+                )
+            {
+                ui.data_mut(|data| data.insert_temp(target_id, text));
+            }
+            color_controls(
                 ui,
-                "callout-color-target",
-                &mut text,
-                &[
-                    (false, "Bubble", None, "Change the callout fill"),
-                    (true, "Text", None, "Change the callout text color"),
-                ],
-            )
-        {
-            ui.data_mut(|data| data.insert_temp(target_id, text));
-        }
-        color_controls(
-            ui,
-            if text {
-                &mut annotation.text_color
-            } else {
-                &mut annotation.color
-            },
-        );
-    });
+                if text {
+                    &mut annotation.text_color
+                } else {
+                    &mut annotation.color
+                },
+            );
+        },
+    );
 }
 
 fn color_controls(ui: &mut egui::Ui, color: &mut [u8; 4]) {
@@ -636,7 +664,12 @@ mod tests {
 
     #[test]
     fn inline_popovers_fit_their_controls_near_the_window_edge() {
-        for (width, font) in [(FONT_POPUP_WIDTH, true), (COLOR_POPUP_WIDTH, false)] {
+        for (font, anchor_y) in [(true, 64.), (false, 64.), (true, 660.)] {
+            let width = if font {
+                FONT_POPUP_WIDTH
+            } else {
+                COLOR_POPUP_WIDTH
+            };
             let ctx = egui::Context::default();
             appearance::apply(&ctx);
             if !font {
@@ -650,11 +683,11 @@ mod tests {
             let bounds = Rect::from_min_size(Pos2::ZERO, egui::vec2(1200., 800.));
             let mut expander = None;
             let mut font_option = None;
-            for frame in 0..12 {
+            for frame in 0..14 {
                 let mut events = vec![];
                 let target = match frame {
                     3 | 4 => expander,
-                    7..=10 => font_option,
+                    9..=12 => font_option,
                     _ => None,
                 };
                 if let Some(pos) = target {
@@ -662,7 +695,7 @@ mod tests {
                     events.push(egui::Event::PointerButton {
                         pos,
                         button: PointerButton::Primary,
-                        pressed: matches!(frame, 3 | 7 | 9),
+                        pressed: matches!(frame, 3 | 9 | 11),
                         modifiers: Modifiers::NONE,
                     });
                 }
@@ -675,14 +708,19 @@ mod tests {
                     },
                     |ctx| {
                         egui::Area::new(egui::Id::new("test-edge-anchor"))
-                            .fixed_pos(egui::pos2(1110., 64.))
+                            .fixed_pos(egui::pos2(1110., anchor_y))
                             .show(ctx, |ui| {
                                 let anchor = ui.button("Open");
                                 popup_id = egui::Popup::default_response_id(&anchor);
                                 if frame == 0 {
                                     egui::Popup::open_id(ctx, popup_id);
                                 }
-                                inline_popup(ui, &anchor, width, |ui| {
+                                let alignment = if font {
+                                    font_popup_alignment(&anchor, bounds)
+                                } else {
+                                    egui::RectAlign::BOTTOM_START
+                                };
+                                inline_popup(ui, &anchor, width, alignment, |ui| {
                                     if font {
                                         font_controls(ui, &mut annotation);
                                     } else {
@@ -701,16 +739,23 @@ mod tests {
                     })
                 };
                 if frame == 2 {
+                    if anchor_y > bounds.center().y {
+                        let popup = ctx.memory(|memory| memory.area_rect(popup_id)).unwrap();
+                        assert!(popup.bottom() < anchor_y, "{popup:?}");
+                    }
                     expander = find_label(if font { "Sans serif" } else { "Custom color" });
                     assert!(expander.is_some());
                 }
-                if font && frame == 6 {
+                if font && frame == 8 {
                     font_option = find_label("Crimson Text");
                     assert!(font_option.is_some());
                 }
             }
             let popup = ctx.memory(|memory| memory.area_rect(popup_id)).unwrap();
             assert!(bounds.contains_rect(popup), "{popup:?}");
+            if anchor_y > bounds.center().y {
+                assert!(popup.bottom() < anchor_y, "{popup:?}");
+            }
             assert!(
                 popup.width() >= width && popup.width() <= width + 19.,
                 "{popup:?}"
@@ -721,7 +766,10 @@ mod tests {
                     Some(crate::text_style::FontFace::CrimsonText)
                 );
                 assert!(popup.height() < 295., "{popup:?}");
-                assert!(!egui::Popup::is_id_open(&ctx, popup_id));
+                assert!(
+                    !egui::Popup::is_id_open(&ctx, popup_id),
+                    "anchor {anchor_y}"
+                );
             } else {
                 assert!(popup.height() > 175. && popup.height() < 330., "{popup:?}");
             }
