@@ -899,8 +899,7 @@ mod tests {
         h.redo(&mut d);
         assert_eq!(d.edit_state(), pasted);
 
-        // The new object uses the existing canvas text editor. A second paste
-        // while editing replaces selected text, rather than making another object.
+        // A second paste while editing appends to this text object.
         let ctx = egui::Context::default();
         crate::appearance::apply(&ctx);
         let texture = ctx.load_texture(
@@ -919,7 +918,10 @@ mod tests {
             vec![egui::Event::Paste("Revised text".into())],
         );
         assert_eq!(d.annotations.len(), 1);
-        assert_eq!(d.annotations[0].text, "Revised text");
+        assert_eq!(
+            d.annotations[0].text,
+            "  Gökçöl — Bediz\nEditable text  Revised text"
+        );
         assert!(e.clipboard_job.is_none());
         e.finish_text_editor(&mut d, &mut h, true);
         h.undo(&mut d);

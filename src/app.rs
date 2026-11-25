@@ -1029,6 +1029,10 @@ impl MyImageApp {
             .external_open_inbox
             .as_mut()
             .and_then(crate::external_open::Inbox::take_latest);
+        #[cfg(target_os = "macos")]
+        let incoming = crate::external_open::take_file_open()
+            .map(Request::Open)
+            .or(incoming);
         let arrived = incoming.is_some();
         if let Some(request) = incoming
             && (!matches!(request, Request::Show) || self.external_open_request.is_none())

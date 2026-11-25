@@ -19,9 +19,44 @@
     <key>CFBundleShortVersionString</key>
     <string>4.2.0</string>
     <key>CFBundleVersion</key>
-    <string>192</string>
+    <string>194</string>
     <key>BedizOpenProtocol</key>
     <string>1</string>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key>
+            <string>Bediz project</string>
+            <key>CFBundleTypeRole</key>
+            <string>Editor</string>
+            <key>LSHandlerRank</key>
+            <string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array>
+                <string>com.myimage.app.project</string>
+            </array>
+        </dict>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeIdentifier</key>
+            <string>com.myimage.app.project</string>
+            <key>UTTypeDescription</key>
+            <string>Bediz project</string>
+            <key>UTTypeConformsTo</key>
+            <array>
+                <string>public.data</string>
+            </array>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key>
+                <array>
+                    <string>myimage</string>
+                </array>
+            </dict>
+        </dict>
+    </array>
     <key>NSCameraUsageDescription</key>
     <string>Bediz uses the camera for the live preview and video when you enable the camera overlay.</string>
     <key>NSMicrophoneUsageDescription</key>

@@ -26,6 +26,9 @@ pub fn run(
         });
     }
     let event_loop = builder.build()?;
+    // Finder can deliver the file before AppKit finishes launching the app.
+    #[cfg(target_os = "macos")]
+    let native_open_error = crate::external_open::install_file_open().err();
     event_loop.set_control_flow(ControlFlow::Wait);
     let hidden = Arc::new(AtomicBool::new(false));
     let app_hidden = hidden.clone();
@@ -71,6 +74,11 @@ pub fn run(
             let watcher_error = inbox
                 .as_mut()
                 .and_then(|inbox| inbox.watch(&cc.egui_ctx).err());
+            #[cfg(target_os = "macos")]
+            let watcher_error = {
+                crate::external_open::bind_file_open(&cc.egui_ctx);
+                watcher_error.or(native_open_error)
+            };
             app.external_open(inbox, demo_path, watcher_error);
             Ok(Box::new(app))
         }),

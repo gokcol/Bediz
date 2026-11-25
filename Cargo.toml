@@ -34,6 +34,8 @@ flate2 = "=1.1.10"
 tiff = "=0.11.3"
 resvg = { version = "=0.45.1", default-features = false, features = ["text"] }
 roxmltree = "=0.20.0"
+fontdb = { version = "=0.23.0", default-features = false, features = ["fs"] }
+ab_glyph = "0.2"
 arboard = "=3.7.0"
 zip = { version = "=9.0.4", default-features = false, features = ["deflate-flate2"] }
 

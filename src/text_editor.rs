@@ -6,9 +6,32 @@ use crate::text_style::Alignment;
 pub(super) struct TextDraft {
     pub(super) index: usize,
     before: EditState,
-    pub(super) focus: bool,
+    focus: bool,
     pub(super) canvas: Option<(Pos2, f32, Rect)>,
 }
+
+impl TextDraft {
+    pub(super) fn focus_editor(&mut self, response: &egui::Response, text: &str) {
+        if !std::mem::take(&mut self.focus) {
+            return;
+        }
+        response.request_focus();
+        if let Some(mut state) = egui::TextEdit::load_state(&response.ctx, response.id) {
+            use egui::text::{CCursor, CCursorRange};
+
+            let end = CCursor::new(text.chars().count());
+            let range = if self.index < self.before.annotations.len() {
+                CCursorRange::one(end)
+            } else {
+                // New objects can show placeholder text. Typing should replace it.
+                CCursorRange::two(CCursor::new(0), end)
+            };
+            state.cursor.set_char_range(Some(range));
+            state.store(&response.ctx, response.id);
+        }
+    }
+}
+
 impl EditorState {
     pub(super) fn open_text_editor(
         &mut self,
@@ -178,7 +201,17 @@ impl EditorState {
         };
         let color = Color32::from_rgba_unmultiplied(ink[0], ink[1], ink[2], ink[3]);
         let style = annotation.text_style.clone();
-        let format = style.format(font_size, color);
+        let (format, new_fonts) = ctx.fonts(|fonts| {
+            let definitions = fonts.definitions();
+            (
+                style.format(font_size, color, definitions),
+                style.with_system_font(definitions),
+            )
+        });
+        if let Some(definitions) = new_fonts {
+            ctx.set_fonts(definitions);
+            ctx.request_repaint();
+        }
         let callout = annotation.kind == AnnotationKind::Callout;
         let position = text_position;
         let width = metrics
@@ -231,20 +264,7 @@ impl EditorState {
                     Stroke::new(1., Color32::from_gray(55)),
                     StrokeKind::Outside,
                 );
-                if draft.focus {
-                    response.request_focus();
-                    draft.focus = false;
-                    if let Some(mut state) = egui::text_edit::TextEditState::load(ctx, response.id)
-                    {
-                        state
-                            .cursor
-                            .set_char_range(Some(egui::text::CCursorRange::two(
-                                egui::text::CCursor::new(0),
-                                egui::text::CCursor::new(annotation.text.chars().count()),
-                            )));
-                        state.store(ctx, response.id);
-                    }
-                }
+                draft.focus_editor(&response, &annotation.text);
                 response
             });
         // Use the actual text widget bounds: font metrics and UI scaling can
@@ -289,7 +309,9 @@ impl EditorState {
                                 );
                             });
                             inline_popup(ui, &font, FONT_POPUP_WIDTH, |ui| {
-                                font_controls(ui, annotation);
+                                if font_controls(ui, annotation) {
+                                    text.inner.request_focus();
+                                }
                             });
                             inline_color_button(ui, annotation);
                             if callout {
@@ -558,9 +580,9 @@ fn color_controls(ui: &mut egui::Ui, color: &mut [u8; 4]) {
     });
 }
 
-fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) {
+fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) -> bool {
     ui.weak("Typeface");
-    annotation.text_style.font_face_picker(ui);
+    let accepted = annotation.text_style.font_face_picker(ui);
 
     let size = &mut annotation.font_size;
     let max = crate::document::MAX_FONT_SIZE;
@@ -598,21 +620,7 @@ fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) {
             *size = (*size + 1.).min(max);
         }
     });
-    ui.separator();
-    ui.horizontal(|ui| {
-        for preset in [8., 12., 16., 24., 32., 48., 64., 96.] {
-            let chip = egui::Button::selectable(*size == preset, format!("{preset:.0}"))
-                .corner_radius(5)
-                .frame_when_inactive(true);
-            if ui
-                .add_sized([23.625, 24.], chip)
-                .on_hover_text(format!("{preset:.0} px"))
-                .clicked()
-            {
-                *size = preset;
-            }
-        }
-    });
+    accepted
 }
 
 #[cfg(test)]
@@ -642,11 +650,11 @@ mod tests {
             let bounds = Rect::from_min_size(Pos2::ZERO, egui::vec2(1200., 800.));
             let mut expander = None;
             let mut font_option = None;
-            for frame in 0..10 {
+            for frame in 0..12 {
                 let mut events = vec![];
                 let target = match frame {
                     3 | 4 => expander,
-                    7 | 8 => font_option,
+                    7..=10 => font_option,
                     _ => None,
                 };
                 if let Some(pos) = target {
@@ -654,14 +662,14 @@ mod tests {
                     events.push(egui::Event::PointerButton {
                         pos,
                         button: PointerButton::Primary,
-                        pressed: matches!(frame, 3 | 7),
+                        pressed: matches!(frame, 3 | 7 | 9),
                         modifiers: Modifiers::NONE,
                     });
                 }
                 let output = ctx.run(
                     egui::RawInput {
                         screen_rect: Some(bounds),
-                        time: Some(f64::from(frame) * 0.2),
+                        time: Some(f64::from(frame) * 0.1),
                         events,
                         ..Default::default()
                     },
@@ -713,6 +721,7 @@ mod tests {
                     Some(crate::text_style::FontFace::CrimsonText)
                 );
                 assert!(popup.height() < 295., "{popup:?}");
+                assert!(!egui::Popup::is_id_open(&ctx, popup_id));
             } else {
                 assert!(popup.height() > 175. && popup.height() < 330., "{popup:?}");
             }
@@ -856,6 +865,49 @@ mod tests {
         assert!(e.text_dialog.is_none());
     }
     #[test]
+    fn editing_existing_text_appends_while_new_text_replaces_the_placeholder() {
+        for existing in [true, false] {
+            let ctx = egui::Context::default();
+            crate::appearance::apply(&ctx);
+            let mut editor = EditorState::default();
+            let mut document = document();
+            let empty = document.edit_state();
+            let mut annotation =
+                editor.new_annotation(AnnotationKind::Text, Point { x: 10., y: 10. });
+            annotation.text = if existing { "Başlık\nÖzet" } else { "Text" }.into();
+            document.annotations.push(annotation);
+            let before = if existing {
+                document.edit_state()
+            } else {
+                empty
+            };
+            let mut history = EditHistory::new(before.clone());
+            editor.open_text_editor(0, before, &document);
+            editor.text_dialog.as_mut().unwrap().canvas = Some((
+                egui::pos2(100., 120.),
+                1.,
+                Rect::from_min_size(Pos2::ZERO, Vec2::new(1200., 800.)),
+            ));
+            for events in [vec![], vec![egui::Event::Text(" devam".into())]] {
+                let input = egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200., 800.))),
+                    events,
+                    ..Default::default()
+                };
+                let _ = ctx.run(input, |ctx| {
+                    editor.text_editor_window(ctx, &mut document, &mut history)
+                });
+            }
+            let expected = if existing {
+                "Başlık\nÖzet devam"
+            } else {
+                " devam"
+            };
+            assert_eq!(document.annotations[0].text, expected);
+        }
+    }
+
+    #[test]
     fn inline_text_uses_canvas_position_and_apply_shortcut_preserves_content() {
         let context = egui::Context::default();
         crate::appearance::apply(&context);
@@ -865,6 +917,7 @@ mod tests {
         annotation.text = "A long editable line\n".repeat(100);
         document.annotations.push(annotation);
         let content = document.annotations[0].text.clone();
+        let original_size = document.annotations[0].font_size;
         let mut history = EditHistory::new(document.edit_state());
         editor.open_text_editor(0, document.edit_state(), &document);
         let generation = editor.text_editor_generation;
@@ -875,9 +928,8 @@ mod tests {
         ));
         let mut font_position = Pos2::ZERO;
         let mut bold_position = Pos2::ZERO;
-        let mut preset_position = Pos2::ZERO;
         let mut size_increase_position = Pos2::ZERO;
-        for frame in 0..12 {
+        for frame in 0..10 {
             let mut input = egui::RawInput {
                 screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(1200., 800.))),
                 ..Default::default()
@@ -885,8 +937,7 @@ mod tests {
             let click = match frame {
                 2 | 3 => Some((font_position, frame == 2)),
                 5 | 6 => Some((bold_position, frame == 5)),
-                7 | 8 => Some((preset_position, frame == 7)),
-                9 | 10 => Some((size_increase_position, frame == 9)),
+                7 | 8 => Some((size_increase_position, frame == 7)),
                 _ => None,
             };
             if let Some((pos, pressed)) = click {
@@ -898,7 +949,7 @@ mod tests {
                     modifiers: Modifiers::NONE,
                 });
             }
-            if frame == 11 {
+            if frame == 9 {
                 input.modifiers = Modifiers::COMMAND;
                 input.events.push(egui::Event::Key {
                     key: Key::Enter,
@@ -953,19 +1004,17 @@ mod tests {
                         .unwrap()
                 };
                 bold_position = label_position("B");
-                preset_position = label_position("48");
                 size_increase_position = label_position("+");
-                assert!(bold_position.y < preset_position.y);
             }
             if frame == 8 {
-                assert_eq!(document.annotations[0].font_size, 48.);
+                assert_eq!(document.annotations[0].font_size, original_size + 1.);
                 assert!(egui::Popup::is_any_open(&context));
             }
         }
         assert!(editor.text_dialog.is_none());
         assert_eq!(document.annotations[0].text, content);
         assert!(document.annotations[0].text_style.bold);
-        assert_eq!(document.annotations[0].font_size, 49.);
+        assert_eq!(document.annotations[0].font_size, original_size + 1.);
         assert!(history.undo(&mut document));
         assert!(!document.annotations[0].text_style.bold);
         editor.open_text_editor(0, document.edit_state(), &document);
@@ -1085,7 +1134,7 @@ mod tests {
             if frame == 2 {
                 input
                     .events
-                    .push(egui::Event::Text("Written on canvas".into()));
+                    .push(egui::Event::Text(" written on canvas".into()));
             }
             if frame == 3 {
                 input
@@ -1101,7 +1150,7 @@ mod tests {
             let _ = ctx.run(input, |ctx| e.text_editor_window(ctx, &mut d, &mut h));
         }
         assert!(e.text_dialog.is_none());
-        assert_eq!(d.annotations[0].text, "Written on canvas");
+        assert_eq!(d.annotations[0].text, "Original written on canvas");
         assert_eq!(e.selected, None);
         assert!(h.undo(&mut d));
         assert_eq!(d.edit_state(), before);

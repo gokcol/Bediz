@@ -1,8 +1,11 @@
 {
   "version": "4.2.0",
-  "build": 192,
+  "build": 194,
   "store_version": "4.2.0.0",
   "changes": [
+    "Scroll anywhere across the font list and double-click a font to apply it and close the picker.",
+    "Double-click an existing text annotation to edit with the caret at the end.",
+    "Search bundled and supported installed fonts in the annotation font picker. Projects remember the selected font family.",
     "Capture checks for connected displays even if the display list is still empty after starting Bediz.",
     "Open the Albums tab to browse, create, and manage capture albums. Use Home to create images, open videos, or record your screen.",
     "Hover an album row to manage capture acceptance, choose where captures go, rename the album, export a PDF, or reveal its file. A Captures off badge marks albums that are not accepting captures.",
@@ -19,9 +22,9 @@
     "An illustrated shortcut on the Capture and Video start pages shows where to find Bediz in the macOS menu bar or Windows system tray. Click it to open the Capture panel.",
     "A circular 4× magnifier marks the exact pixel under the pointer. Teal guides, dashed window previews, and a short instruction show what you are about to capture. Press M to toggle the magnifier.",
     "The Capture page uses the standard scrollbar at the far right of the workspace. It scrolls the full page and only appears when the settings need more room.",
-    "Choose from six annotation typefaces in Aa and Styles, including Lato, Crimson Text, Barlow Condensed, and Atkinson Hyperlegible. The compact font and color popovers keep eight size presets, editable pixel size, quick color swatches, and a custom picker.",
+    "Use quick color swatches or a custom color picker to format annotation text.",
     "Capture your screen has sculpted mode cards, a mode-specific illustration, and clearer groups for settings and output. Click the shortcut keycaps or pencil to edit the capture hotkey.",
-    "Open Aa while editing a text box or callout to choose a font, toggle Bold, Italic or Underline, and adjust the size with presets or an editable pixel value. Bold also remains available in Styles and carries through to saved projects and exports.",
+    "Open Aa while editing a text box or callout to choose a font, toggle Bold, Italic or Underline, and type a pixel size or adjust it with the minus and plus buttons. Bold also remains available in Styles and carries through to saved projects and exports.",
     "Capture Studio puts Capture image and Record video at the top of Home. Open image, Open video, Paste image, and Create use Sculpted Chips above Recents.",
     "The Video start page puts Open video first, with Record video alongside it. Open a file or select a recording from Recents to go to its player and timeline.",
     "Finished recordings open in the video workspace. Removing the open video returns to the Video start screen.",
@@ -76,6 +79,7 @@
     "Quick Start & Hotkeys has a visible close button as well as Escape."
   ],
   "macos": [
+    "Double-click a .myimage project in Finder to open it in Bediz.",
     "Annotate a paused frame without leaving the main workspace. Send the artwork back to the timeline and reopen it immediately with its original objects and duration.",
     "The recording setup offers 240p through 4K in a resolution dropdown and audio sample rates from 8 to 48 kHz. The recording size estimate follows your settings.",
     "Export video at 240p, 360p, 480p, 640p, 2K DCI, or 1440p QHD. Audio sample rates start at 8 kHz, and AAC offers the bitrates supported by each rate.",

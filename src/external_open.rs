@@ -15,6 +15,8 @@ use std::{
 mod macos;
 #[cfg(target_os = "macos")]
 use macos::QueueWatcher;
+#[cfg(target_os = "macos")]
+pub(crate) use macos::{bind_file_open, install_file_open, take_file_open};
 #[cfg(target_os = "windows")]
 use notify::RecommendedWatcher as QueueWatcher;
 

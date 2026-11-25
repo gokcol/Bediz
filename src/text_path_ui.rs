@@ -183,10 +183,7 @@ impl EditorState {
                         .desired_width(f32::INFINITY)
                         .char_limit(16_384),
                 );
-                if draft.focus {
-                    response.request_focus();
-                    draft.focus = false;
-                }
+                draft.focus_editor(&response, &annotation.text);
                 egui::ScrollArea::vertical()
                     .max_height(440.)
                     .show(ui, |ui| {

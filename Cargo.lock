@@ -2321,6 +2321,7 @@ dependencies = [
 name = "myimage"
 version = "4.2.0"
 dependencies = [
+ "ab_glyph",
  "arboard",
  "base64 0.22.1",
  "block2 0.6.2",
@@ -2329,6 +2330,7 @@ dependencies = [
  "eframe",
  "env_logger",
  "flate2",
+ "fontdb",
  "global-hotkey",
  "image",
  "libc",

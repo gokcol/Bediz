@@ -321,6 +321,7 @@ pub(crate) struct EditableTextLayout {
 }
 pub(crate) fn editable_text_layout(annotation: &Annotation) -> Result<EditableTextLayout, String> {
     FONTS.with_borrow_mut(|fonts| {
+        prepare_annotation_font(fonts, annotation);
         fonts.begin_pass(TEXT_ATLAS_SIDE, TEXT_ALPHA);
         let (galley, shift) = text_layout(fonts, annotation)?;
         Ok(EditableTextLayout {
@@ -334,6 +335,12 @@ pub(crate) fn editable_text_layout(annotation: &Annotation) -> Result<EditableTe
             wrap_width: galley.job.wrap.max_width,
         })
     })
+}
+
+fn prepare_annotation_font(fonts: &mut egui::epaint::text::Fonts, annotation: &Annotation) {
+    if let Some(definitions) = annotation.text_style.with_system_font(fonts.definitions()) {
+        *fonts = egui::epaint::text::Fonts::new(TEXT_ATLAS_SIDE, TEXT_ALPHA, definitions);
+    }
 }
 
 fn styled_layout(
@@ -350,7 +357,11 @@ fn styled_layout(
         crate::text_style::Alignment::Center => egui::Align::Center,
         crate::text_style::Alignment::Right => egui::Align::Max,
     };
-    job.append(&annotation.text, 0., style.format(size, Color32::WHITE));
+    job.append(
+        &annotation.text,
+        0.,
+        style.format(size, Color32::WHITE, fonts.definitions()),
+    );
     fonts.with_pixels_per_point(1.0).layout_job(job)
 }
 
@@ -2014,6 +2025,7 @@ fn ink_preview_texture(
 
 fn build_text_raster(annotation: &Annotation) -> Result<TextRaster, String> {
     FONTS.with_borrow_mut(|fonts| {
+        prepare_annotation_font(fonts, annotation);
         fonts.begin_pass(TEXT_ATLAS_SIDE, TEXT_ALPHA);
         if annotation.kind == AnnotationKind::Text && annotation.text_style.path.is_some() { return text_path_render::raster(fonts, annotation); }
         let (galley, shift) = text_layout(fonts, annotation)?;

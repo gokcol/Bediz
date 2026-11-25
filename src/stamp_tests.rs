@@ -244,6 +244,35 @@ fn formatted_text_has_distinct_rendering_and_portable_properties() {
     }
 }
 #[test]
+fn installed_typeface_survives_save_and_renders_with_a_missing_font_fallback() {
+    use crate::text_style::FontFace;
+
+    let mut text = object(AnnotationKind::Text, [12., 12.], [12., 12.]);
+    text.text = "Bediz font test".into();
+    text.font_size = 26.;
+    let mut doc = Document {
+        image: Arc::new(RgbaImage::new(480, 120)),
+        annotations: vec![text],
+        geometry: Default::default(),
+    };
+    let fallback = render::flatten(&doc).unwrap();
+    doc.annotations[0].text_style.face = Some(FontFace::System("Arial".into()));
+    let installed = render::flatten(&doc).unwrap();
+    assert_ne!(installed, fallback);
+
+    let folder = tempfile::tempdir().unwrap();
+    let path = folder.path().join("system-font.myimage");
+    document::save_project(&doc, &path).unwrap();
+    let archive = std::fs::read(&path).unwrap();
+    assert_eq!(u32::from_le_bytes(archive[8..12].try_into().unwrap()), 28);
+    let reopened = document::load_project(&path).unwrap();
+    assert_eq!(reopened.annotations, doc.annotations);
+    assert_eq!(render::flatten(&reopened).unwrap(), installed);
+
+    doc.annotations[0].text_style.face = Some(FontFace::System("Missing Bediz test face".into()));
+    assert_eq!(render::flatten(&doc).unwrap(), fallback);
+}
+#[test]
 #[ignore = "Creates a disposable native review fixture"]
 fn stamp_review_fixture() {
     let dir = std::path::Path::new("/private/tmp/myimage-stamp-review");
