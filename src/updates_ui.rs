@@ -248,14 +248,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn updates_modal_blocks_workspace_and_capture_and_escape_marks_notes_seen() {
+    fn updates_modal_blocks_workspace_and_escape_marks_notes_seen() {
         let ctx = egui::Context::default();
         let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
         app.guide_open = false;
         app.updates.open = true;
         assert!(!app.workspace_unobscured());
-        app.begin_capture(&ctx);
-        assert!(!app.busy && app.pending_capture.is_none());
         let frame = eframe::Frame::_new_kittest();
         for index in 0..13 {
             let mut input = egui::RawInput {

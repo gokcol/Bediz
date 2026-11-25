@@ -131,6 +131,7 @@ impl MyImageApp {
             || !matches!(self.view, View::Editor | View::Viewer)
             || self.capture_hotkey_editor.is_some()
             || self.guide_open
+            || self.help.open
             || self.about_open
             || self.updates.open
             || self.appearance_open

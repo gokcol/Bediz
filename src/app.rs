@@ -16,6 +16,8 @@ mod capture_output;
 mod capture_session;
 #[path = "video/frame_annotation.rs"]
 mod frame_annotation;
+#[path = "help_ui.rs"]
+mod help_ui;
 #[path = "screen_text.rs"]
 mod screen_text;
 #[path = "updates_ui.rs"]
@@ -49,6 +51,7 @@ use eframe::egui::{
     self, Color32, Pos2, Rect, Stroke, Vec2, ViewportCommand, viewport::WindowLevel,
 };
 use std::{
+    collections::VecDeque,
     path::PathBuf,
     sync::{
         Arc,
@@ -190,6 +193,7 @@ pub struct MyImageApp {
     updates: crate::updates::State,
     appearance_open: bool,
     guide_open: bool,
+    help: help_ui::HelpCenter,
     capture_hotkey_editor: Option<capture_hotkey_ui::State>,
     source_textures: crate::texture_cache::SourceTextures,
     recovery: recovery_ui::RecoveryState,
@@ -220,9 +224,11 @@ pub struct MyImageApp {
     shape: CaptureShape,
     view: View,
     generation: u64,
+    capture_requested: bool,
     pending_capture: Option<bool>,
     capture_cancel: Option<Arc<AtomicBool>>,
     capture_copy_retry: Option<CaptureOutput>,
+    captures_awaiting_save: VecDeque<CaptureOutput>,
     selection: Option<SelectionSession>,
     scroll_session: Option<ScrollSession>,
     recording: Option<video_session::Recording>,
@@ -351,6 +357,7 @@ impl MyImageApp {
             appearance_open: false,
             capture_hotkey_editor: None,
             guide_open: !background && settings.guide_version < crate::onboarding::VERSION,
+            help: help_ui::HelpCenter::default(),
             source_textures: Default::default(),
             recovery: Default::default(),
             settings,
@@ -380,9 +387,11 @@ impl MyImageApp {
             shape,
             view: View::Home,
             generation: 0,
+            capture_requested: false,
             pending_capture: None,
             capture_cancel: None,
             capture_copy_retry: None,
+            captures_awaiting_save: VecDeque::new(),
             selection: None,
             scroll_session: None,
             recording: None,
@@ -630,11 +639,10 @@ impl MyImageApp {
     }
 
     fn begin_capture(&mut self, ctx: &egui::Context) {
-        self.close_capture_launcher(ctx);
-        if self.editing_video_frame() {
-            self.show(ctx);
+        if self.quitting || self.quit_after_work {
             return;
         }
+        self.close_capture_launcher(ctx);
         if let Some(recording) = &mut self.recording {
             recording.focus(ctx);
             return;
@@ -644,25 +652,32 @@ impl MyImageApp {
             self.capture_scroll_section(ctx);
             return;
         }
-        if self.pending_capture.is_some()
-            || self.selection.is_some()
-            || self.busy
-            || self.recovery.prompt
-            || self.about_open
-            || self.updates.open
-            || self.appearance_open
-            || self.capture_hotkey_editor.is_some()
-            || self.guide_open
-            || self.pending_action.is_some()
-            || self.save_as_panel.open
-            || self.editor.has_modal()
-            || self.screen_text.open
-        {
+        if let Some(selection) = &self.selection {
+            selection.focus(ctx);
             return;
         }
-        // Capture itself does not replace the open project. Ask about unsaved
-        // edits only if the completed capture is actually sent to Editor.
-        self.finish_edit();
+        if self.pending_capture.is_some() {
+            return;
+        }
+        // File operations and native sheets can finish by replacing the document
+        // or showing a window. Wait for those completions before starting capture.
+        if self.busy {
+            self.capture_requested = true;
+            return;
+        }
+        if self.screen_text.open {
+            self.focus_screen_text(ctx);
+            return;
+        }
+        self.capture_requested = false;
+        self.help.open = false;
+        self.about_open = false;
+        self.updates.open = false;
+        self.appearance_open = false;
+        self.guide_open = false;
+        if !self.capture_keeps_workspace() {
+            self.finish_edit();
+        }
         let fixed_display = if self.settings.capture_all_displays {
             None
         } else {
@@ -801,6 +816,18 @@ impl MyImageApp {
             let _ = tx.send(WorkEvent::Captured(generation, at, result));
             crate::runtime::wake_root(&ctx);
         });
+    }
+
+    /// Leave editor drafts and pending choices alone while capturing. A still
+    /// image taken in this state can be delivered to the Library independently.
+    fn capture_keeps_workspace(&self) -> bool {
+        self.editing_video_frame()
+            || self.recovery.prompt
+            || self.capture_hotkey_editor.is_some()
+            || self.pending_action.is_some()
+            || self.file_dialog.is_some()
+            || self.save_as_panel.open
+            || self.editor.blocks_capture()
     }
 
     fn desktop_units_per_point(ctx: &egui::Context) -> f32 {
@@ -1249,6 +1276,7 @@ impl MyImageApp {
             || self.appearance_open
             || self.capture_hotkey_editor.is_some()
             || self.guide_open
+            || self.help.open
             || self.pending_action.is_some()
             || self.editor.has_modal()
         {
@@ -1307,6 +1335,7 @@ impl MyImageApp {
                 DesktopEvent::Capture => self.begin_capture(ctx),
                 DesktopEvent::CancelCapture => self.cancel_capture(ctx),
                 DesktopEvent::CapturePanel => self.toggle_capture_launcher(ctx),
+                DesktopEvent::Help => self.open_help(ctx),
                 DesktopEvent::About | DesktopEvent::WhatsNew | DesktopEvent::CheckUpdates => {
                     self.open_information_from_menu(ctx, event);
                 }
@@ -1348,6 +1377,7 @@ impl MyImageApp {
                         && !self.editing_video_frame()
                         && self.capture_hotkey_editor.is_none()
                         && !self.guide_open
+                        && !self.help.open
                         && !self.about_open
                         && !self.updates.open
                         && !self.appearance_open
@@ -1513,7 +1543,9 @@ impl MyImageApp {
                                     .err()
                                     .unwrap_or_else(|| "No display is available.".into()),
                             );
-                            self.view = View::Capture;
+                            if !self.capture_keeps_workspace() {
+                                self.view = View::Capture;
+                            }
                             self.show(ctx);
                         }
                     }
@@ -1543,7 +1575,9 @@ impl MyImageApp {
                         Err(error) => {
                             self.restore_window(ctx, false);
                             self.error = Some(error);
-                            self.view = View::Capture;
+                            if !self.capture_keeps_workspace() {
+                                self.view = View::Capture;
+                            }
                         }
                     }
                 }
@@ -1801,6 +1835,12 @@ impl MyImageApp {
     }
 
     fn request_quit(&mut self, ctx: &egui::Context) {
+        if !self.captures_awaiting_save.is_empty() {
+            self.status =
+                "Finish the current task to save your pending capture before quitting".into();
+            self.show(ctx);
+            return;
+        }
         if self.focus_frame_reference(ctx) {
             return;
         }
@@ -2339,6 +2379,7 @@ impl MyImageApp {
     fn workspace_unobscured(&self) -> bool {
         self.capture_hotkey_editor.is_none()
             && !self.guide_open
+            && !self.help.open
             && !self.about_open
             && !self.updates.open
             && !self.appearance_open
@@ -2579,6 +2620,7 @@ impl MyImageApp {
             }
         }
         self.handle_events(ctx);
+        self.resume_capture_requests(ctx);
         self.poll_external_open(ctx);
         let recording_active = self.recording_active();
         if let Some(desktop) = &mut self.desktop {
@@ -2601,21 +2643,7 @@ impl MyImageApp {
         if let Some(desktop) = &mut self.desktop {
             desktop.update_capture_menu(
                 crate::capture_panel::menu_summary(&self.settings, self.shape, &self.displays),
-                !self.busy
-                    && !self.screen_text.open
-                    && !recording_active
-                    && self.pending_capture.is_none()
-                    && self.selection.is_none()
-                    && self.capture_hotkey_editor.is_none()
-                    && !self.guide_open
-                    && !self.about_open
-                    && !self.updates.open
-                    && !self.appearance_open
-                    && !self.recovery.prompt
-                    && self.pending_action.is_none()
-                    && self.file_dialog.is_none()
-                    && !self.save_as_panel.open
-                    && !self.editor.has_modal(),
+                !self.quitting && !self.quit_after_work,
             );
         }
         if ctx.input(|i| i.viewport().close_requested()) && !self.quitting {
@@ -2667,6 +2695,13 @@ impl MyImageApp {
         if self.hidden.load(Ordering::Relaxed) {
             return;
         }
+        if !self.about_open
+            && !self.updates.open
+            && self.can_open_information()
+            && ctx.input_mut(|input| input.consume_key(egui::Modifiers::NONE, egui::Key::F1))
+        {
+            self.open_help(ctx);
+        }
         self.prepare_updates(ctx);
         if self.video_workspace_active()
             && !self.editing_video_frame()
@@ -2687,6 +2722,7 @@ impl MyImageApp {
             && !self.video_workspace_active()
             && self.capture_hotkey_editor.is_none()
             && !self.guide_open
+            && !self.help.open
             && !self.about_open
             && !self.updates.open
             && !self.appearance_open
@@ -2810,6 +2846,9 @@ impl MyImageApp {
             ui.horizontal(|ui| {
                 if self.busy {
                     ui.spinner();
+                }
+                if self.capture_requested {
+                    ui.weak("Capture queued").on_hover_text("Capture starts when the current file operation finishes.");
                 }
                 if self.view == View::Editor
                     && let Some(name) = self.document_name()
@@ -2948,6 +2987,7 @@ impl MyImageApp {
         self.file_dialog_ui(ctx);
         self.recovery_ui(ctx);
         self.about_ui(ctx, frame);
+        self.help.show(ctx, &self.settings.capture_shortcut);
         self.updates_ui(ctx, frame);
         self.appearance_ui(ctx);
         self.capture_hotkey_ui(ctx);

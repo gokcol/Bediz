@@ -536,13 +536,21 @@ impl EditorState {
     /// Both image workers and dialogs block competing edits. Only dialogs
     /// should dim the workspace; short image jobs must not flash it.
     pub fn has_modal(&self) -> bool {
-        self.has_dialog() || self.extra_tools.busy() || self.fill_tool.busy()
+        self.text_dialog.is_some() || self.blocks_capture()
     }
 
     pub fn has_dialog(&self) -> bool {
+        self.text_dialog.is_some() || self.has_non_text_dialog()
+    }
+
+    /// Capture completes the inline edit through finish_gesture before hiding.
+    pub fn blocks_capture(&self) -> bool {
+        self.has_non_text_dialog() || self.extra_tools.busy() || self.fill_tool.busy()
+    }
+
+    fn has_non_text_dialog(&self) -> bool {
         self.text_extraction.open
             || self.toolbar_customizer
-            || self.text_dialog.is_some()
             || self.stamps.is_importing()
             || self.resize.is_some()
             || self.page_correction.is_some()

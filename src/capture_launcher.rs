@@ -138,13 +138,14 @@ impl MyImageApp {
             && !self.recovery.prompt
             && self.capture_hotkey_editor.is_none()
             && !self.guide_open
+            && !self.help.open
             && !self.about_open
             && !self.updates.open
             && !self.appearance_open
             && self.pending_action.is_none()
             && self.file_dialog.is_none()
             && !self.save_as_panel.open
-            && !self.editor.has_modal();
+            && !self.editor.blocks_capture();
         let enabled = enabled && !self.screen_text.open;
         let builder = egui::ViewportBuilder::default()
             .with_title(format!("{} Capture Now", crate::branding::NAME))

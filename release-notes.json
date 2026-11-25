@@ -1,8 +1,10 @@
 {
   "version": "4.2.0",
-  "build": 195,
-  "store_version": "4.2.0.0",
+  "build": 196,
+  "store_version": "4.2.1.0",
   "changes": [
+    "Open Help & tutorials from the App menu or press F1 for searchable offline lessons on capture, annotation, screen recording, and customization.",
+    "Capture shortcuts work during inline text edits and over Bediz dialogs. Captures can go to Library while a dialog is open, and requests made during a file operation start when that operation finishes.",
     "Text controls use an editable pixel size without preset buttons. The font list fits more rows at the same height.",
     "Scroll anywhere across the font list and double-click a font to apply it and close the picker. The picker opens upward near the bottom to keep the list in view.",
     "Double-click an existing text annotation to edit with the caret at the end.",

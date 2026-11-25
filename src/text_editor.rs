@@ -794,7 +794,12 @@ mod tests {
         e.open_text_editor(0, before, &d);
         d.annotations[0].text = "Applied".into();
         d.annotations[0].text_style.italic = true;
-        e.finish_text_editor(&mut d, &mut h, true);
+        assert!(e.has_modal());
+        assert!(!e.blocks_capture());
+        e.toolbar_customizer = true;
+        assert!(e.blocks_capture());
+        e.toolbar_customizer = false;
+        e.finish_gesture(&mut d, &mut h);
         assert!(h.can_undo());
         h.undo(&mut d);
         assert!(d.annotations.is_empty());

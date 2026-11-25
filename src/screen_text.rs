@@ -143,6 +143,11 @@ impl MyImageApp {
         ctx.request_repaint();
     }
 
+    pub(super) fn focus_screen_text(&mut self, ctx: &egui::Context) {
+        self.screen_text.focus = true;
+        ctx.request_repaint();
+    }
+
     pub(super) fn screen_text_ui(&mut self, ctx: &egui::Context) {
         if !self.screen_text.open {
             return;

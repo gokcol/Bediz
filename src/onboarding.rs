@@ -66,7 +66,7 @@ pub fn show(
                             let clicked =
                                 dialogs::primary(ui, "Let's create", Icon::Edit).clicked();
                             ui.label(
-                                RichText::new("Your calico App menu keeps this guide handy.")
+                                RichText::new("Find step-by-step lessons under Help & tutorials in the calico App menu.")
                                     .size(12.)
                                     .color(palette.muted),
                             );

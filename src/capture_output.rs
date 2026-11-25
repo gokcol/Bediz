@@ -102,7 +102,9 @@ impl MyImageApp {
         match result {
             Err(error) => {
                 self.error = Some(error);
-                self.view = View::Capture;
+                if !self.capture_keeps_workspace() {
+                    self.view = View::Capture;
+                }
                 self.restore_window(ctx, false);
             }
             Ok(output) => {
@@ -117,7 +119,9 @@ impl MyImageApp {
                         "{error}. Your capture is retained. Retry copy or open it in Editor below."
                     ));
                     self.capture_copy_retry = Some(output);
-                    self.view = View::Capture;
+                    if !self.capture_keeps_workspace() {
+                        self.view = View::Capture;
+                    }
                     self.status = "Capture ready · Clipboard copy failed".into();
                     self.show(ctx);
                 } else {
@@ -146,6 +150,16 @@ impl MyImageApp {
     }
 
     pub(super) fn open_captured_image(&mut self, ctx: &egui::Context, output: CaptureOutput) {
+        if self.capture_keeps_workspace() {
+            if output.path.is_ok() {
+                self.status = "Capture saved in Library · Current work is still open".into();
+            } else {
+                self.captures_awaiting_save.push_back(output);
+                self.status = "Capture held in memory · Finish your current task to open it".into();
+            }
+            self.restore_window(ctx, false);
+            return;
+        }
         if !self.can_replace_image(ctx, PendingAction::OpenCapture(output.clone())) {
             return;
         }
@@ -174,6 +188,25 @@ impl MyImageApp {
         }
         self.view = View::Editor;
         self.show(ctx);
+    }
+
+    pub(super) fn resume_capture_requests(&mut self, ctx: &egui::Context) {
+        if self.busy || self.quitting || self.quit_after_work {
+            return;
+        }
+        if std::mem::take(&mut self.capture_requested) {
+            self.begin_capture(ctx);
+        }
+        if self.pending_capture.is_none()
+            && self.selection.is_none()
+            && self.scroll_session.is_none()
+            && self.recording.is_none()
+            && !self.screen_text.open
+            && !self.capture_keeps_workspace()
+            && let Some(output) = self.captures_awaiting_save.pop_front()
+        {
+            self.open_captured_image(ctx, output);
+        }
     }
 
     pub(super) fn retry_capture_copy(&mut self, ctx: &egui::Context) {
@@ -243,6 +276,63 @@ mod tests {
         app.history.commit(before, doc);
         assert!(app.has_unsaved_edits());
         app
+    }
+
+    #[test]
+    fn shortcut_waits_for_an_in_flight_write_then_goes_ahead_over_a_dialog() {
+        let ctx = egui::Context::default();
+        let mut app = dirty_editor(&ctx);
+        app.guide_open = false;
+        app.settings.delay_seconds = 1;
+        app.busy = true;
+        app.about_open = true;
+        app.save_as_panel.open = true;
+        app.begin_capture(&ctx);
+        assert!(app.capture_requested);
+        assert!(app.pending_capture.is_none());
+
+        app.busy = false;
+        app.resume_capture_requests(&ctx);
+        assert!(!app.capture_requested);
+        assert!(app.pending_capture.is_some());
+        assert!(!app.about_open);
+        app.cancel_capture(&ctx);
+        assert!(app.save_as_panel.open);
+        assert!(app.has_unsaved_edits());
+    }
+
+    #[test]
+    fn editor_capture_leaves_an_open_save_dialog_and_project_intact() {
+        let ctx = egui::Context::default();
+        let mut app = dirty_editor(&ctx);
+        let before = app.document.as_ref().unwrap().edit_state();
+        app.save_as_panel.open = true;
+        app.finish_capture_output(
+            &ctx,
+            Ok(CaptureOutput {
+                image: Arc::new(pixels()),
+                path: Ok(PathBuf::from("Capture.myimage")),
+                destination: CaptureDestination::Editor,
+                clipboard: Ok(()),
+            }),
+        );
+        assert!(app.save_as_panel.open);
+        assert!(app.pending_action.is_none());
+        assert_eq!(app.document.as_ref().unwrap().edit_state(), before);
+        assert!(app.status.contains("Capture saved in Library"));
+
+        app.finish_capture_output(
+            &ctx,
+            Ok(CaptureOutput {
+                image: Arc::new(pixels()),
+                path: Err("disk is full".into()),
+                destination: CaptureDestination::Editor,
+                clipboard: Ok(()),
+            }),
+        );
+        assert_eq!(app.captures_awaiting_save.len(), 1);
+        assert_eq!(app.document.as_ref().unwrap().edit_state(), before);
+        assert!(app.status.contains("Capture held in memory"));
     }
 
     fn recent_textures(app: &mut MyImageApp, ctx: &egui::Context) -> Vec<egui::TextureId> {

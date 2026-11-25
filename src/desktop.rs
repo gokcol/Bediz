@@ -30,6 +30,7 @@ const CAPTURE_SETTINGS_ID: &str = "myimage.capture-settings";
 const LIBRARY_ID: &str = "myimage.library";
 const QUIT_ID: &str = "myimage.quit";
 const ABOUT_ID: &str = "myimage.about";
+const HELP_ID: &str = "myimage.help";
 const WHATS_NEW_ID: &str = "myimage.whats-new";
 const CHECK_UPDATES_ID: &str = "myimage.check-updates";
 
@@ -44,6 +45,7 @@ pub enum DesktopEvent {
     CaptureSettings,
     Library,
     About,
+    Help,
     WhatsNew,
     CheckUpdates,
     Quit,
@@ -110,6 +112,7 @@ fn menu_action(id: &str) -> Option<DesktopEvent> {
         LIBRARY_ID => Some(DesktopEvent::Library),
         QUIT_ID => Some(DesktopEvent::Quit),
         ABOUT_ID => Some(DesktopEvent::About),
+        HELP_ID => Some(DesktopEvent::Help),
         WHATS_NEW_ID => Some(DesktopEvent::WhatsNew),
         CHECK_UPDATES_ID => Some(DesktopEvent::CheckUpdates),
         _ => None,
@@ -685,6 +688,7 @@ mod tests {
         assert_eq!(menu_action(QUIT_ID), Some(DesktopEvent::Quit));
         assert_eq!(menu_action(ABOUT_ID), Some(DesktopEvent::About));
         assert_eq!(menu_action(WHATS_NEW_ID), Some(DesktopEvent::WhatsNew));
+        assert_eq!(menu_action(HELP_ID), Some(DesktopEvent::Help));
         assert_eq!(
             menu_action(CHECK_UPDATES_ID),
             Some(DesktopEvent::CheckUpdates)

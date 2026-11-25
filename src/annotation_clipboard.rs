@@ -696,7 +696,15 @@ impl EditorState {
             // Command remains the platform default. Text fields never reach here.
             #[cfg(target_os = "macos")]
             for (key, event) in [(Key::C, egui::Event::Copy), (Key::X, egui::Event::Cut)] {
-                if i.consume_key(Modifiers::CTRL, key) && !clipboard.contains(&event) {
+                let mut pressed = false;
+                i.events.retain(|input| {
+                    let matched = matches!(input, egui::Event::Key {
+                        key: pressed_key, pressed: true, modifiers, ..
+                    } if *pressed_key == key && modifiers.matches_exact(Modifiers::CTRL));
+                    pressed |= matched;
+                    !matched
+                });
+                if pressed && !clipboard.contains(&event) {
                     clipboard.push(event);
                 }
             }

@@ -150,18 +150,22 @@ impl MyImageApp {
 mod tests {
     use super::*;
     #[test]
-    fn shortcut_editor_blocks_capture_and_escape_discards_changes() {
+    fn capture_preserves_the_shortcut_draft_and_escape_discards_it() {
         let ctx = egui::Context::default();
         let mut app = MyImageApp::with_context(&ctx, false, Arc::new(AtomicBool::new(false)), true);
         app.guide_open = false;
+        app.settings.delay_seconds = 1;
         app.open_capture_hotkey(&ctx);
         assert!(app.capture_hotkey_editor.is_some());
         app.capture_hotkey_editor.as_mut().unwrap().draft.key = "KeyK".into();
-        let generation = app.generation;
         app.desktop_tx.send(DesktopEvent::Capture).unwrap();
         let _ = ctx.run(egui::RawInput::default(), |ctx| app.handle_events(ctx));
-        assert_eq!(app.generation, generation);
-        assert!(app.pending_capture.is_none());
+        assert!(app.pending_capture.is_some());
+        app.cancel_capture(&ctx);
+        assert_eq!(
+            app.capture_hotkey_editor.as_ref().unwrap().draft.key,
+            "KeyK"
+        );
         assert!(!app.workspace_unobscured());
         let _ = ctx.run(
             egui::RawInput {

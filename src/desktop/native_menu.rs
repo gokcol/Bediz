@@ -1,6 +1,6 @@
 //! Replace winit's standard About panel with the app's own information dialogs.
 //! Kept independently of tray setup so a shortcut/tray failure cannot break About.
-use super::{ABOUT_ID, CHECK_UPDATES_ID, DesktopEvent, WHATS_NEW_ID};
+use super::{ABOUT_ID, CHECK_UPDATES_ID, DesktopEvent, HELP_ID, WHATS_NEW_ID};
 use eframe::egui;
 use std::sync::{Arc, Mutex, Weak, mpsc::Sender};
 use tray_icon::menu::{Menu, MenuItem, PredefinedMenuItem as Native, Submenu};
@@ -13,7 +13,7 @@ static TARGET: Mutex<Option<Weak<Sink>>> = Mutex::new(None);
 
 pub struct ApplicationMenu {
     menu: Menu,
-    information: [MenuItem; 3],
+    information: [MenuItem; 4],
     sink: Arc<Sink>,
 }
 
@@ -36,6 +36,7 @@ impl ApplicationMenu {
             ),
             MenuItem::with_id(WHATS_NEW_ID, "What's New", true, None),
             MenuItem::with_id(CHECK_UPDATES_ID, "Check for Updates…", true, None),
+            MenuItem::with_id(HELP_ID, "Bediz Help", true, None),
         ];
         let application = Submenu::with_items(
             crate::branding::NAME,
@@ -56,7 +57,9 @@ impl ApplicationMenu {
             ],
         )
         .map_err(|e| e.to_string())?;
-        let menu = Menu::with_items(&[&application]).map_err(|e| e.to_string())?;
+        let help =
+            Submenu::with_items("Help", true, &[&information[3]]).map_err(|e| e.to_string())?;
+        let menu = Menu::with_items(&[&application, &help]).map_err(|e| e.to_string())?;
         super::install_callbacks();
         let sink = Arc::new(Sink { ctx, sender });
         *target = Some(Arc::downgrade(&sink));
@@ -81,7 +84,10 @@ impl ApplicationMenu {
 pub(super) fn send(event: DesktopEvent) -> bool {
     if !matches!(
         event,
-        DesktopEvent::About | DesktopEvent::WhatsNew | DesktopEvent::CheckUpdates
+        DesktopEvent::About
+            | DesktopEvent::WhatsNew
+            | DesktopEvent::CheckUpdates
+            | DesktopEvent::Help
     ) {
         return false;
     }
@@ -127,6 +133,7 @@ mod tests {
             DesktopEvent::About,
             DesktopEvent::WhatsNew,
             DesktopEvent::CheckUpdates,
+            DesktopEvent::Help,
         ] {
             assert!(send(event));
             assert_eq!(receiver.try_recv().unwrap(), event);

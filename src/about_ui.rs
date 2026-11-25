@@ -9,8 +9,10 @@ impl MyImageApp {
             && self.pending_capture.is_none()
             && self.selection.is_none()
             && self.scroll_session.is_none()
+            && self.recording.is_none()
             && self.capture_hotkey_editor.is_none()
             && !self.guide_open
+            && !self.help.open
             && !self.appearance_open
             && !self.recovery.prompt
             && self.pending_action.is_none()
@@ -212,8 +214,6 @@ mod tests {
             app.guide_open = false;
             app.about_open = true;
             assert!(!app.workspace_unobscured());
-            app.begin_capture(&ctx);
-            assert!(app.pending_capture.is_none());
             for size in [
                 Vec2::new(1200., 800.),
                 Vec2::new(700., 460.),
