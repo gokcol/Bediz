@@ -229,7 +229,7 @@ impl TextStyle {
                         ui.weak("No matching fonts");
                         return false;
                     }
-                    ui.spacing_mut().item_spacing.y = 2.;
+                    ui.spacing_mut().item_spacing.y = 1.;
                     // Keep the entire picker width scrollable as different names
                     // enter the visible rows. A filter starts at its first result.
                     let mut list = egui::ScrollArea::vertical()
@@ -245,7 +245,7 @@ impl TextStyle {
                     if search_changed {
                         list = list.vertical_scroll_offset(0.);
                     }
-                    let row_height = (size + 4.).max(ui.spacing().interact_size.y);
+                    let row_height = (size + 5.).max(22.);
                     list.show_rows(ui, row_height, count, |ui, rows| {
                         let mut accepted = false;
                         let row_size = egui::vec2(ui.available_width(), row_height);
@@ -255,6 +255,7 @@ impl TextStyle {
                             });
                             let response = ui.add(
                                 egui::Button::selectable(selected == face, face.preview(size))
+                                    .small()
                                     .min_size(row_size)
                                     .truncate(),
                             );

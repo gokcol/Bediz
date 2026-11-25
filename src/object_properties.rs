@@ -138,47 +138,6 @@ pub(super) fn slider<N: egui::emath::Numeric>(
     .inner
 }
 
-pub(super) fn font_size_menu(ui: &mut egui::Ui, value: &mut f32) -> bool {
-    let mut changed = false;
-    if egui::containers::menu::is_in_menu(ui) {
-        ui.horizontal_wrapped(|ui| {
-            for size in [12., 16., 24., 32., 48., 64.] {
-                if ui
-                    .selectable_label(*value == size, format!("{size:.0}"))
-                    .clicked()
-                {
-                    *value = size;
-                    changed = true;
-                }
-            }
-        });
-        return changed;
-    }
-    property_menu(ui, format!("{value:.0} px ▾"), |ui| {
-        ui.set_min_width(216.);
-        ui.horizontal_wrapped(|ui| {
-            for size in [12., 16., 20., 24., 32., 48., 64., 96.] {
-                if ui
-                    .selectable_label(*value == size, format!("{size:.0}"))
-                    .clicked()
-                {
-                    *value = size;
-                    changed = true;
-                    ui.close();
-                }
-            }
-        });
-        changed |= slider(
-            ui,
-            value,
-            1.0..=crate::document::MAX_FONT_SIZE,
-            "Font size",
-            " px",
-        );
-    });
-    changed
-}
-
 fn color_menu(ui: &mut egui::Ui, color: &mut [u8; 4], label: &str) -> bool {
     let mut changed = false;
     ui.push_id(label, |ui| {
@@ -629,8 +588,7 @@ pub(super) fn text_controls(
 ) -> bool {
     let before = style.clone();
     style.font_face_picker(ui);
-    let mut changed = font_size_menu(ui, size);
-    changed |= slider(
+    let size_changed = slider(
         ui,
         size,
         1.0..=crate::document::MAX_FONT_SIZE,
@@ -644,7 +602,7 @@ pub(super) fn text_controls(
         ui.selectable_value(&mut style.alignment, Alignment::Center, "Center");
         ui.selectable_value(&mut style.alignment, Alignment::Right, "Right");
     });
-    changed || *style != before
+    size_changed || *style != before
 }
 
 // The canvas bar is a shortcut strip, not a second inspector.
@@ -1729,6 +1687,63 @@ mod tests {
             )),
             annotations: vec![],
             geometry: Default::default(),
+        }
+    }
+
+    #[test]
+    fn selected_text_uses_one_pixel_size_field_in_styles_and_the_popup() {
+        for popup in [false, true] {
+            let ctx = egui::Context::default();
+            crate::appearance::apply(&ctx);
+            let mut style = crate::text_style::TextStyle::default();
+            let mut size = 27.5;
+            let mut popup_id = None;
+            for frame in 0..3 {
+                let output = ctx.run(egui::RawInput::default(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        if popup {
+                            let menu = property_menu(ui, "Aa", |ui| {
+                                text_controls(ui, &mut style, &mut size)
+                            });
+                            popup_id = Some(egui::Popup::default_response_id(&menu.response));
+                        } else {
+                            text_controls(ui, &mut style, &mut size);
+                        }
+                    });
+                });
+                if frame == 0
+                    && let Some(id) = popup_id
+                {
+                    egui::Popup::open_id(&ctx, id);
+                }
+                if frame == 2 {
+                    let text: Vec<_> = output
+                        .shapes
+                        .iter()
+                        .filter_map(|shape| match &shape.shape {
+                            egui::Shape::Text(text) => Some(text.galley.text()),
+                            _ => None,
+                        })
+                        .collect();
+                    assert_eq!(text.iter().filter(|&&label| label == "27.5 px").count(), 1);
+                    assert!(text.contains(&"Font size"));
+                    assert!(!text.iter().any(|label| {
+                        [
+                            "8",
+                            "12",
+                            "16",
+                            "20",
+                            "24",
+                            "32",
+                            "48",
+                            "64",
+                            "96",
+                            "28 px ▾",
+                        ]
+                        .contains(label)
+                    }));
+                }
+            }
         }
     }
 

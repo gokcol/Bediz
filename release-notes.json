@@ -1,8 +1,9 @@
 {
   "version": "4.2.0",
-  "build": 194,
+  "build": 195,
   "store_version": "4.2.0.0",
   "changes": [
+    "Text controls use an editable pixel size without preset buttons. The font list fits more rows at the same height.",
     "Scroll anywhere across the font list and double-click a font to apply it and close the picker. The picker opens upward near the bottom to keep the list in view.",
     "Double-click an existing text annotation to edit with the caret at the end.",
     "Search bundled and supported installed fonts in the annotation font picker. Projects remember the selected font family.",
