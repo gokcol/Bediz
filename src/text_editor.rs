@@ -636,7 +636,7 @@ fn font_controls(ui: &mut egui::Ui, annotation: &mut Annotation) -> bool {
                 .suffix(" px")
                 .update_while_editing(false),
         )
-        .on_hover_text("Font size in pixels. Click to type or drag to adjust.");
+        .on_hover_text("Font size in image pixels. Canvas zoom changes its size on screen. Click to type or drag to adjust.");
         if ui
             .add_enabled(
                 *size < max,

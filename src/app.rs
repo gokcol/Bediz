@@ -1181,6 +1181,8 @@ impl MyImageApp {
         self.document = Some(document);
         self.project_path = project_path;
         self.editor.reset();
+        self.editor
+            .reset_view_zoom(self.settings.editor_shrink_to_fit);
         self.fit = true;
     }
 

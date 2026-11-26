@@ -1672,7 +1672,7 @@ mod tests {
             },
             |ctx| {
                 egui::TopBottomPanel::bottom("test-image-controls").show(ctx, |ui| {
-                    ui.horizontal(|ui| e.image_controls(ui, d, h));
+                    ui.horizontal(|ui| e.image_controls(ui, d, h, &mut true));
                 });
                 egui::CentralPanel::default()
                     .show(ctx, |ui| e.ui(ui, d, h, texture, &mut Default::default()));

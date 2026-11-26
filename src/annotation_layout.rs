@@ -835,7 +835,7 @@ mod tests {
             ctx.run(ribbon_input(events), |ctx| {
                 egui::TopBottomPanel::bottom("test-recents").show(ctx, |ui| {
                     library.recents_header(ui, &mut open, true, true, |ui| {
-                        editor.image_controls(ui, &mut document, &mut history);
+                        editor.image_controls(ui, &mut document, &mut history, &mut true);
                     });
                 });
             })

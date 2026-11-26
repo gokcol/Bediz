@@ -953,12 +953,18 @@ impl EditorState {
         );
     }
 
+    pub(crate) fn reset_view_zoom(&mut self, shrink_to_fit: bool) {
+        self.zoom = 1.;
+        self.fit = shrink_to_fit;
+    }
+
     /// Image-level controls share the Recents row to leave more canvas space.
     pub fn image_controls(
         &mut self,
         ui: &mut egui::Ui,
         document: &mut Document,
         history: &mut EditHistory,
+        shrink_to_fit_on_open: &mut bool,
     ) {
         use crate::appearance::{self, Icon};
         ui.spacing_mut().item_spacing.x = 5.;
@@ -972,10 +978,27 @@ impl EditorState {
         if appearance::icon_button(ui, "Fit canvas to window", Icon::Fit).clicked() {
             self.fit = true;
         }
-        ui.menu_button(format!("{:.0}% ▾", self.zoom * 100.), |ui| {
-            ui.set_min_width(160.);
+        let prefix = if self.fit && self.zoom < 1. {
+            "Fit · "
+        } else {
+            ""
+        };
+        ui.menu_button(format!("{prefix}{:.0}% ▾", self.zoom * 100.), |ui| {
+            ui.set_min_width(192.);
             ui.strong("View zoom");
-            for percent in [25, 50, 75, 100, 150, 200, 400] {
+            if ui.selectable_label(self.fit, "Fit to canvas").clicked() {
+                self.fit = true;
+                ui.close();
+            }
+            if ui
+                .selectable_label(!self.fit && self.zoom == 1., "Actual size · 100%")
+                .clicked()
+            {
+                self.reset_view_zoom(false);
+                ui.close();
+            }
+            ui.separator();
+            for percent in [25, 50, 75, 150, 200, 400] {
                 if ui
                     .selectable_label(
                         !self.fit && (self.zoom * 100. - percent as f32).abs() < 0.1,
@@ -992,9 +1015,15 @@ impl EditorState {
             if appearance::zoom_slider(ui, &mut self.zoom, 0.05..=8.).changed() {
                 self.fit = false;
             }
+            ui.separator();
+            if appearance::checkbox(ui, shrink_to_fit_on_open, "Shrink large images on open")
+                .changed()
+            {
+                self.reset_view_zoom(*shrink_to_fit_on_open);
+            }
         })
         .response
-        .on_hover_text("View percentage · Pinch or Ctrl-scroll over the image to zoom");
+        .on_hover_text("Canvas zoom · Pinch or Ctrl-scroll over the image to zoom");
         if appearance::icon_button(
             ui,
             "Quick Effects · edges, shadow, border, grayscale",
@@ -1529,7 +1558,12 @@ impl EditorState {
         let [width, height] = document.output_size();
         let image_size = Vec2::new(width as f32, height as f32);
         if self.fit && self.canvas_resize.is_none() {
-            self.zoom = canvas_handles::fit_scale(viewport, image_size);
+            let fitted = canvas_handles::fit_scale(viewport, image_size);
+            if self.zoom != fitted {
+                self.zoom = fitted;
+                // The zoom readout is drawn before the canvas determines its fit.
+                ui.ctx().request_repaint();
+            }
         }
         let pinch_offset = crate::canvas_zoom::prepare_with_gutter(
             ui,

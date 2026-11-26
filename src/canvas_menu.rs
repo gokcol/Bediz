@@ -548,8 +548,7 @@ impl EditorState {
         )
         .clicked()
         {
-            self.fit = false;
-            self.zoom = 1.;
+            self.reset_view_zoom(false);
             ui.close();
         }
         ui.horizontal(|ui| {

@@ -1,8 +1,9 @@
 {
   "version": "4.2.0",
-  "build": 197,
+  "build": 198,
   "store_version": "4.2.1.0",
   "changes": [
+    "Images that fit open at 100%. Larger images shrink to fit and show their current zoom. Choose Fit to canvas, Actual size, or turn off Shrink large images on open from the zoom menu above Recents.",
     "Open Find private details from Blur properties or a selection’s context menu. Scan for faces and sensitive text on your device, review the suggestions, and apply blur or solid covers to the checked areas.",
     "Open Help & tutorials from the App menu or press F1 for searchable offline lessons on capture, annotation, screen recording, and customization.",
     "Capture shortcuts work during inline text edits and over Bediz dialogs. Captures can go to Library while a dialog is open, and requests made during a file operation start when that operation finishes.",

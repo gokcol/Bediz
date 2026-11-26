@@ -2862,6 +2862,63 @@ mod tests {
     }
 
     #[test]
+    fn fractional_font_size_scales_with_the_view_and_preserves_exported_ink() {
+        let mut text = annotation(AnnotationKind::Text, [12., 20.], [12., 20.]);
+        text.text = "PROJECT STATUS - KICKOFF".into();
+        text.font_size = 27.5;
+        text.text_style.face = Some(crate::text_style::FontFace::System(
+            "Noto Sans Syloti Nagri".into(),
+        ));
+        let system_face_loaded = text
+            .text_style
+            .with_system_font(&crate::text_style::font_definitions())
+            .is_some();
+        let mut document = document(vec![text]);
+        document.image = Arc::new(RgbaImage::new(640, 160));
+        let exported = flatten(&document).unwrap();
+        let ink_height = exported
+            .rows()
+            .filter(|row| row.clone().any(|pixel| pixel[3] >= 128))
+            .count();
+        assert!((12..27).contains(&ink_height), "ink height: {ink_height}");
+        assert_eq!(
+            editable_text_layout(&document.annotations[0])
+                .unwrap()
+                .font_size,
+            27.5
+        );
+
+        let view_height = |zoom| {
+            let ctx = egui::Context::default();
+            let output = ctx.run(egui::RawInput::default(), |ctx| {
+                paint_document_annotations(
+                    &ctx.layer_painter(egui::LayerId::background()),
+                    &document,
+                    Pos2::ZERO,
+                    zoom,
+                );
+            });
+            output
+                .shapes
+                .into_iter()
+                .find_map(|shape| match shape.shape {
+                    Shape::Mesh(mesh) => Some(mesh.calc_bounds().height()),
+                    _ => None,
+                })
+                .expect("preview text mesh")
+        };
+        let full_height = view_height(1.);
+        assert_eq!(view_height(0.5), full_height * 0.5);
+        assert_eq!(view_height(2.), full_height * 2.);
+        assert_eq!(document.annotations[0].font_size, 27.5);
+        assert_eq!(flatten(&document).unwrap(), exported);
+        println!(
+            "27.5 px: {ink_height} image pixels of visible capitals (system face loaded: {system_face_loaded}); preview texture height: {full_height} at 100%, {} at 50%",
+            full_height * 0.5
+        );
+    }
+
+    #[test]
     fn transformed_preview_preserves_rotated_text_texels_and_image_uvs() {
         use crate::geometry::{CropRect, ImageGeometry};
         let text = annotation(AnnotationKind::Text, [25.0, 30.0], [25.0, 30.0]);

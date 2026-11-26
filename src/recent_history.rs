@@ -25,6 +25,7 @@ impl MyImageApp {
                     let enabled = !self.busy && unobscured;
                     let keep_appearance = !self.workspace_has_dialog();
                     let was_open = self.settings.recents_open;
+                    let was_shrink_to_fit = self.settings.editor_shrink_to_fit;
                     let mut chosen = self.library.recents_header(
                         ui,
                         &mut self.settings.recents_open,
@@ -35,12 +36,19 @@ impl MyImageApp {
                                 && let Some(document) = &mut self.document
                             {
                                 appearance::input_scope(ui, enabled, keep_appearance, |ui| {
-                                    self.editor.image_controls(ui, document, &mut self.history);
+                                    self.editor.image_controls(
+                                        ui,
+                                        document,
+                                        &mut self.history,
+                                        &mut self.settings.editor_shrink_to_fit,
+                                    );
                                 });
                             }
                         },
                     );
-                    if was_open != self.settings.recents_open {
+                    if was_open != self.settings.recents_open
+                        || was_shrink_to_fit != self.settings.editor_shrink_to_fit
+                    {
                         self.persist_settings();
                     }
                     if self.settings.recents_open {
@@ -354,6 +362,51 @@ mod tests {
                 egui::CentralPanel::default().show(ctx, |ui| app.workspace_ui(ui, ctx));
             },
         )
+    }
+
+    #[test]
+    fn editor_opens_small_images_at_actual_size_and_can_disable_automatic_shrinking() {
+        let (_dir, mut app, ctx, _) = strip_app();
+        let mut large = document();
+        large.image = Arc::new(image::RgbaImage::new(1400, 1000));
+        let control = |frame: &egui::FullOutput, prefix: &str| {
+            frame.shapes.iter().find_map(|entry| {
+                if let egui::Shape::Text(text) = &entry.shape {
+                    let center = text.pos + text.galley.size() * 0.5;
+                    (text.galley.job.text.starts_with(prefix) && entry.clip_rect.contains(center))
+                        .then_some(center)
+                } else {
+                    None
+                }
+            })
+        };
+        let settled = |app: &mut MyImageApp| {
+            strip_frame(app, &ctx, vec![]);
+            strip_frame(app, &ctx, vec![])
+        };
+        assert!(control(&settled(&mut app), "100% ▾").is_some());
+
+        app.install_document_state(large.clone(), None);
+        let zoom = control(&settled(&mut app), "Fit · ").expect("oversized image is fitted");
+        click_strip_point(&mut app, &ctx, zoom);
+        let actual =
+            control(&settled(&mut app), "Actual size · 100%").expect("actual size command");
+        click_strip_point(&mut app, &ctx, actual);
+
+        let zoom = control(&settled(&mut app), "100% ▾").expect("actual size at 100%");
+        click_strip_point(&mut app, &ctx, zoom);
+        let shrink = control(&settled(&mut app), "Shrink large images on open")
+            .expect("automatic shrinking option");
+        click_strip_point(&mut app, &ctx, shrink);
+        assert!(!app.settings.editor_shrink_to_fit);
+        strip_frame(
+            &mut app,
+            &ctx,
+            arrow(egui::Key::Escape, egui::Modifiers::NONE),
+        );
+
+        app.install_document_state(large, None);
+        assert!(control(&settled(&mut app), "100% ▾").is_some());
     }
 
     fn arrow(key: egui::Key, modifiers: egui::Modifiers) -> Vec<egui::Event> {

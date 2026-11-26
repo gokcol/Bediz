@@ -124,6 +124,7 @@ pub struct Settings {
     pub editor_tool_order: Vec<String>,
     pub editor_tools: crate::editor::ToolPreferences,
     pub editor_inspector: crate::editor::InspectorPreferences,
+    pub editor_shrink_to_fit: bool,
     pub image_save: ImageSavePreferences,
     #[serde(default)]
     pub toolbar_layout_version: u8,
@@ -167,6 +168,7 @@ impl Default for Settings {
             editor_tool_order: Vec::new(),
             editor_tools: Default::default(),
             editor_inspector: Default::default(),
+            editor_shrink_to_fit: true,
             image_save: Default::default(),
             toolbar_layout_version: crate::editor::TOOLBAR_LAYOUT_VERSION,
         }
@@ -326,6 +328,16 @@ mod tests {
             serde_json::from_slice(&serde_json::to_vec(&settings).unwrap()).unwrap();
         assert!(!restored.confirm_trash);
         assert!(restored.include_pointer);
+    }
+
+    #[test]
+    fn older_settings_shrink_large_images_and_remember_actual_size_preference() {
+        let mut settings: Settings = serde_json::from_str("{}").unwrap();
+        assert!(settings.editor_shrink_to_fit);
+        settings.editor_shrink_to_fit = false;
+        let restored: Settings =
+            serde_json::from_value(serde_json::to_value(settings).unwrap()).unwrap();
+        assert!(!restored.editor_shrink_to_fit);
     }
 
     #[test]

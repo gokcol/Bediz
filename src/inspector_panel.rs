@@ -777,6 +777,7 @@ mod tests {
                                     ui,
                                     &mut self.document,
                                     &mut self.history,
+                                    &mut true,
                                 )
                             });
                         });
