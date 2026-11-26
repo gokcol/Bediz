@@ -2,12 +2,17 @@
 //! blocks while Windows completes its asynchronous operation.
 
 use super::Control;
+use crate::privacy_scan::{Finding, Kind, sensitive_ranges};
+use eframe::egui::{Rect, pos2};
 use image::RgbaImage;
 use std::time::Duration;
 use windows::{
     Globalization::Language,
     Graphics::Imaging::{BitmapAlphaMode, BitmapPixelFormat, SoftwareBitmap},
-    Media::Ocr::OcrEngine,
+    Media::{
+        FaceAnalysis::FaceDetector,
+        Ocr::{OcrEngine, OcrResult},
+    },
     Storage::Streams::DataWriter,
     Win32::{
         Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS},
@@ -32,71 +37,7 @@ pub(super) fn recognize_cancellable(
     image: &RgbaImage,
     control: &Control,
 ) -> Result<String, String> {
-    control.check()?;
-    // A dedicated MTA lets the completion callback run without a UI message pump.
-    // Declare this first so every WinRT object is released before uninitializing.
-    let _apartment = Apartment::new()?;
-    let engine = engine()?;
-    let maximum = OcrEngine::MaxImageDimension()
-        .map_err(|error| native_error("check the image size", error))?;
-    let (width, height) = fit_dimensions(image.width(), image.height(), maximum)?;
-
-    // Gray8 is supported by the native recognizer and needs one quarter of the
-    // buffer space of BGRA. The shared OCR facade already composites alpha.
-    let mut grayscale = image::imageops::grayscale(image);
-    if grayscale.dimensions() != (width, height) {
-        grayscale = image::imageops::resize(
-            &grayscale,
-            width,
-            height,
-            image::imageops::FilterType::Lanczos3,
-        );
-    }
-    let writer =
-        DataWriter::new().map_err(|error| native_error("prepare the selected area", error))?;
-    writer
-        .WriteBytes(grayscale.as_raw())
-        .map_err(|error| native_error("prepare the selected area", error))?;
-    let buffer = writer
-        .DetachBuffer()
-        .map_err(|error| native_error("prepare the selected area", error))?;
-    let _ = writer.Close();
-    let bitmap = SoftwareBitmap::CreateCopyWithAlphaFromBuffer(
-        &buffer,
-        BitmapPixelFormat::Gray8,
-        width as i32,
-        height as i32,
-        BitmapAlphaMode::Ignore,
-    )
-    .map_err(|error| native_error("read the selected area", error))?;
-
-    let text = (|| {
-        control.check()?;
-        let operation = engine
-            .RecognizeAsync(&bitmap)
-            .map_err(|error| native_error("read the text", error))?;
-        loop {
-            if let Err(error) = control.check() {
-                let _ = operation.Cancel();
-                return Err(error);
-            }
-            // AsyncStatus::Started has the stable WinRT ABI value zero. The
-            // windows crate returns this enum from windows-future without
-            // re-exporting its type, so inspect the public enum representation.
-            if operation
-                .Status()
-                .map_err(|error| native_error("check text recognition", error))?
-                .0
-                != 0
-            {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        let result = operation
-            .GetResults()
-            .map_err(|error| native_error("read the text", error))?;
-        control.check()?;
+    recognize_read(image, control, |result, _| {
         let lines = result
             .Lines()
             .map_err(|error| native_error("read the text lines", error))?;
@@ -111,9 +52,180 @@ pub(super) fn recognize_cancellable(
             }
         }
         Ok(text.join("\n"))
+    })
+}
+
+pub(super) fn detect_private_text(
+    image: &RgbaImage,
+    control: &Control,
+) -> Result<Vec<Finding>, String> {
+    recognize_read(image, control, |result, [width, height]| {
+        let lines = result
+            .Lines()
+            .map_err(|error| native_error("read the text lines", error))?;
+        let mut findings = Vec::new();
+        for line in lines {
+            let mut text = String::new();
+            let mut words = Vec::new();
+            for word in line
+                .Words()
+                .map_err(|error| native_error("locate the text", error))?
+            {
+                let value = word
+                    .Text()
+                    .map_err(|error| native_error("read a text word", error))?
+                    .to_string();
+                if !text.is_empty() {
+                    text.push(' ');
+                }
+                let start = text.len();
+                text.push_str(&value);
+                let bounds = word
+                    .BoundingRect()
+                    .map_err(|error| native_error("locate the text", error))?;
+                words.push((
+                    start..text.len(),
+                    normalized(
+                        bounds.X,
+                        bounds.Y,
+                        bounds.Width,
+                        bounds.Height,
+                        width,
+                        height,
+                    ),
+                ));
+            }
+            for (kind, span) in sensitive_ranges(&text) {
+                let bounds = words
+                    .iter()
+                    .filter(|(range, _)| range.start < span.end && span.start < range.end)
+                    .fold(Rect::NOTHING, |acc, (_, bounds)| acc.union(*bounds));
+                findings.push(Finding { kind, bounds });
+            }
+        }
+        Ok(findings)
+    })
+}
+
+pub(super) fn detect_faces(image: &RgbaImage, control: &Control) -> Result<Vec<Finding>, String> {
+    let scan = || -> windows::core::Result<_> {
+        if !FaceDetector::IsSupported()? {
+            return Ok(None);
+        }
+        let (width, height) = image.dimensions();
+        let bitmap = grayscale_bitmap(image, width, height)?;
+        let result = (|| {
+            let detector = FaceDetector::CreateAsync()?.get()?;
+            let faces = detector.DetectFacesAsync(&bitmap)?.get()?;
+            let mut findings = Vec::new();
+            for face in faces {
+                let b = face.FaceBox()?;
+                findings.push(Finding {
+                    kind: Kind::Face,
+                    bounds: normalized(
+                        b.X as f32,
+                        b.Y as f32,
+                        b.Width as f32,
+                        b.Height as f32,
+                        width,
+                        height,
+                    ),
+                });
+            }
+            Ok(Some(findings))
+        })();
+        let _ = bitmap.Close();
+        result
+    };
+    control.check()?;
+    let _apartment = Apartment::new()?;
+    let result = scan();
+    control.check()?;
+    result
+        .map_err(|error| format!("Windows could not detect faces. ({error})"))?
+        .ok_or_else(|| "Face detection is unavailable on this Windows device.".into())
+}
+
+fn normalized(x: f32, y: f32, w: f32, h: f32, width: u32, height: u32) -> Rect {
+    Rect::from_min_max(
+        pos2(x / width as f32, y / height as f32),
+        pos2((x + w) / width as f32, (y + h) / height as f32),
+    )
+}
+
+fn recognize_read<T>(
+    image: &RgbaImage,
+    control: &Control,
+    read: impl FnOnce(OcrResult, [u32; 2]) -> Result<T, String>,
+) -> Result<T, String> {
+    control.check()?;
+    // A dedicated MTA lets the completion callback run without a UI message pump.
+    // Declare this first so every WinRT object is released before uninitializing.
+    let _apartment = Apartment::new()?;
+    let engine = engine()?;
+    let maximum = OcrEngine::MaxImageDimension()
+        .map_err(|error| native_error("check the image size", error))?;
+    let (width, height) = fit_dimensions(image.width(), image.height(), maximum)?;
+    let bitmap = grayscale_bitmap(image, width, height)
+        .map_err(|error| native_error("prepare the selected area", error))?;
+    let result = (|| {
+        control.check()?;
+        let operation = engine
+            .RecognizeAsync(&bitmap)
+            .map_err(|error| native_error("read the text", error))?;
+        loop {
+            if let Err(error) = control.check() {
+                let _ = operation.Cancel();
+                return Err(error);
+            }
+            // AsyncStatus::Started has ABI value zero. The enum comes from windows-future.
+            if operation
+                .Status()
+                .map_err(|error| native_error("check text recognition", error))?
+                .0
+                != 0
+            {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let result = operation
+            .GetResults()
+            .map_err(|error| native_error("read the text", error))?;
+        control.check()?;
+        read(result, [width, height])
     })();
     let _ = bitmap.Close();
-    text
+    result
+}
+
+fn grayscale_bitmap(
+    image: &RgbaImage,
+    width: u32,
+    height: u32,
+) -> windows::core::Result<SoftwareBitmap> {
+    // Gray8 is supported by the native recognizer and needs one quarter of the
+    // buffer space of BGRA. The shared OCR facade already composites alpha.
+    let mut grayscale = image::imageops::grayscale(image);
+    if grayscale.dimensions() != (width, height) {
+        grayscale = image::imageops::resize(
+            &grayscale,
+            width,
+            height,
+            image::imageops::FilterType::Lanczos3,
+        );
+    }
+    let writer = DataWriter::new()?;
+    writer.WriteBytes(grayscale.as_raw())?;
+    let buffer = writer.DetachBuffer()?;
+    let _ = writer.Close();
+    SoftwareBitmap::CreateCopyWithAlphaFromBuffer(
+        &buffer,
+        BitmapPixelFormat::Gray8,
+        width as i32,
+        height as i32,
+        BitmapAlphaMode::Ignore,
+    )
 }
 
 fn engine() -> Result<OcrEngine, String> {

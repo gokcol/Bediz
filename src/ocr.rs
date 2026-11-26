@@ -1,4 +1,5 @@
 //! Local text recognition of the already-composited selected pixels.
+use crate::privacy_scan::Finding;
 use image::RgbaImage;
 use std::{
     sync::{
@@ -67,6 +68,67 @@ pub fn recognize_cancellable(
     )
 }
 
+#[derive(Default)]
+pub(crate) struct PrivacyFindings {
+    pub(crate) matches: Vec<Finding>,
+    pub(crate) errors: Vec<String>,
+}
+
+pub(crate) fn scan_privacy(
+    pixels: RgbaImage,
+    faces: bool,
+    text: bool,
+    canceled: Arc<AtomicBool>,
+) -> Result<PrivacyFindings, String> {
+    let (results, completed) = mpsc::channel();
+    let outcome = supervise(
+        pixels,
+        canceled,
+        JOB_TIMEOUT,
+        NATIVE_BUSY.clone(),
+        move |pixels, control| {
+            let pixels = prepare_cancellable(pixels, &control)?;
+            #[cfg(target_os = "macos")]
+            use macos as native;
+            #[cfg(target_os = "windows")]
+            use windows as native;
+            type Detector = fn(&RgbaImage, &Control) -> Result<Vec<Finding>, String>;
+            for (target, scan) in [
+                faces.then_some(("Face detection", native::detect_faces as Detector)),
+                text.then_some((
+                    "Sensitive text detection",
+                    native::detect_private_text as Detector,
+                )),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                control.check()?;
+                let result = scan(&pixels, &control).map_err(|error| format!("{target}: {error}"));
+                // Keep completed matches if the other native detector stalls.
+                let _ = results.send(result);
+            }
+            Ok(())
+        },
+    );
+    let mut findings = PrivacyFindings::default();
+    if let Err(error) = outcome {
+        if error != TIMED_OUT {
+            return Err(error);
+        }
+        findings
+            .errors
+            .push("The scan timed out. Review the results so far or try a smaller area.".into());
+    }
+    for result in completed.try_iter() {
+        match result {
+            Ok(matches) => findings.matches.extend(matches),
+            Err(error) => findings.errors.push(error),
+        }
+    }
+    Ok(findings)
+}
+
 fn recognize_native(pixels: RgbaImage, control: Control) -> Result<String, String> {
     let start = Instant::now();
     control.check()?;
@@ -84,13 +146,13 @@ fn recognize_native(pixels: RgbaImage, control: Control) -> Result<String, Strin
     Ok(text.trim().to_owned())
 }
 
-fn supervise(
+fn supervise<T: Send + 'static>(
     pixels: RgbaImage,
     canceled: Arc<AtomicBool>,
     timeout: Duration,
     busy: Arc<AtomicBool>,
-    native: impl FnOnce(RgbaImage, Control) -> Result<String, String> + Send + 'static,
-) -> Result<String, String> {
+    native: impl FnOnce(RgbaImage, Control) -> Result<T, String> + Send + 'static,
+) -> Result<T, String> {
     let start = Instant::now();
     let control = Control {
         canceled,
@@ -220,12 +282,12 @@ mod tests {
             busy.clone(),
             move |_, _| {
                 wait.recv().unwrap();
-                Ok("Late result".into())
+                Ok("Late result")
             },
         );
         assert_eq!(result.unwrap_err(), TIMED_OUT);
         assert!(busy.load(Ordering::Acquire));
-        let second = supervise(
+        let second = supervise::<()>(
             RgbaImage::new(2, 2),
             Arc::new(AtomicBool::new(false)),
             Duration::from_secs(1),
@@ -245,7 +307,7 @@ mod tests {
                 Arc::new(AtomicBool::new(false)),
                 Duration::from_secs(1),
                 busy,
-                |_, _| Ok("Fresh result".into()),
+                |_, _| Ok("Fresh result"),
             )
             .unwrap(),
             "Fresh result"
@@ -267,7 +329,7 @@ mod tests {
                 cancel.store(true, Ordering::Release);
                 wait.recv().unwrap();
                 assert_eq!(control.check().unwrap_err(), CANCELED);
-                Ok("Canceled text must never be delivered".into())
+                Ok("Canceled text must never be delivered")
             },
         );
         assert_eq!(result.unwrap_err(), CANCELED);
@@ -279,7 +341,7 @@ mod tests {
         }
         assert!(!busy.load(Ordering::Acquire));
         assert_eq!(
-            supervise(
+            supervise::<()>(
                 RgbaImage::new(2, 2),
                 canceled,
                 Duration::from_secs(1),

@@ -203,7 +203,11 @@ impl EditorState {
                 "Fill",
                 "Fill a background with color or transparency",
             ),
-            (Tool::Blur, "Blur", "Soften a selected area"),
+            (
+                Tool::Blur,
+                "Blur",
+                "Drag to blur or find private details in Properties",
+            ),
             (Tool::Pixelate, "Pixelate", "Hide details with pixel blocks"),
             (
                 Tool::Simplify,
@@ -378,7 +382,7 @@ impl EditorState {
         if matches!(tool, Tool::Area | Tool::Select) {
             self.focus_canvas = true;
         }
-        if matches!(tool, Tool::Crop | Tool::Stamp | Tool::CutOut) {
+        if matches!(tool, Tool::Crop | Tool::Stamp | Tool::CutOut | Tool::Blur) {
             self.inspector.show(InspectorPanel::Styles);
         }
         if tool == Tool::Crop {

@@ -48,6 +48,9 @@ impl EditorState {
                 }
             });
         });
+        if self.area.is_some() {
+            self.privacy_scan_button(ui, document, history);
+        }
         ui.add_enabled_ui(self.can_adjust_pixels(), |ui| {
             if crate::appearance::action_button(
                 ui,

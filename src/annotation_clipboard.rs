@@ -748,6 +748,9 @@ impl EditorState {
         if self.extract_text_button(ui, document, history) {
             ui.close();
         }
+        if self.privacy_scan_button(ui, document, history) {
+            ui.close();
+        }
         if self.selected.is_some()
             && self.selected_indices(document).iter().all(|&i| {
                 !document.annotations[i].kind.is_area_edit()

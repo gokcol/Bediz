@@ -48,6 +48,8 @@ mod object_properties;
 mod page_correction_ui;
 #[path = "precision_tools.rs"]
 mod precision_tools;
+#[path = "privacy_scan_ui.rs"]
+mod privacy_scan_ui;
 #[path = "quick_styles.rs"]
 mod quick_styles;
 #[path = "region_scope.rs"]
@@ -360,6 +362,7 @@ pub struct EditorState {
     clipboard_status: Option<String>,
     clipboard_job: Option<annotation_clipboard::ClipboardJob>,
     text_extraction: text_extract::State,
+    privacy_scan: Option<privacy_scan_ui::Review>,
     copy_confirmation: Option<(String, std::time::Instant)>,
     property_before: Option<EditState>,
     property_interacting: bool,
@@ -438,6 +441,7 @@ impl Default for EditorState {
             clipboard_status: None,
             clipboard_job: None,
             text_extraction: Default::default(),
+            privacy_scan: None,
             copy_confirmation: None,
             property_before: None,
             property_interacting: false,
@@ -550,6 +554,7 @@ impl EditorState {
 
     fn has_non_text_dialog(&self) -> bool {
         self.text_extraction.open
+            || self.privacy_scan.is_some()
             || self.toolbar_customizer
             || self.stamps.is_importing()
             || self.resize.is_some()
@@ -737,6 +742,7 @@ impl EditorState {
         self.text_editor_window(ui.ctx(), document, history);
         self.stamp_designer_window(ui.ctx(), document, history);
         self.text_extraction_dialog(ui.ctx(), document, history);
+        self.privacy_scan_dialog(ui.ctx(), document, history);
     }
 
     fn workspace_ui(
@@ -1414,6 +1420,9 @@ impl EditorState {
             ui.add_space(4.);
             if self.object_controls(ui, kind) {
                 self.apply_inspector(document, history);
+            }
+            if kind == AnnotationKind::Blur {
+                self.privacy_scan_button(ui, document, history);
             }
             if matches!(kind, AnnotationKind::Text | AnnotationKind::Callout) {
                 if let Some(index) = self.selected {

@@ -51,6 +51,7 @@ mod presets;
 mod printing;
 mod privacy;
 mod privacy_preview;
+mod privacy_scan;
 mod project_store;
 mod recovery;
 mod render;

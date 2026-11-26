@@ -285,6 +285,10 @@ pub(super) const LESSONS: &[Lesson] = &[
         overview: "Use a privacy effect, recolor a background, or adjust the image itself.",
         steps: &[
             step(
+                "Find faces and sensitive text",
+                "Open a capture in Editor. Choose Blur and click Find private details in Properties. To scan a smaller area, draw a Select rectangle and choose Find private details from the canvas context menu. Run the scan, review the suggestions, and apply Blur or Solid cover to the checked items.",
+            ),
+            step(
                 "Cover private information",
                 "Choose Blur or Pixelate and drag over the part to cover. Increase the effect strength and check the result at full size. For text or numbers that must be fully hidden, cover them with an opaque shape and inspect the flattened output.",
             ),
